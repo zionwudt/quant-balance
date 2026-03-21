@@ -26,12 +26,14 @@ class BacktestEngine:
         result = BacktestResult()
 
         history: list[MarketBar] = []
+        latest_prices: dict[str, float] = {}
         for bar in bars:
             history.append(bar)
+            latest_prices[bar.symbol] = bar.close
             orders = self.strategy.generate_orders(history, portfolio)
             self._apply_orders(orders, bar.close, portfolio, result)
 
-            equity = portfolio.total_equity({bar.symbol: bar.close})
+            equity = portfolio.total_equity(latest_prices)
             portfolio.peak_equity = max(portfolio.peak_equity, equity)
             result.equity_curve.append(equity)
 
