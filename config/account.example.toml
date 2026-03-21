@@ -1,0 +1,7 @@
+market = "A_SHARE"
+initial_cash = 100000
+max_position_ratio = 0.2
+max_positions = 5
+stop_loss_ratio = 0.08
+max_drawdown_ratio = 0.1
+lot_size = 100

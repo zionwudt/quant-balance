@@ -35,6 +35,16 @@ QuantBalance focuses on three core capabilities:
 2. **Risk Control** — keep exposure, drawdown, and position sizing under control
 3. **Execution** — connect validated strategies to reliable automated workflows
 
+## Phase 1 Scope
+
+Current first-phase assumptions:
+
+- market: **A-share**
+- initial capital: **100,000 CNY**
+- frequency: **daily bar research/backtesting first**
+- focus: **strategy research, risk control, and backtesting**
+- excluded for now: **live broker integration and real-money trading**
+
 ## Status
 
-Project initialized. Architecture and first modules are coming next.
+Project initialized. The repository now includes a minimal Python scaffold, A-share account config, a basic strategy interface, a risk manager, and a simple backtest engine.
