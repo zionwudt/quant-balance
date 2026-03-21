@@ -180,11 +180,12 @@ def load_demo_bars(request: BacktestDemoRequest) -> list[MarketBar]:
 
 
 def parse_csv_text_to_bars(*, csv_text: str, symbol: str) -> list[MarketBar]:
-    reader = csv.DictReader(io.StringIO(csv_text.strip()))
+    reader = csv.DictReader(io.StringIO(csv_text.strip()), skipinitialspace=True)
     if reader.fieldnames is None:
         raise DemoValidationError("CSV 为空，或缺少表头。")
 
-    fieldnames = {name.strip() for name in reader.fieldnames}
+    reader.fieldnames = [name.strip() for name in reader.fieldnames]
+    fieldnames = set(reader.fieldnames)
     missing_columns = [column for column in REQUIRED_CSV_COLUMNS if column not in fieldnames]
     if missing_columns:
         raise DemoValidationError(
@@ -193,7 +194,8 @@ def parse_csv_text_to_bars(*, csv_text: str, symbol: str) -> list[MarketBar]:
 
     bars: list[MarketBar] = []
     try:
-        for row in reader:
+        for raw_row in reader:
+            row = {(key or "").strip(): value for key, value in raw_row.items()}
             bars.append(
                 MarketBar(
                     symbol=symbol,
@@ -205,7 +207,7 @@ def parse_csv_text_to_bars(*, csv_text: str, symbol: str) -> list[MarketBar]:
                     volume=float(row["volume"]),
                 )
             )
-    except ValueError as exc:
+    except (KeyError, ValueError) as exc:
         raise DemoValidationError(
             "CSV 中存在无法识别的数值或日期格式。请使用 YYYY-MM-DD 日期，并确保价格/成交量列都是数字。"
         ) from exc
