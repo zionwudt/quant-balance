@@ -101,3 +101,14 @@ Planned next steps:
 - configurable slippage model
 - corporate actions and adjusted-price handling
 - partial fills and volume constraints
+
+## Local Demo Input Foundation
+
+To make a future local Web demo more product-friendly, the repository now includes a demo input/validation foundation in `quant_balance.demo`:
+
+- upload CSV / example data input modes by default
+- local path mode only in developer mode
+- CSV template generation and field guide helpers
+- user-friendly validation messages for missing files, missing columns, invalid MA params, and empty data
+
+This layer is framework-agnostic on purpose, so a later Flask/FastAPI/UI shell can reuse the same validation and copy rules.
