@@ -1,14 +1,19 @@
 import pytest
 
+from datetime import date
+
 from quant_balance.demo import (
     BacktestDemoRequest,
     DemoValidationError,
+    build_demo_page_context,
+    build_demo_result_context,
     get_csv_template,
     get_demo_field_guide,
     get_demo_input_options,
     load_demo_bars,
     parse_csv_text_to_bars,
 )
+from quant_balance.report import generate_report
 
 
 def test_demo_input_options_hide_path_mode_by_default() -> None:
@@ -74,3 +79,32 @@ def test_csv_template_and_field_guide_expose_user_facing_boundary_hints() -> Non
     assert template.startswith("date,open,high,low,close,volume")
     assert guide.supported_frequency == "当前仅支持日线 CSV（daily bar）。"
     assert "印花税" in guide.notes[0]
+
+
+def test_build_demo_page_context_aggregates_upload_and_hint_content() -> None:
+    context = build_demo_page_context()
+
+    assert [option["mode"] for option in context.input_options] == ["upload", "example"]
+    assert context.csv_template.startswith("date,open,high,low,close,volume")
+    assert context.example_csv.count("\n") >= 2
+    assert "日线 CSV" in context.field_guide.supported_frequency
+
+
+def test_build_demo_result_context_exposes_summary_trades_and_assumptions() -> None:
+    report = generate_report(
+        initial_equity=100_000.0,
+        equity_curve=[100_000.0, 102_000.0, 101_000.0],
+        equity_dates=[date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 7)],
+        fills=[],
+        benchmark_name="CSI300",
+        benchmark_equity_curve=[100.0, 101.0, 100.5],
+    )
+
+    context = build_demo_result_context(report)
+
+    assert context.chart_sections == ["summary", "trades", "equity_curve"]
+    assert context.summary["benchmark_name"] == "CSI300"
+    assert context.summary["max_drawdown_start"] == "2026-01-06"
+    assert context.summary["max_drawdown_end"] == "2026-01-07"
+    assert context.closed_trades == []
+    assert any("滑点" in note for note in context.assumptions)

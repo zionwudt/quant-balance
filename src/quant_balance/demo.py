@@ -6,6 +6,7 @@ import csv
 import io
 
 from quant_balance.models import MarketBar
+from quant_balance.report import BacktestReport
 
 REQUIRED_CSV_COLUMNS = ("date", "open", "high", "low", "close", "volume")
 DEFAULT_SHORT_WINDOW = 5
@@ -57,6 +58,22 @@ class DemoFieldGuide:
     notes: list[str]
 
 
+@dataclass(slots=True)
+class DemoPageContext:
+    input_options: list[dict[str, str | bool]]
+    field_guide: DemoFieldGuide
+    csv_template: str
+    example_csv: str
+
+
+@dataclass(slots=True)
+class DemoResultContext:
+    summary: dict[str, float | int | str | None]
+    closed_trades: list[dict[str, object]]
+    assumptions: list[str]
+    chart_sections: list[str]
+
+
 def get_demo_field_guide() -> DemoFieldGuide:
     return DemoFieldGuide(
         supported_frequency="当前仅支持日线 CSV（daily bar）。",
@@ -100,6 +117,45 @@ def get_example_csv() -> str:
             "2026-01-08,10.70,10.90,10.55,10.60,980000",
         ]
     )
+
+
+def build_demo_page_context(*, developer_mode: bool = False) -> DemoPageContext:
+    return DemoPageContext(
+        input_options=get_demo_input_options(developer_mode=developer_mode),
+        field_guide=get_demo_field_guide(),
+        csv_template=get_csv_template(),
+        example_csv=get_example_csv(),
+    )
+
+
+
+def build_demo_result_context(report: BacktestReport) -> DemoResultContext:
+    guide = get_demo_field_guide()
+    summary: dict[str, float | int | str | None] = {
+        "initial_equity": report.initial_equity,
+        "final_equity": report.final_equity,
+        "total_return_pct": report.total_return_pct,
+        "annualized_return_pct": report.annualized_return_pct,
+        "annualized_volatility_pct": report.annualized_volatility_pct,
+        "sharpe_ratio": report.sharpe_ratio,
+        "sortino_ratio": report.sortino_ratio,
+        "max_drawdown_pct": report.max_drawdown_pct,
+        "max_drawdown_start": report.max_drawdown_start.isoformat() if report.max_drawdown_start else None,
+        "max_drawdown_end": report.max_drawdown_end.isoformat() if report.max_drawdown_end else None,
+        "trades_count": report.trades_count,
+        "win_rate_pct": report.win_rate_pct,
+        "turnover_ratio": report.turnover_ratio,
+        "benchmark_name": report.benchmark_name,
+        "benchmark_return_pct": report.benchmark_return_pct,
+        "excess_return_pct": report.excess_return_pct,
+    }
+    return DemoResultContext(
+        summary=summary,
+        closed_trades=report.to_dict()["closed_trades"],
+        assumptions=guide.notes,
+        chart_sections=["summary", "trades", "equity_curve"],
+    )
+
 
 
 def load_demo_bars(request: BacktestDemoRequest) -> list[MarketBar]:
