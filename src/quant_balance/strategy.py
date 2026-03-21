@@ -41,3 +41,43 @@ class BuyAndHoldStrategy(Strategy):
 
         self._bought = True
         return [Order(symbol=latest.symbol, side="BUY", quantity=quantity)]
+
+
+class MovingAverageCrossStrategy(Strategy):
+    name = "moving-average-cross"
+
+    def __init__(self, *, short_window: int = 5, long_window: int = 10) -> None:
+        if short_window < 2 or long_window < 3 or short_window >= long_window:
+            raise ValueError("short_window must be >= 2 and smaller than long_window")
+        self.short_window = short_window
+        self.long_window = long_window
+        self._has_position = False
+
+    def reset(self) -> None:
+        self._has_position = False
+
+    def generate_orders(self, bars: Sequence[MarketBar], portfolio: Portfolio) -> list[Order]:
+        if len(bars) < self.long_window:
+            return []
+
+        latest = bars[-1]
+        short_ma = self._average_close(bars[-self.short_window :])
+        long_ma = self._average_close(bars[-self.long_window :])
+        held_quantity = portfolio.positions.get(latest.symbol).quantity if latest.symbol in portfolio.positions else 0
+
+        if not self._has_position and short_ma > long_ma:
+            quantity = int(portfolio.cash // latest.close)
+            quantity = (quantity // 100) * 100
+            if quantity > 0:
+                self._has_position = True
+                return [Order(symbol=latest.symbol, side="BUY", quantity=quantity)]
+
+        if held_quantity > 0 and short_ma < long_ma:
+            self._has_position = False
+            return [Order(symbol=latest.symbol, side="SELL", quantity=held_quantity)]
+
+        self._has_position = held_quantity > 0
+        return []
+
+    def _average_close(self, bars: Sequence[MarketBar]) -> float:
+        return sum(bar.close for bar in bars) / len(bars)
