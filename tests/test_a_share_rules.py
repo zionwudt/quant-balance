@@ -87,3 +87,85 @@ def test_a_share_suspended_bar_skips_order_fill() -> None:
 
     assert result.fills == []
     assert result.equity_curve == [10_000.0]
+
+
+def test_a_share_slippage_is_configurable_for_buy_and_sell() -> None:
+    start = date(2026, 1, 1)
+    bars = [
+        MarketBar(symbol="AAA", date=start, open=10.0, high=10.0, low=10.0, close=10.0, volume=10_000),
+        MarketBar(symbol="AAA", date=start + timedelta(days=1), open=10.0, high=10.0, low=10.0, close=10.0, volume=10_000),
+    ]
+    strategy = ExplicitOrderStrategy(
+        {
+            ("AAA", start): [Order(symbol="AAA", side="BUY", quantity=100)],
+            ("AAA", start + timedelta(days=1)): [Order(symbol="AAA", side="SELL", quantity=100)],
+        }
+    )
+    engine = BacktestEngine(
+        AccountConfig(
+            initial_cash=10_000,
+            max_position_ratio=1.0,
+            commission_rate=0.0,
+            transfer_fee_rate=0.0,
+            stamp_duty_rate=0.0,
+            slippage_mode="pct",
+            slippage_rate=0.01,
+        ),
+        strategy,
+    )
+
+    result = engine.run(bars)
+
+    assert len(result.fills) == 2
+    assert result.fills[0].price == pytest.approx(10.10)
+    assert result.fills[1].price == pytest.approx(9.90)
+    assert result.equity_curve[-1] == pytest.approx(9_980.0)
+
+
+def test_a_share_volume_constraint_allows_partial_fill() -> None:
+    day = date(2026, 1, 1)
+    bars = [
+        MarketBar(symbol="AAA", date=day, open=10.0, high=10.0, low=10.0, close=10.0, volume=350),
+    ]
+    strategy = ExplicitOrderStrategy({("AAA", day): [Order(symbol="AAA", side="BUY", quantity=1_000)]})
+    engine = BacktestEngine(
+        AccountConfig(
+            initial_cash=10_000,
+            max_position_ratio=1.0,
+            commission_rate=0.0,
+            transfer_fee_rate=0.0,
+            stamp_duty_rate=0.0,
+            max_volume_participation=0.5,
+        ),
+        strategy,
+    )
+
+    result = engine.run(bars)
+
+    assert len(result.fills) == 1
+    assert result.fills[0].quantity == 100
+    assert result.equity_curve[-1] == pytest.approx(10_000.0)
+
+
+def test_a_share_partial_fill_is_also_limited_by_cash() -> None:
+    day = date(2026, 1, 1)
+    bars = [
+        MarketBar(symbol="AAA", date=day, open=10.0, high=10.0, low=10.0, close=10.0, volume=10_000),
+    ]
+    strategy = ExplicitOrderStrategy({("AAA", day): [Order(symbol="AAA", side="BUY", quantity=1_000)]})
+    engine = BacktestEngine(
+        AccountConfig(
+            initial_cash=2_500,
+            max_position_ratio=1.0,
+            commission_rate=0.0,
+            transfer_fee_rate=0.0,
+            stamp_duty_rate=0.0,
+        ),
+        strategy,
+    )
+
+    result = engine.run(bars)
+
+    assert len(result.fills) == 1
+    assert result.fills[0].quantity == 200
+    assert result.equity_curve[-1] == pytest.approx(2_500.0)

@@ -95,12 +95,14 @@ Implemented in the current MVP:
 - T+1 sell restriction
 - no fill on suspended bars (`volume <= 0`)
 - no buy fill at limit-up / no sell fill at limit-down
+- configurable slippage model (`slippage_mode`, `slippage_rate`)
+- minimal partial-fill support based on bar volume participation (`max_volume_participation`)
+- buy-side partial fill fallback when requested quantity exceeds available cash or position-ratio cap
 
 Planned next steps:
 
-- configurable slippage model
 - corporate actions and adjusted-price handling
-- partial fills and volume constraints
+- richer microstructure assumptions (for example intraday matching, queue priority, more realistic volume curves)
 
 ## Local Demo Input Foundation
 

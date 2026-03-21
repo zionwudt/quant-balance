@@ -45,6 +45,23 @@ class AShareMarketRules:
 
         return True
 
+    def execution_price(self, order: Order, bar: MarketBar) -> float:
+        price = bar.close
+        if self.config.slippage_mode == "pct":
+            if order.side == "BUY":
+                price *= 1 + self.config.slippage_rate
+            else:
+                price *= 1 - self.config.slippage_rate
+        return price
+
+    def volume_capped_quantity(self, quantity: int, bar: MarketBar) -> int:
+        participation = min(max(self.config.max_volume_participation, 0.0), 1.0)
+        if participation <= 0:
+            return 0
+
+        volume_limit = int(bar.volume * participation)
+        return min(quantity, volume_limit)
+
     def estimate_fees(self, order: Order, price: float) -> AShareFees:
         turnover = order.quantity * price
         commission = turnover * self.config.commission_rate

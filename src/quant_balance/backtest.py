@@ -68,32 +68,78 @@ class BacktestEngine:
         portfolio: Portfolio,
         result: BacktestResult,
     ) -> None:
-        price = bar.close
         for order in orders:
-            fees = self.market_rules.estimate_fees(order, price)
-            if not self.risk_manager.validate_order(order, price, portfolio, fees.total):
-                continue
             if not self.market_rules.can_fill_order(order, bar, portfolio, previous_bar):
                 continue
 
-            if order.side == "BUY":
-                cost = order.quantity * price
-                portfolio.cash -= cost + fees.total
-                position = portfolio.positions.get(order.symbol)
-                if position is None:
-                    position = Position(symbol=order.symbol)
-                    portfolio.positions[order.symbol] = position
-                total_cost = position.avg_price * position.quantity + cost
-                position.quantity += order.quantity
-                position.avg_price = total_cost / position.quantity
-                self.market_rules.apply_fill(order, bar, position)
+            price = self.market_rules.execution_price(order, bar)
+            executable_quantity = self._resolve_fill_quantity(order, bar, portfolio, price)
+            if executable_quantity <= 0:
+                continue
 
-            elif order.side == "SELL":
-                position = portfolio.positions[order.symbol]
-                portfolio.cash += order.quantity * price - fees.total
-                position.quantity -= order.quantity
+            fill_order = Order(symbol=order.symbol, side=order.side, quantity=executable_quantity)
+            fees = self.market_rules.estimate_fees(fill_order, price)
+            if not self.risk_manager.validate_order(fill_order, price, portfolio, fees.total):
+                continue
+
+            if fill_order.side == "BUY":
+                cost = fill_order.quantity * price
+                portfolio.cash -= cost + fees.total
+                position = portfolio.positions.get(fill_order.symbol)
+                if position is None:
+                    position = Position(symbol=fill_order.symbol)
+                    portfolio.positions[fill_order.symbol] = position
+                total_cost = position.avg_price * position.quantity + cost
+                position.quantity += fill_order.quantity
+                position.avg_price = total_cost / position.quantity
+                self.market_rules.apply_fill(fill_order, bar, position)
+
+            elif fill_order.side == "SELL":
+                position = portfolio.positions[fill_order.symbol]
+                portfolio.cash += fill_order.quantity * price - fees.total
+                position.quantity -= fill_order.quantity
                 if position.quantity == 0:
                     position.avg_price = 0.0
                     position.last_buy_date = None
 
-            result.fills.append(Fill(symbol=order.symbol, side=order.side, quantity=order.quantity, price=price, date=bar.date))
+            result.fills.append(
+                Fill(symbol=fill_order.symbol, side=fill_order.side, quantity=fill_order.quantity, price=price, date=bar.date)
+            )
+
+    def _resolve_fill_quantity(self, order: Order, bar: MarketBar, portfolio: Portfolio, price: float) -> int:
+        quantity = self.market_rules.volume_capped_quantity(order.quantity, bar)
+        quantity = self._round_down_to_lot(quantity)
+        if quantity <= 0:
+            return 0
+
+        if order.side == "BUY":
+            quantity = min(quantity, self._max_buy_quantity(order, portfolio, price))
+        else:
+            position = portfolio.positions.get(order.symbol)
+            if position is None:
+                return 0
+            quantity = min(quantity, position.quantity)
+
+        return self._round_down_to_lot(quantity)
+
+    def _max_buy_quantity(self, order: Order, portfolio: Portfolio, price: float) -> int:
+        held_symbols = {symbol for symbol, pos in portfolio.positions.items() if pos.quantity > 0}
+        if order.symbol not in held_symbols and len(held_symbols) >= self.config.max_positions:
+            return 0
+
+        fee_rate = self.config.commission_rate + self.config.transfer_fee_rate
+        per_share_cost = price * (1 + fee_rate)
+        if per_share_cost <= 0:
+            return 0
+
+        max_by_cash = int(portfolio.cash / per_share_cost)
+        equity = portfolio.total_equity()
+        if equity <= 0:
+            return 0
+        max_by_position_ratio = int((equity * self.config.max_position_ratio) / per_share_cost)
+        return min(max_by_cash, max_by_position_ratio)
+
+    def _round_down_to_lot(self, quantity: int) -> int:
+        if quantity <= 0:
+            return 0
+        return (quantity // self.config.lot_size) * self.config.lot_size

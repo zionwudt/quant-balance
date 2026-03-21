@@ -5,6 +5,7 @@ from datetime import date
 from typing import Literal
 
 Side = Literal["BUY", "SELL"]
+SlippageMode = Literal["none", "pct"]
 
 
 @dataclass(slots=True)
@@ -58,6 +59,9 @@ class AccountConfig:
     commission_rate: float = 0.0003
     transfer_fee_rate: float = 0.00001
     stamp_duty_rate: float = 0.001
+    slippage_mode: SlippageMode = "none"
+    slippage_rate: float = 0.0
+    max_volume_participation: float = 1.0
 
 
 @dataclass(slots=True)
