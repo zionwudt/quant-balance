@@ -6,6 +6,7 @@ from typing import Literal
 
 Side = Literal["BUY", "SELL"]
 SlippageMode = Literal["none", "pct"]
+PriceAdjustmentMode = Literal["none", "forward"]
 
 
 @dataclass(slots=True)
@@ -62,6 +63,7 @@ class AccountConfig:
     slippage_mode: SlippageMode = "none"
     slippage_rate: float = 0.0
     max_volume_participation: float = 1.0
+    price_adjustment_mode: PriceAdjustmentMode = "none"
 
 
 @dataclass(slots=True)

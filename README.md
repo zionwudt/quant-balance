@@ -98,11 +98,34 @@ Implemented in the current MVP:
 - configurable slippage model (`slippage_mode`, `slippage_rate`)
 - minimal partial-fill support based on bar volume participation (`max_volume_participation`)
 - buy-side partial fill fallback when requested quantity exceeds available cash or position-ratio cap
+- simplified corporate actions support:
+  - cash dividend (`cash_dividend_per_share`)
+  - split / bonus-share style quantity adjustment (`share_ratio`)
+  - optional forward-adjusted research view via `price_adjustment_mode="forward"`
+
+### Corporate Actions / 复权口径（当前最小实现）
+
+The current engine supports a deliberately minimal but practical A-share workflow:
+
+1. **Raw bars + corporate actions**
+   - pass `CorporateAction(...)` events into `BacktestEngine.run(..., corporate_actions=[...])`
+   - on `ex_date`, the engine will:
+     - add cash dividend to portfolio cash
+     - adjust held quantity/average cost for split / bonus-share style actions
+
+2. **Forward-adjusted research view**
+   - set `AccountConfig(price_adjustment_mode="forward")`
+   - the engine will transform pre-ex bars into a forward-adjusted series before strategy evaluation
+   - this is meant for **daily-bar research/backtesting**, not a full institutional-grade adjustment pipeline
+
+3. **Current boundaries**
+   - supported: cash dividend + share-ratio adjustments
+   - not yet supported: rights issue pricing, tax nuances, intraday ex-right handling, vendor-specific full adjustment chains
 
 Planned next steps:
 
-- corporate actions and adjusted-price handling
 - richer microstructure assumptions (for example intraday matching, queue priority, more realistic volume curves)
+- more complete corporate-action modeling only when a real research need appears
 
 ## Local Demo Input Foundation
 

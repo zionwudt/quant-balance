@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
+from quant_balance.corporate_actions import CorporateAction, CorporateActionBook
 from quant_balance.market_rules import AShareMarketRules
 from quant_balance.models import AccountConfig, Fill, MarketBar, Order, Portfolio, Position
 from quant_balance.report import BacktestReport, generate_report
@@ -27,15 +28,21 @@ class BacktestEngine:
         self.risk_manager = RiskManager(config)
         self.market_rules = AShareMarketRules(config)
 
-    def run(self, bars: Sequence[MarketBar]) -> BacktestResult:
+    def run(self, bars: Sequence[MarketBar], corporate_actions: Sequence[CorporateAction] | None = None) -> BacktestResult:
         self.strategy.reset()
         portfolio = Portfolio(cash=self.config.initial_cash, peak_equity=self.config.initial_cash)
         result = BacktestResult()
+        action_book = CorporateActionBook(corporate_actions)
+
+        processed_bars = list(bars)
+        if self.config.price_adjustment_mode == "forward":
+            processed_bars = action_book.apply_forward_adjustments(processed_bars)
 
         history: list[MarketBar] = []
         latest_prices: dict[str, float] = {}
         latest_bars: dict[str, MarketBar] = {}
-        for bar in bars:
+        for bar in processed_bars:
+            action_book.apply_to_portfolio(symbol=bar.symbol, ex_date=bar.date, portfolio=portfolio)
             history.append(bar)
             previous_bar = latest_bars.get(bar.symbol)
             latest_prices[bar.symbol] = bar.close
