@@ -127,6 +127,28 @@ Planned next steps:
 - richer microstructure assumptions (for example intraday matching, queue priority, more realistic volume curves)
 - more complete corporate-action modeling only when a real research need appears
 
+## Quickstart Demo CLI
+
+After installation, you can run a minimal demo backtest directly from the terminal:
+
+```bash
+quant-balance demo
+```
+
+Or keep using the module entrypoint:
+
+```bash
+python -m quant_balance.main demo
+```
+
+Optional JSON output for scripting / regression checks:
+
+```bash
+quant-balance demo --json
+```
+
+The built-in demo uses `examples/demo_backtest.csv` and prints a compact summary including final equity, total return, max drawdown, and trades count.
+
 ## Local Demo Input Foundation
 
 To make a future local Web demo more product-friendly, the repository now includes a demo input/validation foundation in `quant_balance.demo`:
