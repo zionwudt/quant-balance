@@ -7,7 +7,13 @@ class RiskManager:
     def __init__(self, config: AccountConfig) -> None:
         self.config = config
 
-    def validate_order(self, order: Order, price: float, portfolio: Portfolio) -> bool:
+    def validate_order(
+        self,
+        order: Order,
+        price: float,
+        portfolio: Portfolio,
+        estimated_fee: float = 0.0,
+    ) -> bool:
         if order.quantity <= 0 or price <= 0:
             return False
 
@@ -15,7 +21,7 @@ class RiskManager:
             return False
 
         if order.side == "BUY":
-            cost = order.quantity * price
+            cost = order.quantity * price + estimated_fee
             if cost > portfolio.cash:
                 return False
 

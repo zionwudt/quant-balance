@@ -5,6 +5,8 @@ from datetime import date
 from typing import Literal
 
 Side = Literal["BUY", "SELL"]
+SlippageMode = Literal["none", "pct"]
+PriceAdjustmentMode = Literal["none", "forward"]
 
 
 @dataclass(slots=True)
@@ -23,6 +25,7 @@ class Position:
     symbol: str
     quantity: int = 0
     avg_price: float = 0.0
+    last_buy_date: date | None = None
 
     @property
     def market_value(self) -> float:
@@ -42,6 +45,7 @@ class Fill:
     side: Side
     quantity: int
     price: float
+    date: date
 
 
 @dataclass(slots=True)
@@ -53,6 +57,13 @@ class AccountConfig:
     max_drawdown_ratio: float = 0.1
     lot_size: int = 100
     market: str = "A_SHARE"
+    commission_rate: float = 0.0003
+    transfer_fee_rate: float = 0.00001
+    stamp_duty_rate: float = 0.001
+    slippage_mode: SlippageMode = "none"
+    slippage_rate: float = 0.0
+    max_volume_participation: float = 1.0
+    price_adjustment_mode: PriceAdjustmentMode = "none"
 
 
 @dataclass(slots=True)
