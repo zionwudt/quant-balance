@@ -22,6 +22,7 @@ class BacktestEngine:
         self.risk_manager = RiskManager(config)
 
     def run(self, bars: Sequence[MarketBar]) -> BacktestResult:
+        self.strategy.reset()
         portfolio = Portfolio(cash=self.config.initial_cash, peak_equity=self.config.initial_cash)
         result = BacktestResult()
 
