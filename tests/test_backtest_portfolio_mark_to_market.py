@@ -51,9 +51,11 @@ def test_backtest_marks_multi_asset_portfolio_to_market_with_latest_snapshot() -
     result = engine.run(bars)
 
     assert result.fills == [
-        Fill(symbol="AAA", side="BUY", quantity=100, price=10.0),
-        Fill(symbol="BBB", side="BUY", quantity=100, price=20.0),
+        Fill(symbol="AAA", side="BUY", quantity=100, price=10.0, date=start),
+        Fill(symbol="BBB", side="BUY", quantity=100, price=20.0, date=start + timedelta(days=1)),
     ]
+    assert result.report is not None
+    assert result.report.final_equity == 10_200.0
     assert result.equity_curve == [10_000.0, 10_000.0, 10_200.0]
 
 

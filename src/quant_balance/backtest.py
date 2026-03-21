@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import date
 
 from quant_balance.market_rules import AShareMarketRules
 from quant_balance.models import AccountConfig, Fill, MarketBar, Order, Portfolio, Position
+from quant_balance.report import BacktestReport, generate_report
 from quant_balance.risk import RiskManager
 from quant_balance.strategy import Strategy
 
@@ -12,8 +14,10 @@ from quant_balance.strategy import Strategy
 @dataclass(slots=True)
 class BacktestResult:
     equity_curve: list[float] = field(default_factory=list)
+    equity_dates: list[date] = field(default_factory=list)
     fills: list[Fill] = field(default_factory=list)
     halted: bool = False
+    report: BacktestReport | None = None
 
 
 class BacktestEngine:
@@ -42,11 +46,18 @@ class BacktestEngine:
             equity = portfolio.total_equity(latest_prices)
             portfolio.peak_equity = max(portfolio.peak_equity, equity)
             result.equity_curve.append(equity)
+            result.equity_dates.append(bar.date)
 
             if self.risk_manager.drawdown_exceeded(equity, portfolio.peak_equity):
                 result.halted = True
                 break
 
+        result.report = generate_report(
+            initial_equity=self.config.initial_cash,
+            equity_curve=result.equity_curve,
+            equity_dates=result.equity_dates,
+            fills=result.fills,
+        )
         return result
 
     def _apply_orders(
@@ -85,4 +96,4 @@ class BacktestEngine:
                     position.avg_price = 0.0
                     position.last_buy_date = None
 
-            result.fills.append(Fill(symbol=order.symbol, side=order.side, quantity=order.quantity, price=price))
+            result.fills.append(Fill(symbol=order.symbol, side=order.side, quantity=order.quantity, price=price, date=bar.date))

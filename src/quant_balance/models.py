@@ -43,6 +43,7 @@ class Fill:
     side: Side
     quantity: int
     price: float
+    date: date
 
 
 @dataclass(slots=True)

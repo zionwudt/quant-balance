@@ -45,6 +45,43 @@ Current first-phase assumptions:
 - focus: **strategy research, risk control, and backtesting**
 - excluded for now: **live broker integration and real-money trading**
 
+## Backtest Report (MVP)
+
+The current backtest result now includes a minimal `report` summary for research evaluation.
+
+Example JSON shape:
+
+```json
+{
+  "initial_equity": 100000.0,
+  "final_equity": 108500.0,
+  "total_return_pct": 8.5,
+  "annualized_return_pct": 22.14,
+  "annualized_volatility_pct": 18.73,
+  "sharpe_ratio": 1.18,
+  "sortino_ratio": 1.74,
+  "max_drawdown_pct": 6.2,
+  "max_drawdown_amount": 6200.0,
+  "max_drawdown_start": "2026-01-15",
+  "max_drawdown_end": "2026-02-03",
+  "trades_count": 14,
+  "fills_count": 28,
+  "win_rate_pct": 57.14,
+  "profit_loss_ratio": 1.46,
+  "average_holding_days": 6.4,
+  "turnover_ratio": 1.82,
+  "benchmark_name": "CSI300",
+  "benchmark_return_pct": 5.9,
+  "excess_return_pct": 2.6
+}
+```
+
+Notes:
+
+- `max_drawdown_start/end` already expose the drawdown interval.
+- benchmark is currently an extensibility slot: callers may pass a benchmark equity curve to compute relative return.
+- factor attribution and richer tear sheets are intentionally deferred to later iterations.
+
 ## Status
 
 Project initialized. The repository now includes a minimal Python scaffold, A-share account config, a basic strategy interface, a risk manager, and a simple backtest engine.
