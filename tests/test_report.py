@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import pytest
 
 from quant_balance.backtest import BacktestEngine
-from quant_balance.models import AccountConfig, MarketBar, Order, Portfolio
+from quant_balance.models import AccountConfig, Fill, MarketBar, Order, Portfolio
 from quant_balance.report import generate_report
 from quant_balance.strategy import Strategy
 
@@ -76,3 +76,36 @@ def test_generate_report_supports_benchmark_comparison() -> None:
     assert report.benchmark_name == "CSI300"
     assert report.benchmark_return_pct == pytest.approx(1.0)
     assert report.excess_return_pct == pytest.approx(4.0)
+
+
+def test_report_to_dict_returns_json_ready_dates() -> None:
+    report = generate_report(
+        initial_equity=100.0,
+        equity_curve=[100.0, 110.0, 105.0],
+        equity_dates=[date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
+        fills=[],
+    )
+
+    payload = report.to_dict()
+
+    assert payload["max_drawdown_start"] == "2026-01-02"
+    assert payload["max_drawdown_end"] == "2026-01-03"
+    assert payload["closed_trades"] == []
+
+
+def test_report_to_dict_serializes_closed_trade_dates() -> None:
+    fills = [
+        Fill(symbol="AAA", side="BUY", quantity=100, price=10.0, date=date(2026, 1, 1)),
+        Fill(symbol="AAA", side="SELL", quantity=100, price=11.0, date=date(2026, 1, 3)),
+    ]
+    report = generate_report(
+        initial_equity=1_000.0,
+        equity_curve=[1_000.0, 1_050.0, 1_100.0],
+        equity_dates=[date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
+        fills=fills,
+    )
+
+    payload = report.to_dict()
+
+    assert payload["closed_trades"][0]["entry_date"] == "2026-01-01"
+    assert payload["closed_trades"][0]["exit_date"] == "2026-01-03"

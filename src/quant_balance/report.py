@@ -50,7 +50,16 @@ class BacktestReport:
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
-        payload["closed_trades"] = [asdict(trade) for trade in self.closed_trades]
+        payload["max_drawdown_start"] = self.max_drawdown_start.isoformat() if self.max_drawdown_start else None
+        payload["max_drawdown_end"] = self.max_drawdown_end.isoformat() if self.max_drawdown_end else None
+        payload["closed_trades"] = [
+            {
+                **asdict(trade),
+                "entry_date": trade.entry_date.isoformat(),
+                "exit_date": trade.exit_date.isoformat(),
+            }
+            for trade in self.closed_trades
+        ]
         return payload
 
 
