@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-balance"
+version = "0.1.0"
+description = "QuantBalance: a quantitative trading research, risk control and execution system."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Eric" }
+]
+dependencies = []
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
