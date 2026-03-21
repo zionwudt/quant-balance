@@ -53,6 +53,17 @@ def test_parse_csv_text_to_bars_rejects_invalid_value_format() -> None:
         parse_csv_text_to_bars(csv_text=csv_text, symbol="600519.SH")
 
 
+def test_parse_csv_text_to_bars_accepts_headers_with_spaces() -> None:
+    csv_text = "date, open,high, low,close, volume\n2026-01-05,10,11,9,10.5,1000"
+
+    bars = parse_csv_text_to_bars(csv_text=csv_text, symbol="600519.SH")
+
+    assert len(bars) == 1
+    assert bars[0].date == date(2026, 1, 5)
+    assert bars[0].open == 10.0
+    assert bars[0].volume == 1000.0
+
+
 def test_load_demo_bars_supports_example_mode() -> None:
     bars = load_demo_bars(BacktestDemoRequest(input_mode="example", symbol="600519.SH"))
 
