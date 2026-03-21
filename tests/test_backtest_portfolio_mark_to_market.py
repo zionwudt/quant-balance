@@ -31,7 +31,14 @@ class StaggeredMultiAssetStrategy(Strategy):
 
 
 def test_backtest_marks_multi_asset_portfolio_to_market_with_latest_snapshot() -> None:
-    config = AccountConfig(initial_cash=10_000, max_position_ratio=1.0, max_positions=5)
+    config = AccountConfig(
+        initial_cash=10_000,
+        max_position_ratio=1.0,
+        max_positions=5,
+        commission_rate=0.0,
+        transfer_fee_rate=0.0,
+        stamp_duty_rate=0.0,
+    )
     engine = BacktestEngine(config=config, strategy=StaggeredMultiAssetStrategy())
 
     start = date(2026, 1, 1)
@@ -56,6 +63,9 @@ def test_backtest_drawdown_uses_latest_snapshot_for_all_open_positions() -> None
         max_position_ratio=1.0,
         max_positions=5,
         max_drawdown_ratio=0.025,
+        commission_rate=0.0,
+        transfer_fee_rate=0.0,
+        stamp_duty_rate=0.0,
     )
     engine = BacktestEngine(config=config, strategy=StaggeredMultiAssetStrategy())
 

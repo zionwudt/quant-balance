@@ -23,6 +23,7 @@ class Position:
     symbol: str
     quantity: int = 0
     avg_price: float = 0.0
+    last_buy_date: date | None = None
 
     @property
     def market_value(self) -> float:
@@ -53,6 +54,9 @@ class AccountConfig:
     max_drawdown_ratio: float = 0.1
     lot_size: int = 100
     market: str = "A_SHARE"
+    commission_rate: float = 0.0003
+    transfer_fee_rate: float = 0.00001
+    stamp_duty_rate: float = 0.001
 
 
 @dataclass(slots=True)

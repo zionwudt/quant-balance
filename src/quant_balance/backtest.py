@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from quant_balance.market_rules import AShareMarketRules
 from quant_balance.models import AccountConfig, Fill, MarketBar, Order, Portfolio, Position
 from quant_balance.risk import RiskManager
 from quant_balance.strategy import Strategy
@@ -20,6 +21,7 @@ class BacktestEngine:
         self.config = config
         self.strategy = strategy
         self.risk_manager = RiskManager(config)
+        self.market_rules = AShareMarketRules(config)
 
     def run(self, bars: Sequence[MarketBar]) -> BacktestResult:
         self.strategy.reset()
@@ -28,11 +30,14 @@ class BacktestEngine:
 
         history: list[MarketBar] = []
         latest_prices: dict[str, float] = {}
+        latest_bars: dict[str, MarketBar] = {}
         for bar in bars:
             history.append(bar)
+            previous_bar = latest_bars.get(bar.symbol)
             latest_prices[bar.symbol] = bar.close
+            latest_bars[bar.symbol] = bar
             orders = self.strategy.generate_orders(history, portfolio)
-            self._apply_orders(orders, bar.close, portfolio, result)
+            self._apply_orders(orders, bar, previous_bar, portfolio, result)
 
             equity = portfolio.total_equity(latest_prices)
             portfolio.peak_equity = max(portfolio.peak_equity, equity)
@@ -47,17 +52,22 @@ class BacktestEngine:
     def _apply_orders(
         self,
         orders: Sequence[Order],
-        price: float,
+        bar: MarketBar,
+        previous_bar: MarketBar | None,
         portfolio: Portfolio,
         result: BacktestResult,
     ) -> None:
+        price = bar.close
         for order in orders:
-            if not self.risk_manager.validate_order(order, price, portfolio):
+            fees = self.market_rules.estimate_fees(order, price)
+            if not self.risk_manager.validate_order(order, price, portfolio, fees.total):
+                continue
+            if not self.market_rules.can_fill_order(order, bar, portfolio, previous_bar):
                 continue
 
             if order.side == "BUY":
                 cost = order.quantity * price
-                portfolio.cash -= cost
+                portfolio.cash -= cost + fees.total
                 position = portfolio.positions.get(order.symbol)
                 if position is None:
                     position = Position(symbol=order.symbol)
@@ -65,12 +75,14 @@ class BacktestEngine:
                 total_cost = position.avg_price * position.quantity + cost
                 position.quantity += order.quantity
                 position.avg_price = total_cost / position.quantity
+                self.market_rules.apply_fill(order, bar, position)
 
             elif order.side == "SELL":
                 position = portfolio.positions[order.symbol]
-                portfolio.cash += order.quantity * price
+                portfolio.cash += order.quantity * price - fees.total
                 position.quantity -= order.quantity
                 if position.quantity == 0:
                     position.avg_price = 0.0
+                    position.last_buy_date = None
 
             result.fills.append(Fill(symbol=order.symbol, side=order.side, quantity=order.quantity, price=price))

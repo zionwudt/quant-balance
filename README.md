@@ -48,3 +48,19 @@ Current first-phase assumptions:
 ## Status
 
 Project initialized. The repository now includes a minimal Python scaffold, A-share account config, a basic strategy interface, a risk manager, and a simple backtest engine.
+
+## Current A-share Backtest Assumptions
+
+Implemented in the current MVP:
+
+- buy/sell commissions and transfer fee
+- sell-side stamp duty
+- T+1 sell restriction
+- no fill on suspended bars (`volume <= 0`)
+- no buy fill at limit-up / no sell fill at limit-down
+
+Planned next steps:
+
+- configurable slippage model
+- corporate actions and adjusted-price handling
+- partial fills and volume constraints

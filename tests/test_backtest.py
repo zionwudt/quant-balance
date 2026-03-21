@@ -6,7 +6,14 @@ from quant_balance.strategy import BuyAndHoldStrategy
 
 
 def test_backtest_runs_for_a_share_lot_size() -> None:
-    config = AccountConfig(initial_cash=100_000, max_position_ratio=1.0, max_positions=5)
+    config = AccountConfig(
+        initial_cash=100_000,
+        max_position_ratio=1.0,
+        max_positions=5,
+        commission_rate=0.0,
+        transfer_fee_rate=0.0,
+        stamp_duty_rate=0.0,
+    )
     strategy = BuyAndHoldStrategy()
     engine = BacktestEngine(config=config, strategy=strategy)
 

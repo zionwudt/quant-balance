@@ -22,7 +22,14 @@ def _sample_bars() -> list[MarketBar]:
 
 
 def test_strategy_instance_can_be_reused_across_runs() -> None:
-    config = AccountConfig(initial_cash=100_000, max_position_ratio=1.0, max_positions=5)
+    config = AccountConfig(
+        initial_cash=100_000,
+        max_position_ratio=1.0,
+        max_positions=5,
+        commission_rate=0.0,
+        transfer_fee_rate=0.0,
+        stamp_duty_rate=0.0,
+    )
     strategy = BuyAndHoldStrategy()
     engine = BacktestEngine(config=config, strategy=strategy)
 
@@ -35,7 +42,14 @@ def test_strategy_instance_can_be_reused_across_runs() -> None:
 
 
 def test_backtest_results_are_deterministic_for_same_input() -> None:
-    config = AccountConfig(initial_cash=100_000, max_position_ratio=1.0, max_positions=5)
+    config = AccountConfig(
+        initial_cash=100_000,
+        max_position_ratio=1.0,
+        max_positions=5,
+        commission_rate=0.0,
+        transfer_fee_rate=0.0,
+        stamp_duty_rate=0.0,
+    )
     strategy = BuyAndHoldStrategy()
     engine = BacktestEngine(config=config, strategy=strategy)
     bars = _sample_bars()
