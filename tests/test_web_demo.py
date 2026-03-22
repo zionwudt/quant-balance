@@ -31,6 +31,9 @@ def test_run_demo_web_backtest_returns_summary_trades_and_assumptions() -> None:
     assert "summary" in result.chart_sections
     assert any("印花税" in note for note in result.assumptions)
     assert result.sample_size_warning == SHORT_SAMPLE_WARNING
+    assert result.summary["benchmark_name"] == "CSI300-demo"
+    assert result.summary["benchmark_return_pct"] is not None
+    assert result.summary["excess_return_pct"] is not None
 
 
 def test_render_demo_page_shows_friendly_validation_error_for_invalid_ma_combo() -> None:

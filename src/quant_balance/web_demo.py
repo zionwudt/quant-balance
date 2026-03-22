@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from email.parser import BytesParser
 from email.policy import default as email_policy
+from dataclasses import replace
 from html import escape
 from pathlib import Path
 from typing import Callable
@@ -16,6 +17,7 @@ from quant_balance.strategy import MovingAverageCrossStrategy
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+DEFAULT_BENCHMARK_NAME = "CSI300-demo"
 DEFAULT_EXAMPLE_CSV_PATH = Path(__file__).resolve().parents[2] / "examples" / "demo_backtest.csv"
 
 WSGIApp = Callable[[dict[str, object], Callable[[str, list[tuple[str, str]]], None]], list[bytes]]
@@ -259,6 +261,18 @@ def run_demo_web_backtest(
     result = engine.run(bars)
     if result.report is None:
         raise RuntimeError("回测未生成 report")
+
+    benchmark_equity_curve = _build_demo_benchmark_equity_curve(
+        initial_equity=initial_cash,
+        periods=len(result.equity_curve),
+    )
+    benchmark_return_pct = _safe_pct_change(benchmark_equity_curve[0], benchmark_equity_curve[-1]) if benchmark_equity_curve else None
+    result.report = replace(
+        result.report,
+        benchmark_name=DEFAULT_BENCHMARK_NAME,
+        benchmark_return_pct=benchmark_return_pct,
+        excess_return_pct=(result.report.total_return_pct - benchmark_return_pct) if benchmark_return_pct is not None else None,
+    )
     return build_demo_result_context(result.report)
 
 
@@ -424,3 +438,20 @@ def _format_value(value: object) -> str:
     if isinstance(value, float):
         return f"{value:.2f}"
     return str(value)
+
+
+def _build_demo_benchmark_equity_curve(*, initial_equity: float, periods: int) -> list[float]:
+    if periods <= 0:
+        return []
+    curve: list[float] = []
+    for index in range(periods):
+        progress = index / max(periods - 1, 1)
+        curve.append(initial_equity * (1 + 0.04 * progress))
+    return curve
+
+
+
+def _safe_pct_change(start: float, end: float) -> float:
+    if start <= 0:
+        return 0.0
+    return (end / start - 1.0) * 100

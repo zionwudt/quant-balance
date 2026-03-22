@@ -57,3 +57,6 @@ def test_module_demo_command_supports_json_output() -> None:
     assert payload["trades_count"] >= 1
     assert payload["max_drawdown_start"] is not None
     assert payload["sample_size_warning"] is not None
+    assert payload["benchmark_name"] == "CSI300-demo"
+    assert payload["benchmark_return_pct"] is not None
+    assert payload["excess_return_pct"] is not None
