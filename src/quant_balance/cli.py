@@ -32,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     web_demo_parser.add_argument("--host", default=DEFAULT_HOST, help="host to bind the local web demo")
     web_demo_parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="port to bind the local web demo")
     web_demo_parser.add_argument("--developer-mode", action="store_true", help="enable local path mode for developers")
+    web_demo_parser.add_argument("--open-browser", action="store_true", help="open the demo page in your browser after the server starts")
     web_demo_parser.add_argument("--example-csv", default=str(DEFAULT_EXAMPLE_PATH), help="path to the example CSV used by the web demo")
     return parser
 
@@ -60,6 +61,7 @@ def run_cli(argv: list[str] | None = None) -> int:
             host=args.host,
             port=args.port,
             developer_mode=args.developer_mode,
+            open_browser=args.open_browser,
             example_csv_path=Path(args.example_csv),
         )
         return 0

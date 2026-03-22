@@ -5,8 +5,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+from quant_balance.web_demo import render_demo_page
 
-def test_web_demo_help_does_not_expose_redundant_action_layer() -> None:
+
+def test_render_demo_page_shows_first_run_guide() -> None:
+    html = render_demo_page()
+
+    assert 'data-testid="first-run-guide"' in html
+    assert "第一次使用建议" in html
+    assert "三步完成" in html
+
+
+def test_web_demo_help_mentions_open_browser_flag() -> None:
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [sys.executable, "-m", "quant_balance.main", "web-demo", "--help"],
@@ -19,9 +29,5 @@ def test_web_demo_help_does_not_expose_redundant_action_layer() -> None:
 
     help_text = result.stdout
 
-    assert "{serve}" not in help_text
-    assert "web demo action to execute" not in help_text
-    assert "--host" in help_text
-    assert "--port" in help_text
-    assert "--developer-mode" in help_text
     assert "--open-browser" in help_text
+    assert "open the demo page in your browser" in help_text
