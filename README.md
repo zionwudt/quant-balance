@@ -185,3 +185,32 @@ To avoid shipping a future Web shell without product-level regression coverage, 
 - documentation in `docs/web-demo-acceptance.md` for later browser automation implementation
 
 This gives the upcoming Web MVP a concrete acceptance target before any Flask/FastAPI page is added.
+
+## Local Web Demo Shell (MVP)
+
+The repository now also ships a minimal browser-accessible local Web demo shell built on the Python standard library WSGI server.
+
+Start it locally:
+
+```bash
+quant-balance web-demo --host 127.0.0.1 --port 8765
+```
+
+Or via module entrypoint:
+
+```bash
+python -m quant_balance.main web-demo --host 127.0.0.1 --port 8765
+```
+
+Then open <http://127.0.0.1:8765/demo> in your browser.
+
+Current MVP capabilities:
+
+- single-page form with stable `data-testid` anchors for future browser automation
+- choose example data or paste uploaded CSV content into the page
+- submit a backtest and view summary / closed trades / assumptions in one page
+- surface the existing Chinese validation errors directly in the page
+
+Current boundary:
+
+- the "upload CSV" flow is temporarily implemented as textarea paste input, so the browser path is already testable before a real multipart upload widget is introduced
