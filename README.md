@@ -149,6 +149,22 @@ quant-balance demo --json
 
 The built-in demo uses `examples/demo_backtest.csv` and prints a compact summary including final equity, total return, max drawdown, and trades count.
 
+## Local Testing
+
+Install the package together with development/test dependencies:
+
+```bash
+python -m pip install -e .[dev]
+```
+
+Then run the test suite:
+
+```bash
+pytest -q
+```
+
+This keeps runtime dependencies minimal while giving contributors and CI a single, explicit way to prepare the local test environment.
+
 ## Local Demo Input Foundation
 
 To make a future local Web demo more product-friendly, the repository now includes a demo input/validation foundation in `quant_balance.demo`:
