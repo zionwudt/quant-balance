@@ -56,3 +56,4 @@ def test_module_demo_command_supports_json_output() -> None:
     assert payload["final_equity"] > 0
     assert payload["trades_count"] >= 1
     assert payload["max_drawdown_start"] is not None
+    assert payload["sample_size_warning"] is not None

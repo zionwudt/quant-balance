@@ -99,14 +99,20 @@ def format_demo_summary(report: BacktestReport, *, csv_path: Path, symbol: str, 
         f"Data: {csv_path}",
         f"Symbol: {symbol}",
         f"Strategy: MA cross ({short_window}/{long_window})",
-        "",
-        "Summary",
-        f"- Final equity: {report.final_equity:.2f}",
-        f"- Total return: {report.total_return_pct:.2f}%",
-        f"- Max drawdown: {report.max_drawdown_pct:.2f}%",
-        f"- Trades: {report.trades_count}",
-        f"- Win rate: {report.win_rate_pct:.2f}%",
     ]
+    if report.sample_size_warning:
+        lines.extend(["", f"Note: {report.sample_size_warning}"])
+    lines.extend(
+        [
+            "",
+            "Summary",
+            f"- Final equity: {report.final_equity:.2f}",
+            f"- Total return: {report.total_return_pct:.2f}%",
+            f"- Max drawdown: {report.max_drawdown_pct:.2f}%",
+            f"- Trades: {report.trades_count}",
+            f"- Win rate: {report.win_rate_pct:.2f}%",
+        ]
+    )
     if report.max_drawdown_start and report.max_drawdown_end:
         lines.append(f"- Drawdown window: {report.max_drawdown_start.isoformat()} -> {report.max_drawdown_end.isoformat()}")
     return "\n".join(lines)
