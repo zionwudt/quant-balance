@@ -86,6 +86,15 @@ def render_demo_page(
         except DemoValidationError as exc:
             error_message = str(exc)
 
+    developer_path_block = ""
+    if developer_mode:
+        developer_path_block = (
+            f'<div style="margin-top: 16px;">'
+            f'<label for="csv_path">本地 CSV 路径（开发者模式）</label>'
+            f'<input id="csv_path" name="csv_path" value="{escape(csv_path)}" data-testid="csv-path-input">'
+            '</div>'
+        )
+
     return f"""<!doctype html>
 <html lang=\"zh-CN\">
 <head>
@@ -155,7 +164,7 @@ def render_demo_page(
           <p class=\"hint\">当前 MVP 先用 textarea 作为浏览器上传入口占位，后续可无缝换成文件上传控件。</p>
         </div>
 
-        {f'''<div style=\"margin-top: 16px;\">\n          <label for=\"csv_path\">本地 CSV 路径（开发者模式）</label>\n          <input id=\"csv_path\" name=\"csv_path\" value=\"{escape(csv_path)}\" data-testid=\"csv-path-input\">\n        </div>''' if developer_mode else ''}
+        {developer_path_block}
 
         <div style=\"margin-top: 18px; display: flex; gap: 12px; flex-wrap: wrap;\">
           <button type=\"submit\" data-testid=\"submit-backtest\">运行回测</button>
