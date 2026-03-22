@@ -197,6 +197,7 @@ def render_demo_page(
         {developer_path_block}
 
         <div style=\"margin-top: 18px; display: flex; gap: 12px; flex-wrap: wrap;\">
+          <button type=\"submit\" name=\"quick_action\" value=\"example-run\" data-testid=\"qb-use-example\">用示例数据立即体验</button>
           <button type=\"submit\" data-testid=\"qb-submit-backtest\">运行回测</button>
         </div>
       </form>
@@ -229,11 +230,15 @@ def run_demo_web_backtest(
     developer_mode: bool = False,
     example_csv_path: Path = DEFAULT_EXAMPLE_CSV_PATH,
 ):
+    quick_action = (form_data.get("quick_action") or "").strip()
     input_mode = (form_data.get("input_mode") or "example").strip()
     symbol = (form_data.get("symbol") or "").strip()
     initial_cash = _parse_float(form_data.get("initial_cash"), field_name="初始资金")
     short_window = _parse_int(form_data.get("short_window"), field_name="短均线")
     long_window = _parse_int(form_data.get("long_window"), field_name="长均线")
+
+    if quick_action == "example-run":
+        input_mode = "example"
 
     csv_text = None
     csv_path = None
