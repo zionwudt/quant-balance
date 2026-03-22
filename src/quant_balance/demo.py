@@ -392,3 +392,19 @@ def parse_csv_text_to_bars(*, csv_text: str, symbol: str) -> list[MarketBar]:
         ) from exc
 
     return bars
+
+
+def _print_module_entry_hint() -> int:
+    import sys
+
+    print(
+        "quant_balance.demo 不是独立 CLI 入口。\n"
+        "请改用：python -m quant_balance demo --help\n"
+        "或：quant-balance demo --help",
+        file=sys.stderr,
+    )
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(_print_module_entry_hint())
