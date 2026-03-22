@@ -9,6 +9,8 @@ import math
 from quant_balance.models import Fill
 
 TRADING_DAYS_PER_YEAR = 252
+MIN_PERIODS_FOR_ANNUALIZED_METRICS = 60
+SHORT_SAMPLE_WARNING = "当前样本较短，年化收益、波动率、夏普与 Sortino 仅供演示参考。"
 
 
 @dataclass(slots=True)
@@ -29,10 +31,10 @@ class BacktestReport:
     initial_equity: float
     final_equity: float
     total_return_pct: float
-    annualized_return_pct: float
-    annualized_volatility_pct: float
-    sharpe_ratio: float
-    sortino_ratio: float
+    annualized_return_pct: float | None
+    annualized_volatility_pct: float | None
+    sharpe_ratio: float | None
+    sortino_ratio: float | None
     max_drawdown_pct: float
     max_drawdown_amount: float
     max_drawdown_start: date | None
@@ -46,6 +48,7 @@ class BacktestReport:
     benchmark_name: str | None = None
     benchmark_return_pct: float | None = None
     excess_return_pct: float | None = None
+    sample_size_warning: str | None = None
     closed_trades: list[ClosedTrade] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -78,10 +81,18 @@ def generate_report(
     final_equity = equity_curve[-1] if equity_curve else initial_equity
     total_return_pct = _safe_pct_change(initial_equity, final_equity)
     daily_returns = _daily_returns(equity_curve)
-    annualized_return_pct = _annualized_return_pct(initial_equity, final_equity, len(equity_curve))
-    annualized_volatility_pct = _annualized_volatility_pct(daily_returns)
-    sharpe_ratio = _sharpe_ratio(daily_returns)
-    sortino_ratio = _sortino_ratio(daily_returns)
+    sample_size_warning = None
+    if len(equity_curve) < MIN_PERIODS_FOR_ANNUALIZED_METRICS:
+        annualized_return_pct = None
+        annualized_volatility_pct = None
+        sharpe_ratio = None
+        sortino_ratio = None
+        sample_size_warning = SHORT_SAMPLE_WARNING
+    else:
+        annualized_return_pct = _annualized_return_pct(initial_equity, final_equity, len(equity_curve))
+        annualized_volatility_pct = _annualized_volatility_pct(daily_returns)
+        sharpe_ratio = _sharpe_ratio(daily_returns)
+        sortino_ratio = _sortino_ratio(daily_returns)
     drawdown_amount, drawdown_pct, drawdown_start, drawdown_end = _max_drawdown(equity_curve, equity_dates)
     closed_trades = _closed_trades(fills)
     trades_count = len(closed_trades)
@@ -118,6 +129,7 @@ def generate_report(
         benchmark_name=benchmark_name,
         benchmark_return_pct=benchmark_return_pct,
         excess_return_pct=excess_return_pct,
+        sample_size_warning=sample_size_warning,
         closed_trades=closed_trades,
     )
 
