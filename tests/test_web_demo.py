@@ -10,10 +10,10 @@ from quant_balance.web_demo import create_app, render_demo_page, run_demo_web_ba
 def test_render_demo_page_exposes_form_result_anchors_and_example_preview() -> None:
     html = render_demo_page()
 
-    assert 'data-testid="demo-form"' in html
-    assert 'data-testid="input-mode-options"' in html
-    assert 'data-testid="csv-template"' in html
-    assert 'data-testid="example-csv-preview"' in html
+    assert 'data-testid="qb-demo-page"' in html
+    assert 'data-testid="qb-demo-form"' in html
+    assert 'data-testid="qb-input-mode"' in html
+    assert 'data-testid="qb-upload-input"' in html
 
 
 def test_run_demo_web_backtest_returns_summary_trades_and_assumptions() -> None:
@@ -44,7 +44,7 @@ def test_render_demo_page_shows_friendly_validation_error_for_invalid_ma_combo()
         }
     )
 
-    assert 'data-testid="demo-error"' in html
+    assert 'data-testid="qb-demo-error"' in html
     assert "短均线必须小于长均线" in html
 
 
@@ -59,7 +59,7 @@ def test_render_demo_page_shows_short_sample_warning_when_metrics_are_degraded()
         }
     )
 
-    assert 'data-testid="sample-size-warning"' in html
+    assert 'data-testid="qb-sample-size-warning"' in html
     assert SHORT_SAMPLE_WARNING in html
 
 
@@ -114,6 +114,7 @@ def test_create_app_handles_health_and_demo_post_flow(tmp_path: Path) -> None:
     html = b"".join(page_response).decode("utf-8")
 
     assert captured["status"] == "200 OK"
-    assert 'data-testid="demo-result"' in html
-    assert 'data-testid="summary-table"' in html
-    assert 'data-testid="trades-table"' in html
+    assert 'data-testid="qb-result-panel"' in html
+    assert 'data-testid="qb-result-summary"' in html
+    assert 'data-testid="qb-result-trades"' in html
+    assert 'data-testid="qb-result-assumptions"' in html
