@@ -72,6 +72,7 @@ class DemoResultContext:
     closed_trades: list[dict[str, object]]
     assumptions: list[str]
     chart_sections: list[str]
+    sample_size_warning: str | None = None
 
 
 @dataclass(slots=True)
@@ -187,6 +188,7 @@ def build_demo_result_context(report: BacktestReport) -> DemoResultContext:
         closed_trades=report.to_dict()["closed_trades"],
         assumptions=guide.notes,
         chart_sections=["summary", "trades", "equity_curve"],
+        sample_size_warning=report.sample_size_warning,
     )
 
 
