@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import cgi
 from html import escape
 from pathlib import Path
 from typing import Callable
@@ -73,6 +74,7 @@ def render_demo_page(
     long_window = form_data.get("long_window", "20")
     csv_text = form_data.get("csv_text", "")
     csv_path = form_data.get("csv_path", "")
+    uploaded_filename = form_data.get("csv_filename", "")
 
     error_message = ""
     result_context = None
@@ -94,6 +96,10 @@ def render_demo_page(
             f'<input id="csv_path" name="csv_path" value="{escape(csv_path)}" data-testid="csv-path-input">'
             '</div>'
         )
+
+    upload_hint = "选择本地 CSV 文件上传；若暂时没有文件，也可继续粘贴 CSV 文本做调试。"
+    if uploaded_filename:
+        upload_hint = f"已选择文件：{uploaded_filename}"
 
     return f"""<!doctype html>
 <html lang=\"zh-CN\">
@@ -125,14 +131,14 @@ def render_demo_page(
   <main>
     <section class=\"card\" data-testid=\"demo-header\">
       <h1>QuantBalance 本地 Web Demo</h1>
-      <p>先把主人可直接点开的最小回测路径跑通：选择示例数据或粘贴 CSV，提交后直接看到 summary、trades 与关键假设说明。</p>
+      <p>先把主人可直接点开的最小回测路径跑通：选择示例数据或上传 CSV，提交后直接看到 summary、trades 与关键假设说明。</p>
     </section>
 
     <section class=\"card\" data-testid=\"demo-form\">
       <h2>回测表单</h2>
       {f'<div class="error" data-testid="demo-error">{escape(error_message)}</div>' if error_message else ''}
       {('<div class="success" data-testid="demo-success">已完成一次回测，可继续调整参数后再次提交。</div>' if result_context else '')}
-      <form method=\"post\" action=\"/demo\">
+      <form method=\"post\" action=\"/demo\" enctype=\"multipart/form-data\">
         <div>
           <label>数据来源</label>
           <div class=\"radio-group\" data-testid=\"input-mode-options\">
@@ -159,10 +165,16 @@ def render_demo_page(
         </div>
 
         <div style=\"margin-top: 16px;\">
-          <label for=\"csv_text\">上传 CSV 内容（先用文本粘贴模拟上传）</label>
-          <textarea id=\"csv_text\" name=\"csv_text\" data-testid=\"csv-upload-input\">{escape(csv_text)}</textarea>
-          <p class=\"hint\">当前 MVP 先用 textarea 作为浏览器上传入口占位，后续可无缝换成文件上传控件。</p>
+          <label for=\"csv_file\">上传 CSV 文件</label>
+          <input id=\"csv_file\" name=\"csv_file\" type=\"file\" accept=\".csv,text/csv\" data-testid=\"csv-file-input\">
+          <p class=\"hint\" data-testid=\"csv-upload-hint\">{escape(upload_hint)}</p>
         </div>
+
+        <details style=\"margin-top: 16px;\">
+          <summary>开发 / 调试辅助：直接粘贴 CSV 文本</summary>
+          <textarea id=\"csv_text\" name=\"csv_text\" data-testid=\"csv-upload-input\">{escape(csv_text)}</textarea>
+          <p class=\"hint\">上传文件会优先于文本粘贴路径；textarea 仅作为调试辅助保留。</p>
+        </details>
 
         {developer_path_block}
 
@@ -207,8 +219,9 @@ def run_demo_web_backtest(
 
     csv_text = None
     csv_path = None
+    uploaded_csv_text = form_data.get("csv_file_content", "")
     if input_mode == "upload":
-        csv_text = form_data.get("csv_text", "")
+        csv_text = uploaded_csv_text or form_data.get("csv_text", "")
     elif input_mode == "example":
         csv_text = example_csv_path.read_text(encoding="utf-8")
     elif input_mode == "path":
@@ -295,6 +308,10 @@ def render_result_section(result_context) -> str:
 
 
 def _parse_form_data(environ: dict[str, object]) -> dict[str, str]:
+    content_type = str(environ.get("CONTENT_TYPE") or "")
+    if content_type.startswith("multipart/form-data"):
+        return _parse_multipart_form_data(environ)
+
     content_length = int(str(environ.get("CONTENT_LENGTH") or 0) or 0)
     body = b""
     if content_length > 0:
@@ -305,6 +322,25 @@ def _parse_form_data(environ: dict[str, object]) -> dict[str, str]:
         return {}
     parsed = parse_qs(body.decode("utf-8"), keep_blank_values=True)
     return {key: values[-1] if values else "" for key, values in parsed.items()}
+
+
+
+def _parse_multipart_form_data(environ: dict[str, object]) -> dict[str, str]:
+    storage = cgi.FieldStorage(fp=environ.get("wsgi.input"), environ=environ, keep_blank_values=True)
+    form_data: dict[str, str] = {}
+    for key in storage.keys():
+        field = storage[key]
+        if isinstance(field, list):
+            field = field[-1]
+        if getattr(field, "filename", None):
+            file_bytes = field.file.read() if field.file else b""
+            form_data[f"{key}_content"] = file_bytes.decode("utf-8", errors="replace")
+            form_data[f"{key}_filename"] = field.filename or ""
+        else:
+            form_data[key] = field.value or ""
+    if "csv_file_filename" in form_data:
+        form_data["csv_filename"] = form_data["csv_file_filename"]
+    return form_data
 
 
 
