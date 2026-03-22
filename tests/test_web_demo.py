@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
+from quant_balance.report import SHORT_SAMPLE_WARNING
 from quant_balance.web_demo import create_app, render_demo_page, run_demo_web_backtest
 
 
@@ -29,6 +30,7 @@ def test_run_demo_web_backtest_returns_summary_trades_and_assumptions() -> None:
     assert result.summary["final_equity"] > 0
     assert "summary" in result.chart_sections
     assert any("印花税" in note for note in result.assumptions)
+    assert result.sample_size_warning == SHORT_SAMPLE_WARNING
 
 
 def test_render_demo_page_shows_friendly_validation_error_for_invalid_ma_combo() -> None:
@@ -44,6 +46,21 @@ def test_render_demo_page_shows_friendly_validation_error_for_invalid_ma_combo()
 
     assert 'data-testid="demo-error"' in html
     assert "短均线必须小于长均线" in html
+
+
+def test_render_demo_page_shows_short_sample_warning_when_metrics_are_degraded() -> None:
+    html = render_demo_page(
+        form_data={
+            "input_mode": "example",
+            "symbol": "600519.SH",
+            "initial_cash": "100000",
+            "short_window": "5",
+            "long_window": "10",
+        }
+    )
+
+    assert 'data-testid="sample-size-warning"' in html
+    assert SHORT_SAMPLE_WARNING in html
 
 
 def test_create_app_handles_health_and_demo_post_flow(tmp_path: Path) -> None:

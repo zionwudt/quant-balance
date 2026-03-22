@@ -261,10 +261,16 @@ def render_result_section(result_context) -> str:
 
     assumptions = ''.join(f'<li>{escape(note)}</li>' for note in result_context.assumptions)
     chart_sections = ', '.join(result_context.chart_sections)
+    sample_size_warning = ""
+    if result_context.sample_size_warning:
+        sample_size_warning = (
+            f'<div class="error" data-testid="sample-size-warning">{escape(result_context.sample_size_warning)}</div>'
+        )
     return f"""
     <section class=\"card\" data-testid=\"demo-result\">
       <h2>回测结果</h2>
       <p class=\"hint\">稳定结果区锚点：summary / trades / assumptions / chart-sections</p>
+      {sample_size_warning}
       <div class=\"grid\">
         <div>
           <h3 data-testid=\"summary-heading\">Summary</h3>
