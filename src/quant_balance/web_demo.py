@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from email.parser import BytesParser
+from email.policy import default as email_policy
 from html import escape
 from pathlib import Path
 from typing import Callable
@@ -82,6 +84,7 @@ def render_demo_page(
     long_window = form_data.get("long_window", "20")
     csv_text = form_data.get("csv_text", "")
     csv_path = form_data.get("csv_path", "")
+    uploaded_filename = form_data.get("csv_filename", "")
 
     error_message = ""
     result_context = None
@@ -105,6 +108,9 @@ def render_demo_page(
         )
 
     error_banner = f'<div class="error" data-testid="qb-demo-error">{escape(error_message)}</div>' if error_message else '<div data-testid="qb-demo-error" hidden></div>'
+    upload_hint = "选择本地 CSV 文件上传；若暂时没有文件，也可继续粘贴 CSV 文本做调试。"
+    if uploaded_filename:
+        upload_hint = f"已选择文件：{uploaded_filename}"
 
     return f"""<!doctype html>
 <html lang=\"zh-CN\">
@@ -147,7 +153,7 @@ def render_demo_page(
       <h2>回测表单</h2>
       {error_banner}
       {('<div class="success" data-testid="qb-demo-success">已完成一次回测，可继续调整参数后再次提交。</div>' if result_context else '')}
-      <form method=\"post\" action=\"/demo\">
+      <form method=\"post\" action=\"/demo\" enctype=\"multipart/form-data\">
         <div>
           <label>数据来源</label>
           <div class=\"radio-group\" data-testid=\"qb-input-mode\">
@@ -174,10 +180,16 @@ def render_demo_page(
         </div>
 
         <div style=\"margin-top: 16px;\">
-          <label for=\"csv_text\">上传 CSV 内容（先用文本粘贴模拟上传）</label>
-          <textarea id=\"csv_text\" name=\"csv_text\" data-testid=\"qb-upload-input\">{escape(csv_text)}</textarea>
-          <p class=\"hint\">当前 MVP 先用 textarea 作为浏览器上传入口占位，后续可无缝换成文件上传控件。</p>
+          <label for=\"csv_file\">上传 CSV 文件</label>
+          <input id=\"csv_file\" name=\"csv_file\" type=\"file\" accept=\".csv,text/csv\" data-testid=\"qb-upload-input\">
+          <p class=\"hint\" data-testid=\"csv-upload-hint\">{escape(upload_hint)}</p>
         </div>
+
+        <details style=\"margin-top: 16px;\">
+          <summary>开发 / 调试辅助：直接粘贴 CSV 文本</summary>
+          <textarea id=\"csv_text\" name=\"csv_text\" data-testid=\"csv-upload-textarea\">{escape(csv_text)}</textarea>
+          <p class=\"hint\">上传文件会优先于文本粘贴路径；textarea 仅作为调试辅助保留。</p>
+        </details>
 
         {developer_path_block}
 
@@ -222,8 +234,9 @@ def run_demo_web_backtest(
 
     csv_text = None
     csv_path = None
+    uploaded_csv_text = form_data.get("csv_file_content", "")
     if input_mode == "upload":
-        csv_text = form_data.get("csv_text", "")
+        csv_text = uploaded_csv_text or form_data.get("csv_text", "")
     elif input_mode == "example":
         csv_text = example_csv_path.read_text(encoding="utf-8")
     elif input_mode == "path":
@@ -310,6 +323,10 @@ def render_result_section(result_context) -> str:
 
 
 def _parse_form_data(environ: dict[str, object]) -> dict[str, str]:
+    content_type = str(environ.get("CONTENT_TYPE") or "")
+    if content_type.startswith("multipart/form-data"):
+        return _parse_multipart_form_data(environ)
+
     content_length = int(str(environ.get("CONTENT_LENGTH") or 0) or 0)
     body = b""
     if content_length > 0:
@@ -320,6 +337,38 @@ def _parse_form_data(environ: dict[str, object]) -> dict[str, str]:
         return {}
     parsed = parse_qs(body.decode("utf-8"), keep_blank_values=True)
     return {key: values[-1] if values else "" for key, values in parsed.items()}
+
+
+
+def _parse_multipart_form_data(environ: dict[str, object]) -> dict[str, str]:
+    content_type = str(environ.get("CONTENT_TYPE") or "")
+    content_length = int(str(environ.get("CONTENT_LENGTH") or 0) or 0)
+    stream = environ.get("wsgi.input")
+    body = stream.read(content_length) if stream is not None and content_length > 0 else b""
+    if not body:
+        return {}
+
+    parser = BytesParser(policy=email_policy)
+    message = parser.parsebytes(
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
+    )
+
+    form_data: dict[str, str] = {}
+    for part in message.iter_parts():
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+        filename = part.get_filename()
+        payload = part.get_payload(decode=True) or b""
+        text = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+        if filename:
+            form_data[f"{name}_content"] = text
+            form_data[f"{name}_filename"] = filename
+        else:
+            form_data[name] = text
+    if "csv_file_filename" in form_data:
+        form_data["csv_filename"] = form_data["csv_file_filename"]
+    return form_data
 
 
 
