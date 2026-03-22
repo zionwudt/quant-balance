@@ -19,7 +19,6 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     demo_parser = subparsers.add_parser("demo", help="run the built-in backtest demo")
-    demo_parser.add_argument("action", nargs="?", default="run", choices=["run"], help="demo action to execute")
     demo_parser.add_argument("--csv", default=str(DEFAULT_EXAMPLE_PATH), help="path to demo CSV file")
     demo_parser.add_argument("--symbol", default=DEFAULT_SYMBOL, help="symbol to use for the demo bars")
     demo_parser.add_argument("--initial-cash", type=float, default=100_000.0, help="initial cash for the backtest")
