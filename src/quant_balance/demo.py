@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 import csv
 import io
@@ -72,6 +72,37 @@ class DemoResultContext:
     closed_trades: list[dict[str, object]]
     assumptions: list[str]
     chart_sections: list[str]
+
+
+@dataclass(slots=True)
+class DemoStableSelector:
+    key: str
+    selector: str
+    purpose: str
+
+
+@dataclass(slots=True)
+class DemoAcceptanceScenario:
+    scenario_id: str
+    title: str
+    goal: str
+    steps: list[str]
+    expected_outcomes: list[str]
+    selectors: list[str]
+
+
+@dataclass(slots=True)
+class DemoAcceptanceChecklist:
+    page_contract: list[DemoStableSelector]
+    scenarios: list[DemoAcceptanceScenario]
+    notes: list[str]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "page_contract": [asdict(selector) for selector in self.page_contract],
+            "scenarios": [asdict(scenario) for scenario in self.scenarios],
+            "notes": self.notes,
+        }
 
 
 def get_demo_field_guide() -> DemoFieldGuide:
@@ -156,6 +187,131 @@ def build_demo_result_context(report: BacktestReport) -> DemoResultContext:
         closed_trades=report.to_dict()["closed_trades"],
         assumptions=guide.notes,
         chart_sections=["summary", "trades", "equity_curve"],
+    )
+
+
+def get_demo_stable_selectors() -> list[DemoStableSelector]:
+    return [
+        DemoStableSelector("page-root", "[data-testid='qb-demo-page']", "页面根容器，确认 demo 已成功加载。"),
+        DemoStableSelector("input-mode", "[data-testid='qb-input-mode']", "输入模式切换区（示例数据 / 上传 CSV）。"),
+        DemoStableSelector("csv-upload", "[data-testid='qb-upload-input']", "CSV 上传控件。"),
+        DemoStableSelector("example-trigger", "[data-testid='qb-use-example']", "一键填充示例数据并运行。"),
+        DemoStableSelector("symbol-input", "[data-testid='qb-symbol-input']", "股票代码输入框。"),
+        DemoStableSelector("initial-cash-input", "[data-testid='qb-initial-cash-input']", "初始资金输入框。"),
+        DemoStableSelector("short-window-input", "[data-testid='qb-short-window-input']", "短均线输入框。"),
+        DemoStableSelector("long-window-input", "[data-testid='qb-long-window-input']", "长均线输入框。"),
+        DemoStableSelector("submit-button", "[data-testid='qb-submit-backtest']", "提交回测按钮。"),
+        DemoStableSelector("error-banner", "[data-testid='qb-demo-error']", "页面级中文错误提示区域。"),
+        DemoStableSelector("summary-panel", "[data-testid='qb-result-summary']", "结果 summary 指标区域。"),
+        DemoStableSelector("trades-table", "[data-testid='qb-result-trades']", "成交/平仓明细区域。"),
+        DemoStableSelector("assumptions-panel", "[data-testid='qb-result-assumptions']", "关键假设说明区域。"),
+    ]
+
+
+def build_demo_acceptance_checklist() -> DemoAcceptanceChecklist:
+    return DemoAcceptanceChecklist(
+        page_contract=get_demo_stable_selectors(),
+        scenarios=[
+            DemoAcceptanceScenario(
+                scenario_id="home-loads",
+                title="打开首页成功",
+                goal="确认本地 Web demo 页面可访问，且核心表单区域已经渲染。",
+                steps=[
+                    "启动本地 Web demo 服务。",
+                    "浏览器访问 demo 首页。",
+                    "等待页面根容器和提交按钮出现。",
+                ],
+                expected_outcomes=[
+                    "页面标题或主说明可见。",
+                    "输入模式区、股票代码、均线参数与提交按钮均可见。",
+                    "页面不出现崩溃栈或白屏。",
+                ],
+                selectors=["page-root", "input-mode", "symbol-input", "submit-button"],
+            ),
+            DemoAcceptanceScenario(
+                scenario_id="example-backtest",
+                title="使用示例数据完成一次回测",
+                goal="验证不依赖外部 CSV 时，用户也能走通最小 happy path。",
+                steps=[
+                    "打开首页。",
+                    "选择示例数据模式，保留默认参数。",
+                    "点击提交回测。",
+                ],
+                expected_outcomes=[
+                    "结果页或结果区域出现 summary 指标。",
+                    "trades 区域与 assumptions 区域可见。",
+                    "页面不出现错误提示。",
+                ],
+                selectors=["example-trigger", "submit-button", "summary-panel", "trades-table", "assumptions-panel"],
+            ),
+            DemoAcceptanceScenario(
+                scenario_id="upload-valid-csv",
+                title="上传合法 CSV 完成一次回测",
+                goal="验证上传 CSV 路径可以跑通，并输出完整结果。",
+                steps=[
+                    "打开首页。",
+                    "上传合法日线 CSV。",
+                    "填写股票代码并提交回测。",
+                ],
+                expected_outcomes=[
+                    "页面显示 summary 指标。",
+                    "页面展示 trades 明细。",
+                    "不出现中文校验错误。",
+                ],
+                selectors=["csv-upload", "symbol-input", "submit-button", "summary-panel", "trades-table"],
+            ),
+            DemoAcceptanceScenario(
+                scenario_id="upload-invalid-csv",
+                title="上传非法 CSV，看到明确中文错误提示",
+                goal="验证现有 CSV 校验文案能直接映射到 Web 层。",
+                steps=[
+                    "打开首页。",
+                    "上传缺列、日期乱序或价格区间非法的 CSV。",
+                    "点击提交回测。",
+                ],
+                expected_outcomes=[
+                    "页面出现中文错误提示。",
+                    "错误提示文案能说明具体问题，例如缺列、日期顺序或价格区间。",
+                    "结果区域不会显示伪造成功结果。",
+                ],
+                selectors=["csv-upload", "submit-button", "error-banner"],
+            ),
+            DemoAcceptanceScenario(
+                scenario_id="invalid-ma-params",
+                title="短均线大于等于长均线时，看到明确提示",
+                goal="验证表单参数校验能阻止明显无效组合进入回测。",
+                steps=[
+                    "打开首页。",
+                    "填写短均线 >= 长均线的参数组合。",
+                    "点击提交回测。",
+                ],
+                expected_outcomes=[
+                    "页面出现明确中文提示，说明短均线必须小于长均线。",
+                    "不会进入成功结果页。",
+                ],
+                selectors=["short-window-input", "long-window-input", "submit-button", "error-banner"],
+            ),
+            DemoAcceptanceScenario(
+                scenario_id="result-metrics-visible",
+                title="结果页显示关键 summary 指标与 trades",
+                goal="确保用户能看到最关键的回测产出，而不是只看到成功提示。",
+                steps=[
+                    "使用示例数据或合法 CSV 成功运行一次回测。",
+                    "检查结果区域内容。",
+                ],
+                expected_outcomes=[
+                    "summary 至少包含 final_equity、total_return_pct、max_drawdown_pct、trades_count。",
+                    "trades 区域可见，即使为空也要有稳定容器。",
+                    "assumptions 区域可见，说明当前模型边界。",
+                ],
+                selectors=["summary-panel", "trades-table", "assumptions-panel"],
+            ),
+        ],
+        notes=[
+            "页面 MVP 落地后，优先按这些稳定 data-testid 绑定自动化脚本，避免选择器依赖文案和视觉样式。",
+            "自动化优先覆盖用户路径，不追求像素级 UI 校验。",
+            "若后续新增结果图表或多页路由，应继续沿用 qb-* 前缀的稳定选择器。",
+        ],
     )
 
 
