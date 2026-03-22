@@ -207,10 +207,12 @@ Then open <http://127.0.0.1:8765/demo> in your browser.
 Current MVP capabilities:
 
 - single-page form with stable `data-testid` anchors for future browser automation
-- choose example data or paste uploaded CSV content into the page
+- choose example data or upload a real local CSV file from the page
+- keep a textarea-based CSV path only as a developer/debug fallback, not the primary user flow
 - submit a backtest and view summary / closed trades / assumptions in one page
 - surface the existing Chinese validation errors directly in the page
 
 Current boundary:
 
-- the "upload CSV" flow is temporarily implemented as textarea paste input, so the browser path is already testable before a real multipart upload widget is introduced
+- benchmark input is still fixed to the current built-in demo path; custom benchmark upload/selection is not exposed yet
+- result visualization is still a lightweight local-demo shell, not a full charting/report workspace
