@@ -13,6 +13,7 @@ from quant_balance.web_demo import DEFAULT_HOST, DEFAULT_PORT, run_demo_web_serv
 
 DEFAULT_SYMBOL = "600519.SH"
 DEFAULT_EXAMPLE_PATH = Path(__file__).resolve().parents[2] / "examples" / "demo_backtest.csv"
+ROOT_COMMAND_HINT = "Use 'quant-balance --help' to explore commands, or try 'quant-balance demo' and 'quant-balance web-demo'."
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,6 +66,7 @@ def run_cli(argv: list[str] | None = None) -> int:
         return 0
 
     print("QuantBalance is ready.")
+    print(ROOT_COMMAND_HINT)
     return 0
 
 
