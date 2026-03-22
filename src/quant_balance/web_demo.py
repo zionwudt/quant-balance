@@ -145,7 +145,7 @@ def render_demo_page(
   <main data-testid=\"qb-demo-page\">
     <section class=\"card\" data-testid=\"qb-demo-header\">
       <h1>QuantBalance 本地 Web Demo</h1>
-      <p>先把主人可直接点开的最小回测路径跑通：选择示例数据或粘贴 CSV，提交后直接看到 summary、trades 与关键假设说明。</p>
+      <p>先把主人可直接点开的最小回测路径跑通：选择示例数据或上传 CSV，提交后直接看到 summary、trades 与关键假设说明。</p>
       <div class=\"success\" data-testid=\"first-run-guide\">
         <strong>第一次使用建议：</strong>先保持默认参数，直接用“示例数据”跑一遍。<br>
         <strong>三步完成：</strong>1) 打开页面 2) 点击“运行回测” 3) 查看 summary / trades / 假设说明。

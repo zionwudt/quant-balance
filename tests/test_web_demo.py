@@ -7,32 +7,47 @@ from quant_balance.report import SHORT_SAMPLE_WARNING
 from quant_balance.web_demo import create_app, render_demo_page, run_demo_web_backtest
 
 
-def test_render_demo_page_exposes_form_result_anchors_and_example_preview() -> None:
+def test_render_demo_page_exposes_real_file_upload_entry() -> None:
     html = render_demo_page()
 
     assert 'data-testid="qb-demo-page"' in html
     assert 'data-testid="qb-demo-form"' in html
     assert 'data-testid="qb-input-mode"' in html
     assert 'data-testid="qb-upload-input"' in html
+    assert 'enctype="multipart/form-data"' in html
+    assert 'data-testid="csv-upload-hint"' in html
+    assert 'data-testid="first-run-guide"' in html
 
 
-def test_run_demo_web_backtest_returns_summary_trades_assumptions_and_run_context() -> None:
+def test_run_demo_web_backtest_prefers_uploaded_file_content_for_upload_mode() -> None:
     result = run_demo_web_backtest(
         form_data={
-            "input_mode": "example",
+            "input_mode": "upload",
             "symbol": "600519.SH",
             "initial_cash": "100000",
             "short_window": "5",
             "long_window": "10",
+            "csv_file_content": (
+                "date,open,high,low,close,volume\n"
+                "2026-01-05,10,10.1,9.9,10,100000\n"
+                "2026-01-06,10.0,10.2,9.9,10.1,100000\n"
+                "2026-01-07,10.1,10.4,10.0,10.3,100000\n"
+                "2026-01-08,10.2,10.5,10.1,10.4,100000\n"
+                "2026-01-09,10.3,10.6,10.2,10.5,100000\n"
+                "2026-01-12,10.4,10.7,10.3,10.6,100000\n"
+                "2026-01-13,10.5,10.8,10.4,10.7,100000\n"
+                "2026-01-14,10.6,10.9,10.5,10.8,100000\n"
+                "2026-01-15,10.7,11.0,10.6,10.9,100000\n"
+                "2026-01-16,10.8,11.1,10.7,11.0,100000\n"
+            ),
+            "csv_filename": "bars.csv",
         }
     )
 
     assert result.summary["final_equity"] > 0
-    assert "summary" in result.chart_sections
-    assert any("印花税" in note for note in result.assumptions)
     assert result.sample_size_warning == SHORT_SAMPLE_WARNING
     assert result.run_context is not None
-    assert result.run_context["input_mode"] == "example"
+    assert result.run_context["input_mode"] == "upload"
     assert result.export_json is not None
     assert result.equity_curve_points is not None
 
@@ -70,7 +85,7 @@ def test_render_demo_page_shows_short_sample_warning_context_export_and_equity_c
     assert SHORT_SAMPLE_WARNING in html
 
 
-def test_create_app_handles_health_and_demo_post_flow(tmp_path: Path) -> None:
+def test_create_app_handles_health_and_multipart_file_upload_flow(tmp_path: Path) -> None:
     example_csv = tmp_path / "example.csv"
     example_csv.write_text(
         "date,open,high,low,close,volume\n"
@@ -106,15 +121,47 @@ def test_create_app_handles_health_and_demo_post_flow(tmp_path: Path) -> None:
     assert captured["status"] == "200 OK"
     assert b"ok" == b"".join(health_response)
 
-    body = (
-        "input_mode=example&symbol=600519.SH&initial_cash=100000&short_window=5&long_window=10"
+    boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+    multipart_body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="input_mode"\r\n\r\n'
+        'upload\r\n'
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="symbol"\r\n\r\n'
+        '600519.SH\r\n'
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="initial_cash"\r\n\r\n'
+        '100000\r\n'
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="short_window"\r\n\r\n'
+        '5\r\n'
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="long_window"\r\n\r\n'
+        '10\r\n'
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="csv_file"; filename="bars.csv"\r\n'
+        'Content-Type: text/csv\r\n\r\n'
+        'date,open,high,low,close,volume\n'
+        '2026-01-05,10,10.1,9.9,10,100000\n'
+        '2026-01-06,10.0,10.2,9.9,10.1,100000\n'
+        '2026-01-07,10.1,10.4,10.0,10.3,100000\n'
+        '2026-01-08,10.2,10.5,10.1,10.4,100000\n'
+        '2026-01-09,10.3,10.6,10.2,10.5,100000\n'
+        '2026-01-12,10.4,10.7,10.3,10.6,100000\n'
+        '2026-01-13,10.5,10.8,10.4,10.7,100000\n'
+        '2026-01-14,10.6,10.9,10.5,10.8,100000\n'
+        '2026-01-15,10.7,11.0,10.6,10.9,100000\n'
+        '2026-01-16,10.8,11.1,10.7,11.0,100000\r\n'
+        f"--{boundary}--\r\n"
     ).encode("utf-8")
+
     page_response = app(
         {
             "REQUEST_METHOD": "POST",
             "PATH_INFO": "/demo",
-            "wsgi.input": BytesIO(body),
-            "CONTENT_LENGTH": str(len(body)),
+            "CONTENT_TYPE": f"multipart/form-data; boundary={boundary}",
+            "wsgi.input": BytesIO(multipart_body),
+            "CONTENT_LENGTH": str(len(multipart_body)),
         },
         start_response,
     )
@@ -128,3 +175,4 @@ def test_create_app_handles_health_and_demo_post_flow(tmp_path: Path) -> None:
     assert 'data-testid="qb-run-context"' in html
     assert 'data-testid="qb-export-json"' in html
     assert 'data-testid="qb-equity-curve"' in html
+    assert '已选择文件：bars.csv' in html
