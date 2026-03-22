@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from quant_balance.backtest import BacktestEngine
-from quant_balance.demo import parse_csv_text_to_bars
+from quant_balance.demo import DemoValidationError, parse_csv_text_to_bars
 from quant_balance.models import AccountConfig
 from quant_balance.report import BacktestReport
 from quant_balance.strategy import MovingAverageCrossStrategy
@@ -41,13 +42,17 @@ def run_cli(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "demo":
-        report = run_demo_backtest(
-            csv_path=Path(args.csv),
-            symbol=args.symbol,
-            initial_cash=args.initial_cash,
-            short_window=args.short_window,
-            long_window=args.long_window,
-        )
+        try:
+            report = run_demo_backtest(
+                csv_path=Path(args.csv),
+                symbol=args.symbol,
+                initial_cash=args.initial_cash,
+                short_window=args.short_window,
+                long_window=args.long_window,
+            )
+        except (ValueError, FileNotFoundError, DemoValidationError) as exc:
+            print(f"错误：{_format_demo_cli_error(exc, csv_path=Path(args.csv))}", file=sys.stderr)
+            return 2
 
         if args.json:
             print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
@@ -78,9 +83,14 @@ def run_demo_backtest(
     long_window: int,
 ) -> BacktestReport:
     if initial_cash <= 0:
-        raise ValueError("initial cash must be greater than 0")
-    if short_window < 2 or long_window < 3 or short_window >= long_window:
-        raise ValueError("invalid moving average windows: short_window must be >= 2 and < long_window")
+        raise DemoValidationError("初始资金必须大于 0。")
+    if short_window < 2 or long_window < 3:
+        raise DemoValidationError("均线参数过小，建议短均线 ≥ 2、长均线 ≥ 3。")
+    if short_window >= long_window:
+        raise DemoValidationError("短均线必须小于长均线。")
+
+    if not csv_path.exists():
+        raise FileNotFoundError(csv_path)
 
     csv_text = csv_path.read_text(encoding="utf-8")
     bars = parse_csv_text_to_bars(csv_text=csv_text, symbol=symbol)
@@ -91,6 +101,14 @@ def run_demo_backtest(
     if result.report is None:
         raise RuntimeError("backtest did not produce a report")
     return result.report
+
+
+def _format_demo_cli_error(exc: Exception, *, csv_path: Path) -> str:
+    if isinstance(exc, FileNotFoundError):
+        missing_path = Path(getattr(exc, "filename", "") or csv_path)
+        return f"找不到 CSV 文件 {missing_path}。"
+    return str(exc)
+
 
 
 def format_demo_summary(report: BacktestReport, *, csv_path: Path, symbol: str, short_window: int, long_window: int) -> str:
