@@ -16,7 +16,7 @@ def test_render_demo_page_exposes_form_result_anchors_and_example_preview() -> N
     assert 'data-testid="qb-upload-input"' in html
 
 
-def test_run_demo_web_backtest_returns_summary_trades_and_assumptions() -> None:
+def test_run_demo_web_backtest_returns_summary_trades_assumptions_and_run_context() -> None:
     result = run_demo_web_backtest(
         form_data={
             "input_mode": "example",
@@ -31,6 +31,10 @@ def test_run_demo_web_backtest_returns_summary_trades_and_assumptions() -> None:
     assert "summary" in result.chart_sections
     assert any("印花税" in note for note in result.assumptions)
     assert result.sample_size_warning == SHORT_SAMPLE_WARNING
+    assert result.run_context is not None
+    assert result.run_context["input_mode"] == "example"
+    assert result.export_json is not None
+    assert result.equity_curve_points is not None
 
 
 def test_render_demo_page_shows_friendly_validation_error_for_invalid_ma_combo() -> None:
@@ -48,7 +52,7 @@ def test_render_demo_page_shows_friendly_validation_error_for_invalid_ma_combo()
     assert "短均线必须小于长均线" in html
 
 
-def test_render_demo_page_shows_short_sample_warning_when_metrics_are_degraded() -> None:
+def test_render_demo_page_shows_short_sample_warning_context_export_and_equity_curve() -> None:
     html = render_demo_page(
         form_data={
             "input_mode": "example",
@@ -60,6 +64,9 @@ def test_render_demo_page_shows_short_sample_warning_when_metrics_are_degraded()
     )
 
     assert 'data-testid="qb-sample-size-warning"' in html
+    assert 'data-testid="qb-run-context"' in html
+    assert 'data-testid="qb-export-json"' in html
+    assert 'data-testid="qb-equity-curve"' in html
     assert SHORT_SAMPLE_WARNING in html
 
 
@@ -118,3 +125,6 @@ def test_create_app_handles_health_and_demo_post_flow(tmp_path: Path) -> None:
     assert 'data-testid="qb-result-summary"' in html
     assert 'data-testid="qb-result-trades"' in html
     assert 'data-testid="qb-result-assumptions"' in html
+    assert 'data-testid="qb-run-context"' in html
+    assert 'data-testid="qb-export-json"' in html
+    assert 'data-testid="qb-equity-curve"' in html

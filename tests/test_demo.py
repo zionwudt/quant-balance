@@ -114,12 +114,15 @@ def test_build_demo_result_context_exposes_summary_trades_and_assumptions() -> N
 
     context = build_demo_result_context(report)
 
-    assert context.chart_sections == ["summary", "trades", "equity_curve"]
+    assert context.chart_sections == ["summary", "trades", "equity_curve", "run_context", "export"]
     assert context.summary["benchmark_name"] == "CSI300"
     assert context.summary["max_drawdown_start"] == "2026-01-06"
     assert context.summary["max_drawdown_end"] == "2026-01-07"
     assert context.closed_trades == []
     assert any("滑点" in note for note in context.assumptions)
+    assert context.export_json is not None
+    assert context.run_context == {}
+    assert context.equity_curve_points == []
 
 
 def test_build_demo_acceptance_checklist_covers_core_browser_paths() -> None:
