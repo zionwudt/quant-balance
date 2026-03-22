@@ -4,6 +4,7 @@ from html import escape
 from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qs
+import webbrowser
 from wsgiref.simple_server import make_server
 
 from quant_balance.backtest import BacktestEngine
@@ -49,11 +50,19 @@ def run_demo_web_server(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     developer_mode: bool = False,
+    open_browser: bool = False,
     example_csv_path: Path = DEFAULT_EXAMPLE_CSV_PATH,
 ) -> None:
     app = create_app(developer_mode=developer_mode, example_csv_path=example_csv_path)
     with make_server(host, port, app) as server:
-        print(f"QuantBalance Web Demo listening on http://{host}:{port}")
+        demo_url = f"http://{host}:{port}/demo"
+        print(f"QuantBalance Web Demo is ready: {demo_url}")
+        print("首次使用建议：先保持默认参数，直接用“示例数据”完成一次回测。")
+        print("三步即可体验：打开页面 → 点击运行回测 → 查看 summary / trades / 假设说明。")
+        if open_browser:
+            opened = webbrowser.open(demo_url)
+            status = "已尝试自动打开浏览器。" if opened else "未能自动打开浏览器，请手动访问上面的链接。"
+            print(status)
         server.serve_forever()
 
 
@@ -126,6 +135,10 @@ def render_demo_page(
     <section class=\"card\" data-testid=\"demo-header\">
       <h1>QuantBalance 本地 Web Demo</h1>
       <p>先把主人可直接点开的最小回测路径跑通：选择示例数据或粘贴 CSV，提交后直接看到 summary、trades 与关键假设说明。</p>
+      <div class=\"success\" data-testid=\"first-run-guide\">
+        <strong>第一次使用建议：</strong>先保持默认参数，直接用“示例数据”跑一遍。<br>
+        <strong>三步完成：</strong>1) 打开页面 2) 点击“运行回测” 3) 查看 summary / trades / 假设说明。
+      </div>
     </section>
 
     <section class=\"card\" data-testid=\"demo-form\">
