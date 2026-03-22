@@ -62,12 +62,16 @@ def run_cli(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "web-demo":
+        example_csv_path = Path(args.example_csv)
+        if not example_csv_path.exists():
+            print(f"错误：找不到示例 CSV 文件 {example_csv_path}。请检查 --example-csv 参数。", file=sys.stderr)
+            return 2
         run_demo_web_server(
             host=args.host,
             port=args.port,
             developer_mode=args.developer_mode,
             open_browser=args.open_browser,
-            example_csv_path=Path(args.example_csv),
+            example_csv_path=example_csv_path,
         )
         return 0
 
