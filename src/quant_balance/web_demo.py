@@ -104,6 +104,8 @@ def render_demo_page(
             '</div>'
         )
 
+    error_banner = f'<div class="error" data-testid="qb-demo-error">{escape(error_message)}</div>' if error_message else '<div data-testid="qb-demo-error" hidden></div>'
+
     return f"""<!doctype html>
 <html lang=\"zh-CN\">
 <head>
@@ -131,8 +133,8 @@ def render_demo_page(
   </style>
 </head>
 <body>
-  <main>
-    <section class=\"card\" data-testid=\"demo-header\">
+  <main data-testid=\"qb-demo-page\">
+    <section class=\"card\" data-testid=\"qb-demo-header\">
       <h1>QuantBalance 本地 Web Demo</h1>
       <p>先把主人可直接点开的最小回测路径跑通：选择示例数据或粘贴 CSV，提交后直接看到 summary、trades 与关键假设说明。</p>
       <div class=\"success\" data-testid=\"first-run-guide\">
@@ -141,46 +143,46 @@ def render_demo_page(
       </div>
     </section>
 
-    <section class=\"card\" data-testid=\"demo-form\">
+    <section class=\"card\" data-testid=\"qb-demo-form\">
       <h2>回测表单</h2>
-      {f'<div class="error" data-testid="demo-error">{escape(error_message)}</div>' if error_message else ''}
-      {('<div class="success" data-testid="demo-success">已完成一次回测，可继续调整参数后再次提交。</div>' if result_context else '')}
+      {error_banner}
+      {('<div class="success" data-testid="qb-demo-success">已完成一次回测，可继续调整参数后再次提交。</div>' if result_context else '')}
       <form method=\"post\" action=\"/demo\">
         <div>
           <label>数据来源</label>
-          <div class=\"radio-group\" data-testid=\"input-mode-options\">
+          <div class=\"radio-group\" data-testid=\"qb-input-mode\">
             {''.join(_render_mode_option(option['mode'], option['label'], selected_mode) for option in page_context.input_options)}
           </div>
         </div>
         <div class=\"grid\" style=\"margin-top: 16px;\">
           <div>
             <label for=\"symbol\">股票代码</label>
-            <input id=\"symbol\" name=\"symbol\" value=\"{escape(symbol)}\" data-testid=\"symbol-input\">
+            <input id=\"symbol\" name=\"symbol\" value=\"{escape(symbol)}\" data-testid=\"qb-symbol-input\">
           </div>
           <div>
             <label for=\"initial_cash\">初始资金</label>
-            <input id=\"initial_cash\" name=\"initial_cash\" value=\"{escape(initial_cash)}\" data-testid=\"initial-cash-input\">
+            <input id=\"initial_cash\" name=\"initial_cash\" value=\"{escape(initial_cash)}\" data-testid=\"qb-initial-cash-input\">
           </div>
           <div>
             <label for=\"short_window\">短均线</label>
-            <input id=\"short_window\" name=\"short_window\" value=\"{escape(short_window)}\" data-testid=\"short-window-input\">
+            <input id=\"short_window\" name=\"short_window\" value=\"{escape(short_window)}\" data-testid=\"qb-short-window-input\">
           </div>
           <div>
             <label for=\"long_window\">长均线</label>
-            <input id=\"long_window\" name=\"long_window\" value=\"{escape(long_window)}\" data-testid=\"long-window-input\">
+            <input id=\"long_window\" name=\"long_window\" value=\"{escape(long_window)}\" data-testid=\"qb-long-window-input\">
           </div>
         </div>
 
         <div style=\"margin-top: 16px;\">
           <label for=\"csv_text\">上传 CSV 内容（先用文本粘贴模拟上传）</label>
-          <textarea id=\"csv_text\" name=\"csv_text\" data-testid=\"csv-upload-input\">{escape(csv_text)}</textarea>
+          <textarea id=\"csv_text\" name=\"csv_text\" data-testid=\"qb-upload-input\">{escape(csv_text)}</textarea>
           <p class=\"hint\">当前 MVP 先用 textarea 作为浏览器上传入口占位，后续可无缝换成文件上传控件。</p>
         </div>
 
         {developer_path_block}
 
         <div style=\"margin-top: 18px; display: flex; gap: 12px; flex-wrap: wrap;\">
-          <button type=\"submit\" data-testid=\"submit-backtest\">运行回测</button>
+          <button type=\"submit\" data-testid=\"qb-submit-backtest\">运行回测</button>
         </div>
       </form>
     </section>
@@ -277,26 +279,26 @@ def render_result_section(result_context) -> str:
     sample_size_warning = ""
     if result_context.sample_size_warning:
         sample_size_warning = (
-            f'<div class="error" data-testid="sample-size-warning">{escape(result_context.sample_size_warning)}</div>'
+            f'<div class="error" data-testid="qb-sample-size-warning">{escape(result_context.sample_size_warning)}</div>'
         )
     return f"""
-    <section class=\"card\" data-testid=\"demo-result\">
+    <section class=\"card\" data-testid=\"qb-result-panel\">
       <h2>回测结果</h2>
       <p class=\"hint\">稳定结果区锚点：summary / trades / assumptions / chart-sections</p>
       {sample_size_warning}
       <div class=\"grid\">
         <div>
-          <h3 data-testid=\"summary-heading\">Summary</h3>
-          <table data-testid=\"summary-table\">{summary_rows}</table>
+          <h3 data-testid=\"qb-summary-heading\">Summary</h3>
+          <table data-testid=\"qb-result-summary\">{summary_rows}</table>
         </div>
         <div>
-          <h3 data-testid=\"assumptions-heading\">关键假设说明</h3>
-          <ul data-testid=\"assumptions-list\">{assumptions}</ul>
-          <p data-testid=\"chart-sections\">预留图表区块：{escape(chart_sections)}</p>
+          <h3 data-testid=\"qb-assumptions-heading\">关键假设说明</h3>
+          <ul data-testid=\"qb-result-assumptions\">{assumptions}</ul>
+          <p data-testid=\"qb-chart-sections\">预留图表区块：{escape(chart_sections)}</p>
         </div>
       </div>
-      <h3 data-testid=\"trades-heading\">Closed Trades</h3>
-      <table data-testid=\"trades-table\">
+      <h3 data-testid=\"qb-trades-heading\">Closed Trades</h3>
+      <table data-testid=\"qb-result-trades\">
         <thead>
           <tr><th>Symbol</th><th>Entry</th><th>Exit</th><th>Qty</th><th>Entry Px</th><th>Exit Px</th><th>PnL</th><th>PnL %</th></tr>
         </thead>
@@ -323,7 +325,8 @@ def _parse_form_data(environ: dict[str, object]) -> dict[str, str]:
 
 def _render_mode_option(mode: str, label: str, selected_mode: str) -> str:
     checked = "checked" if selected_mode == mode else ""
-    return f'<label><input type="radio" name="input_mode" value="{escape(mode)}" {checked}> {escape(label)}</label>'
+    extra_testid = ' data-testid="qb-use-example"' if mode == "example" else ""
+    return f'<label{extra_testid}><input type="radio" name="input_mode" value="{escape(mode)}" {checked}> {escape(label)}</label>'
 
 
 
