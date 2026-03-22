@@ -159,3 +159,13 @@ To make a future local Web demo more product-friendly, the repository now includ
 - user-friendly validation messages for missing files, missing columns, invalid MA params, and empty data
 
 This layer is framework-agnostic on purpose, so a later Flask/FastAPI/UI shell can reuse the same validation and copy rules.
+
+## Browser Acceptance Baseline for Future Web Demo
+
+To avoid shipping a future Web shell without product-level regression coverage, the repository now also defines a first browser acceptance baseline:
+
+- stable `qb-*` / `data-testid` selector contract for the future page shell
+- checklist covering home load, example flow, valid CSV upload, invalid CSV errors, invalid MA parameters, and result visibility
+- documentation in `docs/web-demo-acceptance.md` for later browser automation implementation
+
+This gives the upcoming Web MVP a concrete acceptance target before any Flask/FastAPI page is added.
