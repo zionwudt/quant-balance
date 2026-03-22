@@ -193,20 +193,41 @@ def parse_csv_text_to_bars(*, csv_text: str, symbol: str) -> list[MarketBar]:
         )
 
     bars: list[MarketBar] = []
+    previous_date: date | None = None
+    seen_dates: set[date] = set()
     try:
         for raw_row in reader:
             row = {(key or "").strip(): value for key, value in raw_row.items()}
-            bars.append(
-                MarketBar(
-                    symbol=symbol,
-                    date=date.fromisoformat((row["date"] or "").strip()),
-                    open=float(row["open"]),
-                    high=float(row["high"]),
-                    low=float(row["low"]),
-                    close=float(row["close"]),
-                    volume=float(row["volume"]),
-                )
+            bar = MarketBar(
+                symbol=symbol,
+                date=date.fromisoformat((row["date"] or "").strip()),
+                open=float(row["open"]),
+                high=float(row["high"]),
+                low=float(row["low"]),
+                close=float(row["close"]),
+                volume=float(row["volume"]),
             )
+
+            if previous_date and bar.date < previous_date:
+                raise DemoValidationError("CSV 日期顺序不正确：请按交易日从早到晚排列，不要乱序。")
+            if bar.date in seen_dates:
+                raise DemoValidationError("CSV 存在重复交易日：同一个日期只能出现一行数据。")
+            if min(bar.open, bar.high, bar.low, bar.close) <= 0:
+                raise DemoValidationError("CSV 价格必须全部大于 0，请检查 open/high/low/close 列。")
+            if bar.volume < 0:
+                raise DemoValidationError("CSV 成交量不能为负数，请检查 volume 列。")
+            if bar.high < bar.low:
+                raise DemoValidationError("CSV 价格区间不合法：high 不能小于 low。")
+            if not (bar.low <= bar.open <= bar.high):
+                raise DemoValidationError("CSV 价格区间不合法：open 必须落在 low 和 high 之间。")
+            if not (bar.low <= bar.close <= bar.high):
+                raise DemoValidationError("CSV 价格区间不合法：close 必须落在 low 和 high 之间。")
+
+            bars.append(bar)
+            previous_date = bar.date
+            seen_dates.add(bar.date)
+    except DemoValidationError:
+        raise
     except (KeyError, ValueError) as exc:
         raise DemoValidationError(
             "CSV 中存在无法识别的数值或日期格式。请使用 YYYY-MM-DD 日期，并确保价格/成交量列都是数字。"

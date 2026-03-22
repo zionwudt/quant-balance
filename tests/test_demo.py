@@ -119,3 +119,56 @@ def test_build_demo_result_context_exposes_summary_trades_and_assumptions() -> N
     assert context.summary["max_drawdown_end"] == "2026-01-07"
     assert context.closed_trades == []
     assert any("滑点" in note for note in context.assumptions)
+
+
+def test_parse_csv_text_to_bars_rejects_unsorted_dates() -> None:
+    csv_text = """date,open,high,low,close,volume
+2026-01-06,10,11,9,10.5,1000
+2026-01-05,10,11,9,10.5,1000"""
+
+    with pytest.raises(DemoValidationError, match="日期顺序不正确"):
+        parse_csv_text_to_bars(csv_text=csv_text, symbol="600519.SH")
+
+
+def test_parse_csv_text_to_bars_rejects_duplicate_dates() -> None:
+    csv_text = """date,open,high,low,close,volume
+2026-01-05,10,11,9,10.5,1000
+2026-01-05,10.2,11.1,9.1,10.6,1100"""
+
+    with pytest.raises(DemoValidationError, match="重复交易日"):
+        parse_csv_text_to_bars(csv_text=csv_text, symbol="600519.SH")
+
+
+def test_parse_csv_text_to_bars_rejects_non_positive_prices() -> None:
+    csv_text = "date,open,high,low,close,volume\n2026-01-05,0,11,9,10.5,1000"
+
+    with pytest.raises(DemoValidationError, match="价格必须全部大于 0"):
+        parse_csv_text_to_bars(csv_text=csv_text, symbol="600519.SH")
+
+
+def test_parse_csv_text_to_bars_rejects_negative_volume() -> None:
+    csv_text = "date,open,high,low,close,volume\n2026-01-05,10,11,9,10.5,-1"
+
+    with pytest.raises(DemoValidationError, match="成交量不能为负数"):
+        parse_csv_text_to_bars(csv_text=csv_text, symbol="600519.SH")
+
+
+def test_parse_csv_text_to_bars_rejects_high_below_low() -> None:
+    csv_text = "date,open,high,low,close,volume\n2026-01-05,10,8,9,9.5,1000"
+
+    with pytest.raises(DemoValidationError, match="high 不能小于 low"):
+        parse_csv_text_to_bars(csv_text=csv_text, symbol="600519.SH")
+
+
+def test_parse_csv_text_to_bars_rejects_open_outside_price_range() -> None:
+    csv_text = "date,open,high,low,close,volume\n2026-01-05,12,11,9,10.5,1000"
+
+    with pytest.raises(DemoValidationError, match="open 必须落在 low 和 high 之间"):
+        parse_csv_text_to_bars(csv_text=csv_text, symbol="600519.SH")
+
+
+def test_parse_csv_text_to_bars_rejects_close_outside_price_range() -> None:
+    csv_text = "date,open,high,low,close,volume\n2026-01-05,10,11,9,12,1000"
+
+    with pytest.raises(DemoValidationError, match="close 必须落在 low 和 high 之间"):
+        parse_csv_text_to_bars(csv_text=csv_text, symbol="600519.SH")
