@@ -9,6 +9,7 @@ from quant_balance.demo import parse_csv_text_to_bars
 from quant_balance.models import AccountConfig
 from quant_balance.report import BacktestReport
 from quant_balance.strategy import MovingAverageCrossStrategy
+from quant_balance.web_demo import DEFAULT_HOST, DEFAULT_PORT, run_demo_web_server
 
 DEFAULT_SYMBOL = "600519.SH"
 DEFAULT_EXAMPLE_PATH = Path(__file__).resolve().parents[2] / "examples" / "demo_backtest.csv"
@@ -25,6 +26,13 @@ def build_parser() -> argparse.ArgumentParser:
     demo_parser.add_argument("--short-window", type=int, default=5, help="short moving average window")
     demo_parser.add_argument("--long-window", type=int, default=10, help="long moving average window")
     demo_parser.add_argument("--json", action="store_true", help="print the full report as JSON")
+
+    web_demo_parser = subparsers.add_parser("web-demo", help="run the local web demo shell")
+    web_demo_parser.add_argument("action", nargs="?", default="serve", choices=["serve"], help="web demo action to execute")
+    web_demo_parser.add_argument("--host", default=DEFAULT_HOST, help="host to bind the local web demo")
+    web_demo_parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="port to bind the local web demo")
+    web_demo_parser.add_argument("--developer-mode", action="store_true", help="enable local path mode for developers")
+    web_demo_parser.add_argument("--example-csv", default=str(DEFAULT_EXAMPLE_PATH), help="path to the example CSV used by the web demo")
     return parser
 
 
@@ -32,22 +40,31 @@ def run_cli(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command != "demo":
-        print("QuantBalance is ready.")
+    if args.command == "demo":
+        report = run_demo_backtest(
+            csv_path=Path(args.csv),
+            symbol=args.symbol,
+            initial_cash=args.initial_cash,
+            short_window=args.short_window,
+            long_window=args.long_window,
+        )
+
+        if args.json:
+            print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+        else:
+            print(format_demo_summary(report, csv_path=Path(args.csv), symbol=args.symbol, short_window=args.short_window, long_window=args.long_window))
         return 0
 
-    report = run_demo_backtest(
-        csv_path=Path(args.csv),
-        symbol=args.symbol,
-        initial_cash=args.initial_cash,
-        short_window=args.short_window,
-        long_window=args.long_window,
-    )
+    if args.command == "web-demo":
+        run_demo_web_server(
+            host=args.host,
+            port=args.port,
+            developer_mode=args.developer_mode,
+            example_csv_path=Path(args.example_csv),
+        )
+        return 0
 
-    if args.json:
-        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
-    else:
-        print(format_demo_summary(report, csv_path=Path(args.csv), symbol=args.symbol, short_window=args.short_window, long_window=args.long_window))
+    print("QuantBalance is ready.")
     return 0
 
 
