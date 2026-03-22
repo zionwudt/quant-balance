@@ -46,7 +46,6 @@ def create_app(*, developer_mode: bool = False, example_csv_path: Path = DEFAULT
     return app
 
 
-
 def run_demo_web_server(
     *,
     host: str = DEFAULT_HOST,
@@ -63,10 +62,8 @@ def run_demo_web_server(
         print("三步即可体验：打开页面 → 点击运行回测 → 查看 summary / trades / 假设说明。")
         if open_browser:
             opened = webbrowser.open(demo_url)
-            status = "已尝试自动打开浏览器。" if opened else "未能自动打开浏览器，请手动访问上面的链接。"
-            print(status)
+            print("已尝试自动打开浏览器。" if opened else "未能自动打开浏览器，请手动访问上面的链接。")
         server.serve_forever()
-
 
 
 def render_demo_page(
@@ -104,13 +101,11 @@ def render_demo_page(
             f'<div style="margin-top: 16px;">'
             f'<label for="csv_path">本地 CSV 路径（开发者模式）</label>'
             f'<input id="csv_path" name="csv_path" value="{escape(csv_path)}" data-testid="csv-path-input">'
-            '</div>'
+            "</div>"
         )
 
     error_banner = f'<div class="error" data-testid="qb-demo-error">{escape(error_message)}</div>' if error_message else '<div data-testid="qb-demo-error" hidden></div>'
-    upload_hint = "选择本地 CSV 文件上传；若暂时没有文件，也可继续粘贴 CSV 文本做调试。"
-    if uploaded_filename:
-        upload_hint = f"已选择文件：{uploaded_filename}"
+    upload_hint = f"已选择文件：{uploaded_filename}" if uploaded_filename else "选择本地 CSV 文件上传；若暂时没有文件，也可继续粘贴 CSV 文本做调试。"
 
     return f"""<!doctype html>
 <html lang=\"zh-CN\">
@@ -133,8 +128,7 @@ def render_demo_page(
     button {{ border: 0; border-radius: 10px; background: #2563eb; color: #fff; padding: 11px 18px; font: inherit; font-weight: 600; cursor: pointer; }}
     table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
     th, td {{ padding: 10px 8px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; }}
-    code, pre {{ background: #f3f4f6; border-radius: 8px; }}
-    pre {{ padding: 12px; overflow-x: auto; white-space: pre-wrap; }}
+    pre {{ background: #f3f4f6; border-radius: 8px; padding: 12px; overflow-x: auto; white-space: pre-wrap; }}
     ul {{ padding-left: 18px; }}
     .export-box {{ max-height: 260px; overflow: auto; }}
     .context-list dt {{ font-weight: 700; margin-top: 8px; }}
@@ -145,7 +139,7 @@ def render_demo_page(
   <main data-testid=\"qb-demo-page\">
     <section class=\"card\" data-testid=\"qb-demo-header\">
       <h1>QuantBalance 本地 Web Demo</h1>
-      <p>先把主人可直接点开的最小回测路径跑通：选择示例数据或粘贴 CSV，提交后直接看到 summary、trades 与关键假设说明。</p>
+      <p>先把主人可直接点开的最小回测路径跑通：选择示例数据或上传 CSV，提交后直接看到 summary、trades 与关键假设说明。</p>
       <div class=\"success\" data-testid=\"first-run-guide\">
         <strong>第一次使用建议：</strong>先保持默认参数，直接用“示例数据”跑一遍。<br>
         <strong>三步完成：</strong>1) 打开页面 2) 点击“运行回测” 3) 查看 summary / trades / 假设说明。
@@ -164,38 +158,22 @@ def render_demo_page(
           </div>
         </div>
         <div class=\"grid\" style=\"margin-top: 16px;\">
-          <div>
-            <label for=\"symbol\">股票代码</label>
-            <input id=\"symbol\" name=\"symbol\" value=\"{escape(symbol)}\" data-testid=\"qb-symbol-input\">
-          </div>
-          <div>
-            <label for=\"initial_cash\">初始资金</label>
-            <input id=\"initial_cash\" name=\"initial_cash\" value=\"{escape(initial_cash)}\" data-testid=\"qb-initial-cash-input\">
-          </div>
-          <div>
-            <label for=\"short_window\">短均线</label>
-            <input id=\"short_window\" name=\"short_window\" value=\"{escape(short_window)}\" data-testid=\"qb-short-window-input\">
-          </div>
-          <div>
-            <label for=\"long_window\">长均线</label>
-            <input id=\"long_window\" name=\"long_window\" value=\"{escape(long_window)}\" data-testid=\"qb-long-window-input\">
-          </div>
+          <div><label for=\"symbol\">股票代码</label><input id=\"symbol\" name=\"symbol\" value=\"{escape(symbol)}\" data-testid=\"qb-symbol-input\"></div>
+          <div><label for=\"initial_cash\">初始资金</label><input id=\"initial_cash\" name=\"initial_cash\" value=\"{escape(initial_cash)}\" data-testid=\"qb-initial-cash-input\"></div>
+          <div><label for=\"short_window\">短均线</label><input id=\"short_window\" name=\"short_window\" value=\"{escape(short_window)}\" data-testid=\"qb-short-window-input\"></div>
+          <div><label for=\"long_window\">长均线</label><input id=\"long_window\" name=\"long_window\" value=\"{escape(long_window)}\" data-testid=\"qb-long-window-input\"></div>
         </div>
-
         <div style=\"margin-top: 16px;\">
           <label for=\"csv_file\">上传 CSV 文件</label>
           <input id=\"csv_file\" name=\"csv_file\" type=\"file\" accept=\".csv,text/csv\" data-testid=\"qb-upload-input\">
           <p class=\"hint\" data-testid=\"csv-upload-hint\">{escape(upload_hint)}</p>
         </div>
-
         <details style=\"margin-top: 16px;\">
           <summary>开发 / 调试辅助：直接粘贴 CSV 文本</summary>
           <textarea id=\"csv_text\" name=\"csv_text\" data-testid=\"csv-upload-textarea\">{escape(csv_text)}</textarea>
           <p class=\"hint\">上传文件会优先于文本粘贴路径；textarea 仅作为调试辅助保留。</p>
         </details>
-
         {developer_path_block}
-
         <div style=\"margin-top: 18px; display: flex; gap: 12px; flex-wrap: wrap;\">
           <button type=\"submit\" data-testid=\"qb-submit-backtest\">运行回测</button>
         </div>
@@ -206,9 +184,7 @@ def render_demo_page(
       <h2>输入说明与稳定锚点</h2>
       <p>{escape(page_context.field_guide.supported_frequency)}</p>
       <p>{escape(page_context.field_guide.recommended_ma_range)}</p>
-      <ul>
-        {''.join(f'<li>{escape(note)}</li>' for note in page_context.field_guide.notes)}
-      </ul>
+      <ul>{''.join(f'<li>{escape(note)}</li>' for note in page_context.field_guide.notes)}</ul>
       <h3>CSV 模板</h3>
       <pre data-testid=\"csv-template\">{escape(page_context.csv_template)}</pre>
       <h3>示例 CSV 预览</h3>
@@ -222,13 +198,7 @@ def render_demo_page(
 """
 
 
-
-def run_demo_web_backtest(
-    *,
-    form_data: dict[str, str],
-    developer_mode: bool = False,
-    example_csv_path: Path = DEFAULT_EXAMPLE_CSV_PATH,
-):
+def run_demo_web_backtest(*, form_data: dict[str, str], developer_mode: bool = False, example_csv_path: Path = DEFAULT_EXAMPLE_CSV_PATH):
     input_mode = (form_data.get("input_mode") or "example").strip()
     symbol = (form_data.get("symbol") or "").strip()
     initial_cash = _parse_float(form_data.get("initial_cash"), field_name="初始资金")
@@ -258,11 +228,9 @@ def run_demo_web_backtest(
     bars = load_demo_bars(request)
     strategy = MovingAverageCrossStrategy(short_window=short_window, long_window=long_window)
     config = AccountConfig(initial_cash=initial_cash, max_position_ratio=1.0, max_positions=1, max_drawdown_ratio=1.0)
-    engine = BacktestEngine(config=config, strategy=strategy)
-    result = engine.run(bars)
+    result = BacktestEngine(config=config, strategy=strategy).run(bars)
     if result.report is None:
         raise RuntimeError("回测未生成 report")
-
     run_context = {
         "input_mode": input_mode,
         "symbol": symbol,
@@ -273,113 +241,62 @@ def run_demo_web_backtest(
         "date_range_start": bars[0].date.isoformat() if bars else None,
         "date_range_end": bars[-1].date.isoformat() if bars else None,
     }
-    equity_curve_points = [
-        {"date": equity_date.isoformat(), "equity": equity}
-        for equity_date, equity in zip(result.equity_dates, result.equity_curve)
-    ]
+    equity_curve_points = [{"date": d.isoformat(), "equity": e} for d, e in zip(result.equity_dates, result.equity_curve)]
     return build_demo_result_context(result.report, run_context=run_context, equity_curve_points=equity_curve_points)
-
 
 
 def render_result_section(result_context) -> str:
     if result_context is None:
         return ""
-
-    summary_rows = ''.join(
-        f'<tr><th>{escape(_summary_label(key))}</th><td>{escape(_format_value(value))}</td></tr>'
-        for key, value in result_context.summary.items()
-    )
+    summary_rows = ''.join(f'<tr><th>{escape(_summary_label(k))}</th><td>{escape(_format_value(v))}</td></tr>' for k, v in result_context.summary.items())
     trade_rows = ''.join(
         '<tr>'
-        f'<td>{escape(str(trade["symbol"]))}</td>'
-        f'<td>{escape(str(trade["entry_date"]))}</td>'
-        f'<td>{escape(str(trade["exit_date"]))}</td>'
-        f'<td>{escape(str(trade["quantity"]))}</td>'
-        f'<td>{escape(_format_value(trade["entry_price"]))}</td>'
-        f'<td>{escape(_format_value(trade["exit_price"]))}</td>'
-        f'<td>{escape(_format_value(trade["pnl"]))}</td>'
-        f'<td>{escape(_format_value(trade["pnl_ratio"]))}</td>'
-        '</tr>'
-        for trade in result_context.closed_trades
-    )
-    if not trade_rows:
-        trade_rows = '<tr><td colspan="8">当前这次回测没有形成 closed trades，但 summary 已可用于页面回归验证。</td></tr>'
-
+        f'<td>{escape(str(t["symbol"]))}</td><td>{escape(str(t["entry_date"]))}</td><td>{escape(str(t["exit_date"]))}</td>'
+        f'<td>{escape(str(t["quantity"]))}</td><td>{escape(_format_value(t["entry_price"]))}</td><td>{escape(_format_value(t["exit_price"]))}</td>'
+        f'<td>{escape(_format_value(t["pnl"]))}</td><td>{escape(_format_value(t["pnl_ratio"]))}</td>'
+        '</tr>' for t in result_context.closed_trades
+    ) or '<tr><td colspan="8">当前这次回测没有形成 closed trades，但 summary 已可用于页面回归验证。</td></tr>'
     assumptions = ''.join(f'<li>{escape(note)}</li>' for note in result_context.assumptions)
-    chart_sections = ', '.join(result_context.chart_sections)
-    sample_size_warning = ""
-    if result_context.sample_size_warning:
-        sample_size_warning = (
-            f'<div class="error" data-testid="qb-sample-size-warning">{escape(result_context.sample_size_warning)}</div>'
-        )
-
+    sample_size_warning = f'<div class="error" data-testid="qb-sample-size-warning">{escape(result_context.sample_size_warning)}</div>' if result_context.sample_size_warning else ''
     run_context = result_context.run_context or {}
-    context_items = ''.join(
-        f'<dt>{escape(str(key))}</dt><dd>{escape(_format_value(value))}</dd>'
-        for key, value in run_context.items()
-    )
+    context_items = ''.join(f'<dt>{escape(str(k))}</dt><dd>{escape(_format_value(v))}</dd>' for k, v in run_context.items())
     export_json = escape(result_context.export_json or "")
     equity_svg = _render_equity_curve_svg(result_context.equity_curve_points or [])
-
+    chart_sections = ', '.join(result_context.chart_sections)
     return f"""
     <section class=\"card\" data-testid=\"qb-result-panel\">
       <h2>回测结果</h2>
       <p class=\"hint\">稳定结果区锚点：summary / trades / assumptions / chart-sections</p>
       {sample_size_warning}
       <div class=\"grid\">
-        <div>
-          <h3 data-testid=\"qb-summary-heading\">Summary</h3>
-          <table data-testid=\"qb-result-summary\">{summary_rows}</table>
-        </div>
-        <div>
-          <h3 data-testid=\"qb-assumptions-heading\">关键假设说明</h3>
-          <ul data-testid=\"qb-result-assumptions\">{assumptions}</ul>
-          <p data-testid=\"qb-chart-sections\">预留图表区块：{escape(chart_sections)}</p>
-        </div>
+        <div><h3 data-testid=\"qb-summary-heading\">Summary</h3><table data-testid=\"qb-result-summary\">{summary_rows}</table></div>
+        <div><h3 data-testid=\"qb-assumptions-heading\">关键假设说明</h3><ul data-testid=\"qb-result-assumptions\">{assumptions}</ul><p data-testid=\"qb-chart-sections\">预留图表区块：{escape(chart_sections)}</p></div>
       </div>
       <div class=\"grid\" style=\"margin-top: 16px;\">
-        <div>
-          <h3 data-testid=\"qb-equity-curve-heading\">权益曲线（轻量 SVG）</h3>
-          <div data-testid=\"qb-equity-curve\">{equity_svg}</div>
-        </div>
-        <div>
-          <h3 data-testid=\"qb-run-context-heading\">本次回测上下文</h3>
-          <dl class=\"context-list\" data-testid=\"qb-run-context\">{context_items}</dl>
-        </div>
+        <div><h3 data-testid=\"qb-equity-curve-heading\">权益曲线（轻量 SVG）</h3><div data-testid=\"qb-equity-curve\">{equity_svg}</div></div>
+        <div><h3 data-testid=\"qb-run-context-heading\">本次回测上下文</h3><dl class=\"context-list\" data-testid=\"qb-run-context\">{context_items}</dl></div>
       </div>
-      <div style=\"margin-top: 16px;\">
-        <h3 data-testid=\"qb-export-heading\">结果导出（JSON 快照）</h3>
-        <pre class=\"export-box\" data-testid=\"qb-export-json\">{export_json}</pre>
-      </div>
+      <div style=\"margin-top: 16px;\"><h3 data-testid=\"qb-export-heading\">结果导出（JSON 快照）</h3><pre class=\"export-box\" data-testid=\"qb-export-json\">{export_json}</pre></div>
       <h3 data-testid=\"qb-trades-heading\">Closed Trades</h3>
-      <table data-testid=\"qb-result-trades\">
-        <thead>
-          <tr><th>Symbol</th><th>Entry</th><th>Exit</th><th>Qty</th><th>Entry Px</th><th>Exit Px</th><th>PnL</th><th>PnL %</th></tr>
-        </thead>
-        <tbody>{trade_rows}</tbody>
-      </table>
+      <table data-testid=\"qb-result-trades\"><thead><tr><th>Symbol</th><th>Entry</th><th>Exit</th><th>Qty</th><th>Entry Px</th><th>Exit Px</th><th>PnL</th><th>PnL %</th></tr></thead><tbody>{trade_rows}</tbody></table>
     </section>
     """
-
 
 
 def _render_equity_curve_svg(points: list[dict[str, object]]) -> str:
     if not points:
         return "<p>暂无权益曲线数据。</p>"
-    width = 520
-    height = 180
-    padding = 20
+    width, height, padding = 520, 180, 20
     equities = [float(point["equity"]) for point in points]
-    min_equity = min(equities)
-    max_equity = max(equities)
+    min_equity, max_equity = min(equities), max(equities)
     span = max(max_equity - min_equity, 1.0)
     x_step = (width - padding * 2) / max(len(points) - 1, 1)
-    coords: list[str] = []
-    for index, point in enumerate(points):
-        x = padding + index * x_step
+    coords = []
+    for i, point in enumerate(points):
+        x = padding + i * x_step
         y = height - padding - ((float(point["equity"]) - min_equity) / span) * (height - padding * 2)
         coords.append(f"{x:.1f},{y:.1f}")
-    polyline = " ".join(coords)
+    polyline = ' '.join(coords)
     return (
         f'<svg viewBox="0 0 {width} {height}" width="100%" height="180" role="img" aria-label="equity curve">'
         f'<rect x="0" y="0" width="{width}" height="{height}" fill="#f8fafc" rx="12"></rect>'
@@ -390,23 +307,17 @@ def _render_equity_curve_svg(points: list[dict[str, object]]) -> str:
     )
 
 
-
 def _parse_form_data(environ: dict[str, object]) -> dict[str, str]:
     content_type = str(environ.get("CONTENT_TYPE") or "")
     if content_type.startswith("multipart/form-data"):
         return _parse_multipart_form_data(environ)
-
     content_length = int(str(environ.get("CONTENT_LENGTH") or 0) or 0)
-    body = b""
-    if content_length > 0:
-        stream = environ.get("wsgi.input")
-        if stream is not None:
-            body = stream.read(content_length)
+    stream = environ.get("wsgi.input")
+    body = stream.read(content_length) if stream is not None and content_length > 0 else b""
     if not body:
         return {}
     parsed = parse_qs(body.decode("utf-8"), keep_blank_values=True)
-    return {key: values[-1] if values else "" for key, values in parsed.items()}
-
+    return {k: v[-1] if v else "" for k, v in parsed.items()}
 
 
 def _parse_multipart_form_data(environ: dict[str, object]) -> dict[str, str]:
@@ -416,12 +327,7 @@ def _parse_multipart_form_data(environ: dict[str, object]) -> dict[str, str]:
     body = stream.read(content_length) if stream is not None and content_length > 0 else b""
     if not body:
         return {}
-
-    parser = BytesParser(policy=email_policy)
-    message = parser.parsebytes(
-        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
-    )
-
+    message = BytesParser(policy=email_policy).parsebytes(f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body)
     form_data: dict[str, str] = {}
     for part in message.iter_parts():
         name = part.get_param("name", header="content-disposition")
@@ -440,12 +346,10 @@ def _parse_multipart_form_data(environ: dict[str, object]) -> dict[str, str]:
     return form_data
 
 
-
 def _render_mode_option(mode: str, label: str, selected_mode: str) -> str:
     checked = "checked" if selected_mode == mode else ""
     extra_testid = ' data-testid="qb-use-example"' if mode == "example" else ""
     return f'<label{extra_testid}><input type="radio" name="input_mode" value="{escape(mode)}" {checked}> {escape(label)}</label>'
-
 
 
 def _parse_float(value: str | None, *, field_name: str) -> float:
@@ -455,7 +359,6 @@ def _parse_float(value: str | None, *, field_name: str) -> float:
         raise DemoValidationError(f"{field_name}必须是数字。") from exc
 
 
-
 def _parse_int(value: str | None, *, field_name: str) -> int:
     try:
         return int((value or "").strip())
@@ -463,9 +366,8 @@ def _parse_int(value: str | None, *, field_name: str) -> int:
         raise DemoValidationError(f"{field_name}必须是整数。") from exc
 
 
-
 def _summary_label(key: str) -> str:
-    labels = {
+    return {
         "initial_equity": "初始资金",
         "final_equity": "期末权益",
         "total_return_pct": "总收益率(%)",
@@ -482,9 +384,7 @@ def _summary_label(key: str) -> str:
         "benchmark_name": "基准名称",
         "benchmark_return_pct": "基准收益率(%)",
         "excess_return_pct": "超额收益(%)",
-    }
-    return labels.get(key, key)
-
+    }.get(key, key)
 
 
 def _format_value(value: object) -> str:
@@ -497,13 +397,7 @@ def _format_value(value: object) -> str:
 
 def _print_module_entry_hint() -> int:
     import sys
-
-    print(
-        "quant_balance.web_demo 不是独立 CLI 入口。\n"
-        "请改用：python -m quant_balance web-demo --help\n"
-        "或：quant-balance web-demo --help",
-        file=sys.stderr,
-    )
+    print("quant_balance.web_demo 不是独立 CLI 入口。\n请改用：python -m quant_balance web-demo --help\n或：quant-balance web-demo --help", file=sys.stderr)
     return 2
 
 
