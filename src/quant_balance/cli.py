@@ -28,7 +28,6 @@ def build_parser() -> argparse.ArgumentParser:
     demo_parser.add_argument("--json", action="store_true", help="print the full report as JSON")
 
     web_demo_parser = subparsers.add_parser("web-demo", help="run the local web demo shell")
-    web_demo_parser.add_argument("action", nargs="?", default="serve", choices=["serve"], help="web demo action to execute")
     web_demo_parser.add_argument("--host", default=DEFAULT_HOST, help="host to bind the local web demo")
     web_demo_parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="port to bind the local web demo")
     web_demo_parser.add_argument("--developer-mode", action="store_true", help="enable local path mode for developers")
