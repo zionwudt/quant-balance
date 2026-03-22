@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import date
 import csv
 import io
+import json
 
 from quant_balance.models import MarketBar
 from quant_balance.report import BacktestReport
@@ -73,6 +74,9 @@ class DemoResultContext:
     assumptions: list[str]
     chart_sections: list[str]
     sample_size_warning: str | None = None
+    run_context: dict[str, object] | None = None
+    export_json: str | None = None
+    equity_curve_points: list[dict[str, object]] | None = None
 
 
 @dataclass(slots=True)
@@ -163,7 +167,12 @@ def build_demo_page_context(*, developer_mode: bool = False) -> DemoPageContext:
 
 
 
-def build_demo_result_context(report: BacktestReport) -> DemoResultContext:
+def build_demo_result_context(
+    report: BacktestReport,
+    *,
+    run_context: dict[str, object] | None = None,
+    equity_curve_points: list[dict[str, object]] | None = None,
+) -> DemoResultContext:
     guide = get_demo_field_guide()
     summary: dict[str, float | int | str | None] = {
         "initial_equity": report.initial_equity,
@@ -183,12 +192,22 @@ def build_demo_result_context(report: BacktestReport) -> DemoResultContext:
         "benchmark_return_pct": report.benchmark_return_pct,
         "excess_return_pct": report.excess_return_pct,
     }
+    export_payload = {
+        "summary": summary,
+        "closed_trades": report.to_dict()["closed_trades"],
+        "run_context": run_context or {},
+        "assumptions": guide.notes,
+        "sample_size_warning": report.sample_size_warning,
+    }
     return DemoResultContext(
         summary=summary,
         closed_trades=report.to_dict()["closed_trades"],
         assumptions=guide.notes,
-        chart_sections=["summary", "trades", "equity_curve"],
+        chart_sections=["summary", "trades", "equity_curve", "run_context", "export"],
         sample_size_warning=report.sample_size_warning,
+        run_context=run_context or {},
+        export_json=json.dumps(export_payload, ensure_ascii=False, indent=2),
+        equity_curve_points=equity_curve_points or [],
     )
 
 
@@ -317,7 +336,6 @@ def build_demo_acceptance_checklist() -> DemoAcceptanceChecklist:
     )
 
 
-
 def load_demo_bars(request: BacktestDemoRequest) -> list[MarketBar]:
     request.validate()
     if request.input_mode == "example":
@@ -338,58 +356,59 @@ def load_demo_bars(request: BacktestDemoRequest) -> list[MarketBar]:
 
 
 def parse_csv_text_to_bars(*, csv_text: str, symbol: str) -> list[MarketBar]:
-    reader = csv.DictReader(io.StringIO(csv_text.strip()), skipinitialspace=True)
+    reader = csv.DictReader(io.StringIO(csv_text.strip()))
     if reader.fieldnames is None:
-        raise DemoValidationError("CSV 为空，或缺少表头。")
+        raise DemoValidationError("CSV 缺少表头，请至少包含 date, open, high, low, close, volume。")
 
-    reader.fieldnames = [name.strip() for name in reader.fieldnames]
-    fieldnames = set(reader.fieldnames)
-    missing_columns = [column for column in REQUIRED_CSV_COLUMNS if column not in fieldnames]
+    normalized_fieldnames = [field.strip() for field in reader.fieldnames]
+    missing_columns = [column for column in REQUIRED_CSV_COLUMNS if column not in normalized_fieldnames]
     if missing_columns:
-        raise DemoValidationError(
-            "CSV 缺少必要字段：" + ", ".join(missing_columns) + "。请下载模板后按模板列名准备数据。"
-        )
+        raise DemoValidationError(f"CSV 缺少必要字段：{', '.join(missing_columns)}。请下载模板后按模板列名准备数据。")
 
     bars: list[MarketBar] = []
-    previous_date: date | None = None
     seen_dates: set[date] = set()
-    try:
-        for raw_row in reader:
-            row = {(key or "").strip(): value for key, value in raw_row.items()}
-            bar = MarketBar(
+    previous_date: date | None = None
+
+    for index, raw_row in enumerate(reader, start=2):
+        row = {(key.strip() if key else key): value for key, value in raw_row.items()}
+        try:
+            bar_date = date.fromisoformat((row["date"] or "").strip())
+            open_price = float((row["open"] or "").strip())
+            high_price = float((row["high"] or "").strip())
+            low_price = float((row["low"] or "").strip())
+            close_price = float((row["close"] or "").strip())
+            volume = float((row["volume"] or "").strip())
+        except (TypeError, ValueError) as exc:
+            raise DemoValidationError(f"第 {index} 行存在无法识别的数值或日期格式，请检查 date/open/high/low/close/volume。") from exc
+
+        if previous_date and bar_date < previous_date:
+            raise DemoValidationError(f"CSV 日期顺序不正确：第 {index} 行 {bar_date.isoformat()} 早于上一行 {previous_date.isoformat()}。")
+        if bar_date in seen_dates:
+            raise DemoValidationError(f"CSV 存在重复交易日：{bar_date.isoformat()}。")
+        if min(open_price, high_price, low_price, close_price) <= 0:
+            raise DemoValidationError(f"第 {index} 行价格必须全部大于 0。")
+        if volume < 0:
+            raise DemoValidationError(f"第 {index} 行成交量不能为负数。")
+        if high_price < low_price:
+            raise DemoValidationError(f"第 {index} 行价格区间不合法：high 不能小于 low。")
+        if not (low_price <= open_price <= high_price):
+            raise DemoValidationError(f"第 {index} 行 open 必须落在 low 和 high 之间。")
+        if not (low_price <= close_price <= high_price):
+            raise DemoValidationError(f"第 {index} 行 close 必须落在 low 和 high 之间。")
+
+        bars.append(
+            MarketBar(
                 symbol=symbol,
-                date=date.fromisoformat((row["date"] or "").strip()),
-                open=float(row["open"]),
-                high=float(row["high"]),
-                low=float(row["low"]),
-                close=float(row["close"]),
-                volume=float(row["volume"]),
+                date=bar_date,
+                open=open_price,
+                high=high_price,
+                low=low_price,
+                close=close_price,
+                volume=volume,
             )
-
-            if previous_date and bar.date < previous_date:
-                raise DemoValidationError("CSV 日期顺序不正确：请按交易日从早到晚排列，不要乱序。")
-            if bar.date in seen_dates:
-                raise DemoValidationError("CSV 存在重复交易日：同一个日期只能出现一行数据。")
-            if min(bar.open, bar.high, bar.low, bar.close) <= 0:
-                raise DemoValidationError("CSV 价格必须全部大于 0，请检查 open/high/low/close 列。")
-            if bar.volume < 0:
-                raise DemoValidationError("CSV 成交量不能为负数，请检查 volume 列。")
-            if bar.high < bar.low:
-                raise DemoValidationError("CSV 价格区间不合法：high 不能小于 low。")
-            if not (bar.low <= bar.open <= bar.high):
-                raise DemoValidationError("CSV 价格区间不合法：open 必须落在 low 和 high 之间。")
-            if not (bar.low <= bar.close <= bar.high):
-                raise DemoValidationError("CSV 价格区间不合法：close 必须落在 low 和 high 之间。")
-
-            bars.append(bar)
-            previous_date = bar.date
-            seen_dates.add(bar.date)
-    except DemoValidationError:
-        raise
-    except (KeyError, ValueError) as exc:
-        raise DemoValidationError(
-            "CSV 中存在无法识别的数值或日期格式。请使用 YYYY-MM-DD 日期，并确保价格/成交量列都是数字。"
-        ) from exc
+        )
+        previous_date = bar_date
+        seen_dates.add(bar_date)
 
     return bars
 

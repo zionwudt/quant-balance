@@ -136,6 +136,9 @@ def render_demo_page(
     code, pre {{ background: #f3f4f6; border-radius: 8px; }}
     pre {{ padding: 12px; overflow-x: auto; white-space: pre-wrap; }}
     ul {{ padding-left: 18px; }}
+    .export-box {{ max-height: 260px; overflow: auto; }}
+    .context-list dt {{ font-weight: 700; margin-top: 8px; }}
+    .context-list dd {{ margin: 2px 0 8px 0; color: #374151; }}
   </style>
 </head>
 <body>
@@ -259,7 +262,22 @@ def run_demo_web_backtest(
     result = engine.run(bars)
     if result.report is None:
         raise RuntimeError("回测未生成 report")
-    return build_demo_result_context(result.report)
+
+    run_context = {
+        "input_mode": input_mode,
+        "symbol": symbol,
+        "initial_cash": initial_cash,
+        "short_window": short_window,
+        "long_window": long_window,
+        "bars_count": len(bars),
+        "date_range_start": bars[0].date.isoformat() if bars else None,
+        "date_range_end": bars[-1].date.isoformat() if bars else None,
+    }
+    equity_curve_points = [
+        {"date": equity_date.isoformat(), "equity": equity}
+        for equity_date, equity in zip(result.equity_dates, result.equity_curve)
+    ]
+    return build_demo_result_context(result.report, run_context=run_context, equity_curve_points=equity_curve_points)
 
 
 
@@ -294,6 +312,15 @@ def render_result_section(result_context) -> str:
         sample_size_warning = (
             f'<div class="error" data-testid="qb-sample-size-warning">{escape(result_context.sample_size_warning)}</div>'
         )
+
+    run_context = result_context.run_context or {}
+    context_items = ''.join(
+        f'<dt>{escape(str(key))}</dt><dd>{escape(_format_value(value))}</dd>'
+        for key, value in run_context.items()
+    )
+    export_json = escape(result_context.export_json or "")
+    equity_svg = _render_equity_curve_svg(result_context.equity_curve_points or [])
+
     return f"""
     <section class=\"card\" data-testid=\"qb-result-panel\">
       <h2>回测结果</h2>
@@ -310,6 +337,20 @@ def render_result_section(result_context) -> str:
           <p data-testid=\"qb-chart-sections\">预留图表区块：{escape(chart_sections)}</p>
         </div>
       </div>
+      <div class=\"grid\" style=\"margin-top: 16px;\">
+        <div>
+          <h3 data-testid=\"qb-equity-curve-heading\">权益曲线（轻量 SVG）</h3>
+          <div data-testid=\"qb-equity-curve\">{equity_svg}</div>
+        </div>
+        <div>
+          <h3 data-testid=\"qb-run-context-heading\">本次回测上下文</h3>
+          <dl class=\"context-list\" data-testid=\"qb-run-context\">{context_items}</dl>
+        </div>
+      </div>
+      <div style=\"margin-top: 16px;\">
+        <h3 data-testid=\"qb-export-heading\">结果导出（JSON 快照）</h3>
+        <pre class=\"export-box\" data-testid=\"qb-export-json\">{export_json}</pre>
+      </div>
       <h3 data-testid=\"qb-trades-heading\">Closed Trades</h3>
       <table data-testid=\"qb-result-trades\">
         <thead>
@@ -319,6 +360,34 @@ def render_result_section(result_context) -> str:
       </table>
     </section>
     """
+
+
+
+def _render_equity_curve_svg(points: list[dict[str, object]]) -> str:
+    if not points:
+        return "<p>暂无权益曲线数据。</p>"
+    width = 520
+    height = 180
+    padding = 20
+    equities = [float(point["equity"]) for point in points]
+    min_equity = min(equities)
+    max_equity = max(equities)
+    span = max(max_equity - min_equity, 1.0)
+    x_step = (width - padding * 2) / max(len(points) - 1, 1)
+    coords: list[str] = []
+    for index, point in enumerate(points):
+        x = padding + index * x_step
+        y = height - padding - ((float(point["equity"]) - min_equity) / span) * (height - padding * 2)
+        coords.append(f"{x:.1f},{y:.1f}")
+    polyline = " ".join(coords)
+    return (
+        f'<svg viewBox="0 0 {width} {height}" width="100%" height="180" role="img" aria-label="equity curve">'
+        f'<rect x="0" y="0" width="{width}" height="{height}" fill="#f8fafc" rx="12"></rect>'
+        f'<polyline fill="none" stroke="#2563eb" stroke-width="3" points="{polyline}"></polyline>'
+        f'<text x="{padding}" y="18" fill="#475569" font-size="12">min {min_equity:.2f}</text>'
+        f'<text x="{width - 120}" y="18" fill="#475569" font-size="12">max {max_equity:.2f}</text>'
+        '</svg>'
+    )
 
 
 
