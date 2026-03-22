@@ -68,8 +68,9 @@ def test_parse_csv_text_to_bars_accepts_headers_with_spaces() -> None:
 def test_load_demo_bars_supports_example_mode() -> None:
     bars = load_demo_bars(BacktestDemoRequest(input_mode="example", symbol="600519.SH"))
 
-    assert len(bars) == 4
+    assert len(bars) == 18
     assert bars[0].symbol == "600519.SH"
+    assert bars[-1].date.isoformat() == "2026-01-28"
 
 
 def test_load_demo_bars_returns_friendly_file_not_found_message() -> None:

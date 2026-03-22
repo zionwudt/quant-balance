@@ -5,6 +5,7 @@ from datetime import date
 import csv
 import io
 import json
+from pathlib import Path
 
 from quant_balance.models import MarketBar
 from quant_balance.report import BacktestReport
@@ -146,15 +147,8 @@ def get_csv_template() -> str:
 
 
 def get_example_csv() -> str:
-    return "\n".join(
-        [
-            ",".join(REQUIRED_CSV_COLUMNS),
-            "2026-01-05,10.00,10.30,9.90,10.20,1250000",
-            "2026-01-06,10.25,10.50,10.10,10.45,1320000",
-            "2026-01-07,10.50,10.80,10.40,10.75,1180000",
-            "2026-01-08,10.70,10.90,10.55,10.60,980000",
-        ]
-    )
+    example_path = Path(__file__).resolve().parents[2] / "examples" / "demo_backtest.csv"
+    return example_path.read_text(encoding="utf-8")
 
 
 def build_demo_page_context(*, developer_mode: bool = False) -> DemoPageContext:

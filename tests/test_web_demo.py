@@ -33,6 +33,8 @@ def test_run_demo_web_backtest_returns_summary_trades_assumptions_and_run_contex
     assert result.sample_size_warning == SHORT_SAMPLE_WARNING
     assert result.run_context is not None
     assert result.run_context["input_mode"] == "example"
+    assert result.run_context["bars_count"] == 18
+    assert result.run_context["date_range_end"] == "2026-01-28"
     assert result.export_json is not None
     assert result.equity_curve_points is not None
 
