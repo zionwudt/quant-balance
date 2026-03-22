@@ -9,6 +9,10 @@ venv/
 .mypy_cache/
 .coverage
 htmlcov/
+*.egg-info/
+.eggs/
+build/
+dist/
 
 # IDE
 .vscode/
