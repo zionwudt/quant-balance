@@ -424,3 +424,19 @@ def _format_value(value: object) -> str:
     if isinstance(value, float):
         return f"{value:.2f}"
     return str(value)
+
+
+def _print_module_entry_hint() -> int:
+    import sys
+
+    print(
+        "quant_balance.web_demo 不是独立 CLI 入口。\n"
+        "请改用：python -m quant_balance web-demo --help\n"
+        "或：quant-balance web-demo --help",
+        file=sys.stderr,
+    )
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(_print_module_entry_hint())
