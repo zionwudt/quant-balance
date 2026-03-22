@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_OUTPUT = "QuantBalance is ready."
+EXPECTED_OUTPUT = "QuantBalance is ready.\nUse 'quant-balance --help' to explore commands, or try 'quant-balance demo' and 'quant-balance web-demo'."
 
 
 def test_package_install_exposes_console_entrypoint(tmp_path: Path) -> None:
