@@ -19,6 +19,6 @@ def test_python_dash_m_quant_balance_help_works() -> None:
 
     help_text = result.stdout
 
-    assert "demo" in help_text
-    assert "web-demo" in help_text
-    assert "QuantBalance CLI" in help_text
+    assert "--host" in help_text
+    assert "--port" in help_text
+    assert "知衡" in help_text or "QuantBalance" in help_text

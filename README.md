@@ -1,55 +1,43 @@
-# QuantBalance
+# 知衡（QuantBalance）— A股个人量化操作系统
 
-**知衡（QuantBalance）**：面向量化交易的策略研究、风控与执行系统。
+面向个人投资者的 A 股量化策略研究、回测与风控系统。
 
-## Overview
+## 快速开始
 
-QuantBalance is a project for building a disciplined quantitative trading workflow, covering:
+安装后直接启动 Web 服务：
 
-- strategy research
-- backtesting and evaluation
-- risk control
-- execution orchestration
-- configuration and automation scripts
-
-## Project Structure
-
-```text
-quant-balance/
-├── backtest/     # Backtesting engines, adapters, reports
-├── config/       # Environment and strategy configuration
-├── docs/         # Project documentation
-├── execution/    # Order execution and broker integrations
-├── risk/         # Risk rules and position controls
-├── scripts/      # Utility and automation scripts
-├── src/          # Shared core code
-├── strategies/   # Trading strategies
-└── tests/        # Test cases
+```bash
+pip install -e .
+quant-balance --open-browser
 ```
 
-## Vision
+浏览器会自动打开回测演示页面。你也可以手动访问 <http://127.0.0.1:8765/demo>。
 
-QuantBalance focuses on three core capabilities:
+可选参数：
 
-1. **Research** — turn ideas into testable strategies
-2. **Risk Control** — keep exposure, drawdown, and position sizing under control
-3. **Execution** — connect validated strategies to reliable automated workflows
+```bash
+quant-balance --host 0.0.0.0 --port 9000 --developer-mode
+```
 
-## Phase 1 Scope
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--host` | 绑定地址 | `127.0.0.1` |
+| `--port` | 绑定端口 | `8765` |
+| `--open-browser` | 启动后自动打开浏览器 | 关闭 |
+| `--developer-mode` | 允许本地路径输入模式 | 关闭 |
+| `--example-csv` | 示例 CSV 文件路径 | `examples/demo_backtest.csv` |
 
-Current first-phase assumptions:
+## 功能特性
 
-- market: **A-share**
-- initial capital: **100,000 CNY**
-- frequency: **daily bar research/backtesting first**
-- focus: **strategy research, risk control, and backtesting**
-- excluded for now: **live broker integration and real-money trading**
+- **日线回测引擎**：支持 A 股手续费、过户费、印花税、T+1 限制
+- **涨跌停处理**：涨停不可买入、跌停不可卖出
+- **滑点与部分成交**：可配置滑点模型和成交量参与比例
+- **公司行为**：现金分红、送转/拆股、可选前复权视角
+- **风控管理**：持仓比例、最大回撤、最大持仓数控制
+- **策略接口**：均线交叉策略示例，可扩展自定义策略
+- **Web 演示**：本地浏览器回测界面，支持 CSV 上传和示例数据
 
-## Backtest Report (MVP)
-
-The current backtest result now includes a minimal `report` summary for research evaluation.
-
-Example JSON shape:
+## 回测报告示例
 
 ```json
 {
@@ -61,158 +49,48 @@ Example JSON shape:
   "sharpe_ratio": 1.18,
   "sortino_ratio": 1.74,
   "max_drawdown_pct": 6.2,
-  "max_drawdown_amount": 6200.0,
-  "max_drawdown_start": "2026-01-15",
-  "max_drawdown_end": "2026-02-03",
   "trades_count": 14,
-  "fills_count": 28,
-  "win_rate_pct": 57.14,
-  "profit_loss_ratio": 1.46,
-  "average_holding_days": 6.4,
-  "turnover_ratio": 1.82,
-  "benchmark_name": "CSI300",
-  "benchmark_return_pct": 5.9,
-  "excess_return_pct": 2.6
+  "win_rate_pct": 57.14
 }
 ```
 
-Notes:
+## 架构概览
 
-- `max_drawdown_start/end` already expose the drawdown interval.
-- benchmark is currently an extensibility slot: callers may pass a benchmark equity curve to compute relative return.
-- factor attribution and richer tear sheets are intentionally deferred to later iterations.
-
-## Status
-
-Project initialized. The repository now includes a minimal Python scaffold, A-share account config, a basic strategy interface, a risk manager, and a simple backtest engine.
-
-## Current A-share Backtest Assumptions
-
-Implemented in the current MVP:
-
-- buy/sell commissions and transfer fee
-- sell-side stamp duty
-- T+1 sell restriction
-- no fill on suspended bars (`volume <= 0`)
-- no buy fill at limit-up / no sell fill at limit-down
-- configurable slippage model (`slippage_mode`, `slippage_rate`)
-- minimal partial-fill support based on bar volume participation (`max_volume_participation`)
-- buy-side partial fill fallback when requested quantity exceeds available cash or position-ratio cap
-- simplified corporate actions support:
-  - cash dividend (`cash_dividend_per_share`)
-  - split / bonus-share style quantity adjustment (`share_ratio`)
-  - optional forward-adjusted research view via `price_adjustment_mode="forward"`
-
-### Corporate Actions / 复权口径（当前最小实现）
-
-The current engine supports a deliberately minimal but practical A-share workflow:
-
-1. **Raw bars + corporate actions**
-   - pass `CorporateAction(...)` events into `BacktestEngine.run(..., corporate_actions=[...])`
-   - on `ex_date`, the engine will:
-     - add cash dividend to portfolio cash
-     - adjust held quantity/average cost for split / bonus-share style actions
-
-2. **Forward-adjusted research view**
-   - set `AccountConfig(price_adjustment_mode="forward")`
-   - the engine will transform pre-ex bars into a forward-adjusted series before strategy evaluation
-   - this is meant for **daily-bar research/backtesting**, not a full institutional-grade adjustment pipeline
-
-3. **Current boundaries**
-   - supported: cash dividend + share-ratio adjustments
-   - not yet supported: rights issue pricing, tax nuances, intraday ex-right handling, vendor-specific full adjustment chains
-
-Planned next steps:
-
-- richer microstructure assumptions (for example intraday matching, queue priority, more realistic volume curves)
-- more complete corporate-action modeling only when a real research need appears
-
-## Quickstart Demo CLI
-
-After installation, you can run a minimal demo backtest directly from the terminal:
-
-```bash
-quant-balance demo
+```text
+quant-balance/
+├── src/quant_balance/
+│   ├── models.py            # 数据模型（行情、订单、持仓、账户配置）
+│   ├── strategy.py          # 策略接口与均线交叉策略
+│   ├── backtest.py          # 回测引擎
+│   ├── report.py            # 回测报告生成
+│   ├── risk.py              # 风控管理
+│   ├── market_rules.py      # A股市场规则（涨跌停、T+1）
+│   ├── corporate_actions.py # 公司行为处理（分红、送转）
+│   ├── demo.py              # 回测演示逻辑（CSV 解析、验证）
+│   ├── web_demo.py          # Web 服务（WSGI）
+│   └── cli.py               # 命令行入口
+├── examples/                # 示例数据
+├── tests/                   # 测试用例
+└── docs/                    # 文档
 ```
 
-Or keep using the module entrypoint:
+## 开发指南
+
+安装开发依赖：
 
 ```bash
-python -m quant_balance.main demo
+pip install -e .[dev]
 ```
 
-Optional JSON output for scripting / regression checks:
-
-```bash
-quant-balance demo --json
-```
-
-The built-in demo uses `examples/demo_backtest.csv` and prints a compact summary including final equity, total return, max drawdown, and trades count.
-
-## Local Testing
-
-Install the package together with development/test dependencies:
-
-```bash
-python -m pip install -e .[dev]
-```
-
-Then run the test suite:
+运行测试：
 
 ```bash
 pytest -q
 ```
 
-This keeps runtime dependencies minimal while giving contributors and CI a single, explicit way to prepare the local test environment.
+## 当前边界
 
-## Local Demo Input Foundation
-
-To make a future local Web demo more product-friendly, the repository now includes a demo input/validation foundation in `quant_balance.demo`:
-
-- upload CSV / example data input modes by default
-- local path mode only in developer mode
-- CSV template generation and field guide helpers
-- user-friendly validation messages for missing files, missing columns, invalid MA params, and empty data
-
-This layer is framework-agnostic on purpose, so a later Flask/FastAPI/UI shell can reuse the same validation and copy rules.
-
-## Browser Acceptance Baseline for Future Web Demo
-
-To avoid shipping a future Web shell without product-level regression coverage, the repository now also defines a first browser acceptance baseline:
-
-- stable `qb-*` / `data-testid` selector contract for the future page shell
-- checklist covering home load, example flow, valid CSV upload, invalid CSV errors, invalid MA parameters, and result visibility
-- documentation in `docs/web-demo-acceptance.md` for later browser automation implementation
-
-This gives the upcoming Web MVP a concrete acceptance target before any Flask/FastAPI page is added.
-
-## Local Web Demo Shell (MVP)
-
-The repository now also ships a minimal browser-accessible local Web demo shell built on the Python standard library WSGI server.
-
-Start it locally:
-
-```bash
-quant-balance web-demo --host 127.0.0.1 --port 8765
-```
-
-Or via module entrypoint:
-
-```bash
-python -m quant_balance.main web-demo --host 127.0.0.1 --port 8765
-```
-
-Then open <http://127.0.0.1:8765/demo> in your browser.
-
-Current MVP capabilities:
-
-- single-page form with stable `data-testid` anchors for future browser automation
-- choose example data or upload a real local CSV file from the page
-- keep a textarea-based CSV path only as a developer/debug fallback, not the primary user flow
-- submit a backtest and view summary / closed trades / assumptions in one page
-- surface the existing Chinese validation errors directly in the page
-
-Current boundary:
-
-- benchmark input is still fixed to the current built-in demo path; custom benchmark upload/selection is not exposed yet
-- result visualization is still a lightweight local-demo shell, not a full charting/report workspace
+- 市场：仅 A 股
+- 频率：仅日线
+- 用途：本地研究演示，不作为实盘建议
+- 暂不支持：实盘对接、多品种组合、分钟级数据

@@ -16,10 +16,10 @@ def test_render_demo_page_shows_first_run_guide() -> None:
     assert "三步完成" in html
 
 
-def test_web_demo_help_mentions_open_browser_flag() -> None:
+def test_help_mentions_open_browser_flag() -> None:
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
-        [sys.executable, "-m", "quant_balance.main", "web-demo", "--help"],
+        [sys.executable, "-m", "quant_balance.main", "--help"],
         cwd=root,
         check=True,
         capture_output=True,
@@ -30,4 +30,4 @@ def test_web_demo_help_mentions_open_browser_flag() -> None:
     help_text = result.stdout
 
     assert "--open-browser" in help_text
-    assert "open the demo page in your browser" in help_text
+    assert "启动后自动打开浏览器" in help_text

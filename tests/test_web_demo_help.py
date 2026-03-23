@@ -6,10 +6,10 @@ import sys
 from pathlib import Path
 
 
-def test_web_demo_help_does_not_expose_redundant_action_layer() -> None:
+def test_help_does_not_expose_redundant_action_layer() -> None:
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
-        [sys.executable, "-m", "quant_balance.main", "web-demo", "--help"],
+        [sys.executable, "-m", "quant_balance.main", "--help"],
         cwd=root,
         check=True,
         capture_output=True,

@@ -1,3 +1,5 @@
+"""回测引擎 — 按日线驱动策略信号、撮合成交与风控检查。"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence

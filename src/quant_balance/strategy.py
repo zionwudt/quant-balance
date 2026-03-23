@@ -1,3 +1,5 @@
+"""策略接口 — 定义策略基类与均线交叉策略实现。"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

@@ -6,10 +6,10 @@ import sys
 from pathlib import Path
 
 
-def test_demo_help_does_not_expose_redundant_action_layer() -> None:
+def test_help_shows_web_server_options() -> None:
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
-        [sys.executable, "-m", "quant_balance.main", "demo", "--help"],
+        [sys.executable, "-m", "quant_balance.main", "--help"],
         cwd=root,
         check=True,
         capture_output=True,
@@ -19,8 +19,8 @@ def test_demo_help_does_not_expose_redundant_action_layer() -> None:
 
     help_text = result.stdout
 
-    assert "{run}" not in help_text
-    assert "demo action to execute" not in help_text
-    assert "--csv" in help_text
-    assert "--symbol" in help_text
-    assert "--initial-cash" in help_text
+    assert "--host" in help_text
+    assert "--port" in help_text
+    assert "--developer-mode" in help_text
+    assert "--open-browser" in help_text
+    assert "--example-csv" in help_text

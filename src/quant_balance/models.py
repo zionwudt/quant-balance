@@ -1,3 +1,5 @@
+"""数据模型 — 行情、订单、持仓、账户配置等核心数据结构。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

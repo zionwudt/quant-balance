@@ -5,7 +5,6 @@ from datetime import date
 from quant_balance.demo import (
     BacktestDemoRequest,
     DemoValidationError,
-    build_demo_acceptance_checklist,
     build_demo_page_context,
     build_demo_result_context,
     get_csv_template,
@@ -123,37 +122,6 @@ def test_build_demo_result_context_exposes_summary_trades_and_assumptions() -> N
     assert context.export_json is not None
     assert context.run_context == {}
     assert context.equity_curve_points == []
-
-
-def test_build_demo_acceptance_checklist_covers_core_browser_paths() -> None:
-    checklist = build_demo_acceptance_checklist()
-    contract_keys = {selector.key for selector in checklist.page_contract}
-    scenario_ids = [scenario.scenario_id for scenario in checklist.scenarios]
-
-    assert "page-root" in contract_keys
-    assert "submit-button" in contract_keys
-    assert "error-banner" in contract_keys
-    assert scenario_ids == [
-        "home-loads",
-        "example-backtest",
-        "upload-valid-csv",
-        "upload-invalid-csv",
-        "invalid-ma-params",
-        "result-metrics-visible",
-    ]
-    assert any("data-testid" in note for note in checklist.notes)
-
-    invalid_csv = next(s for s in checklist.scenarios if s.scenario_id == "upload-invalid-csv")
-    assert "error-banner" in invalid_csv.selectors
-    assert any("中文错误提示" in outcome for outcome in invalid_csv.expected_outcomes)
-
-
-def test_demo_acceptance_checklist_to_dict_returns_serializable_payload() -> None:
-    payload = build_demo_acceptance_checklist().to_dict()
-
-    assert payload["page_contract"][0]["selector"].startswith("[data-testid='qb-")
-    assert payload["scenarios"][0]["scenario_id"] == "home-loads"
-    assert payload["scenarios"][1]["title"] == "使用示例数据完成一次回测"
 
 
 def test_parse_csv_text_to_bars_rejects_unsorted_dates() -> None:

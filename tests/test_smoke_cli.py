@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_OUTPUT = "QuantBalance is ready.\nUse 'quant-balance --help' to explore commands, or try 'quant-balance demo' and 'quant-balance web-demo'."
 
 
 def test_package_install_exposes_console_entrypoint(tmp_path: Path) -> None:
@@ -27,14 +26,15 @@ def test_package_install_exposes_console_entrypoint(tmp_path: Path) -> None:
     )
 
     result = subprocess.run(
-        [str(cli_bin)],
+        [str(cli_bin), "--help"],
         check=True,
         cwd=ROOT,
         capture_output=True,
         text=True,
     )
 
-    assert result.stdout.strip() == EXPECTED_OUTPUT
+    assert "--host" in result.stdout
+    assert "--port" in result.stdout
 
 
 def test_module_entrypoint_runs_after_install(tmp_path: Path) -> None:
@@ -53,11 +53,12 @@ def test_module_entrypoint_runs_after_install(tmp_path: Path) -> None:
     )
 
     result = subprocess.run(
-        [str(python_bin), "-m", "quant_balance.main"],
+        [str(python_bin), "-m", "quant_balance.main", "--help"],
         check=True,
         cwd=ROOT,
         capture_output=True,
         text=True,
     )
 
-    assert result.stdout.strip() == EXPECTED_OUTPUT
+    assert "--host" in result.stdout
+    assert "--port" in result.stdout

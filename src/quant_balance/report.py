@@ -1,3 +1,5 @@
+"""回测报告 — 汇总回测结果的关键指标与交易明细。"""
+
 from __future__ import annotations
 
 from collections import deque

@@ -1,3 +1,5 @@
+"""A股市场规则 — 涨跌停判定、T+1 限制与手续费计算。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

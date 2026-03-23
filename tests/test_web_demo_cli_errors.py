@@ -6,14 +6,13 @@ import sys
 from pathlib import Path
 
 
-def test_web_demo_cli_returns_user_friendly_error_for_missing_example_csv() -> None:
+def test_cli_returns_user_friendly_error_for_missing_example_csv() -> None:
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [
             sys.executable,
             "-m",
             "quant_balance.main",
-            "web-demo",
             "--example-csv",
             "/tmp/no-such.csv",
         ],

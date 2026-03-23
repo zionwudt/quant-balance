@@ -1,3 +1,5 @@
+"""公司行为处理 — 现金分红、送转/拆股与前复权支持。"""
+
 from __future__ import annotations
 
 from collections import defaultdict

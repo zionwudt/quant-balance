@@ -1,18 +1,18 @@
-# Architecture
+# 架构
 
-## Initial Direction
+## 设计方向
 
-QuantBalance starts with a modular design around four core domains:
+知衡围绕四个核心领域采用模块化设计：
 
-1. **Data** — market data ingestion and normalization
-2. **Strategy** — research, signals, and portfolio logic
-3. **Risk** — exposure limits, sizing rules, and drawdown controls
-4. **Execution** — order routing, adapters, and execution workflows
+1. **数据** — 行情数据接入与标准化
+2. **策略** — 策略研究、信号生成与组合逻辑
+3. **风控** — 持仓限制、仓位控制与回撤管理
+4. **执行** — 订单路由、适配器与执行流程
 
-## Suggested Early Milestones
+## 早期里程碑
 
-- Build a minimal market data model
-- Define strategy interfaces
-- Create a backtest loop
-- Add basic risk checks before execution
-- Integrate one broker or exchange adapter
+- 建立最小行情数据模型
+- 定义策略接口
+- 构建回测循环
+- 在执行前加入基础风控检查
+- 接入一个券商或交易所适配器

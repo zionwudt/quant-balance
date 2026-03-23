@@ -1,3 +1,5 @@
+"""风控管理 — 持仓比例、回撤与仓位数量控制。"""
+
 from __future__ import annotations
 
 from quant_balance.models import AccountConfig, Order, Portfolio
