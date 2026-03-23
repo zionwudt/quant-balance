@@ -23,8 +23,10 @@ dist/
 # OS
 .DS_Store
 
+# Config (contains token)
+config/config.toml
+
 # Project runtime
 logs/
-data/
 reports/
 *.log

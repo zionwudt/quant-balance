@@ -1,20 +1,19 @@
 """共享回测服务。
 
-这层负责把“输入参数 -> 回测执行 -> 可展示结果片段”串起来，
+这层负责把"输入参数 -> 回测执行 -> 可展示结果片段"串起来，
 供 API 层和其他调用入口共同复用。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from pathlib import Path
+from dataclasses import dataclass
 
-from quant_balance.backtest_inputs import BacktestRequest
+from quant_balance.data import DataLoadError, load_bars
 from quant_balance.core.backtest import BacktestEngine
 from quant_balance.core.models import AccountConfig
 from quant_balance.core.report import BacktestReport
 from quant_balance.core.strategy import MovingAverageCrossStrategy
-from quant_balance.csv_loader import load_bars
+from quant_balance.services.backtest_inputs import BacktestInputError, BacktestRequest
 
 
 @dataclass(slots=True)
@@ -28,20 +27,18 @@ class BacktestRunArtifacts:
 
 def run_moving_average_backtest(
     request: BacktestRequest,
-    *,
-    example_csv_path: Path | None = None,
 ) -> BacktestRunArtifacts:
     """执行一次均线回测，并返回 API 可直接消费的标准结果。"""
 
-    resolved_request = request
-    if request.input_mode == "example" and example_csv_path is not None and example_csv_path.exists():
-        # 示例文件一旦显式传入，就优先使用它，保证 CLI 和测试都能稳定复用同一份样例数据。
-        resolved_request = replace(request, csv_text=example_csv_path.read_text(encoding="utf-8"))
+    request.validate()
 
-    bars = load_bars(resolved_request)
+    try:
+        bars = load_bars(request.symbol, request.start_date, request.end_date)
+    except DataLoadError as exc:
+        raise BacktestInputError(str(exc)) from exc
+
     strategy = MovingAverageCrossStrategy(short_window=request.short_window, long_window=request.long_window)
 
-    # Web 入口先把约束放宽，优先保证用户能看到完整的策略行为和结果结构。
     config = AccountConfig(
         initial_cash=request.initial_cash,
         max_position_ratio=1.0,
@@ -54,8 +51,9 @@ def run_moving_average_backtest(
         raise RuntimeError("回测未生成 report")
 
     run_context = {
-        "input_mode": request.input_mode,
         "symbol": request.symbol,
+        "start_date": request.start_date,
+        "end_date": request.end_date,
         "initial_cash": request.initial_cash,
         "short_window": request.short_window,
         "long_window": request.long_window,

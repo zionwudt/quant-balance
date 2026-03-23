@@ -1,0 +1,11 @@
+# QuantBalance 项目配置
+# 复制此文件为 config.toml 并按需修改
+# config.toml 已被 .gitignore 忽略，不会提交到仓库
+
+[tushare]
+# 获取方式：https://tushare.pro/register
+token = "你的token"
+
+[server]
+host = "127.0.0.1"
+port = 8765
