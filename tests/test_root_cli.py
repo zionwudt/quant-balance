@@ -21,3 +21,4 @@ def test_root_command_help_shows_web_server_options() -> None:
     assert "--host" in result.stdout
     assert "--port" in result.stdout
     assert "--open-browser" in result.stdout
+    assert "--server-mode" not in result.stdout

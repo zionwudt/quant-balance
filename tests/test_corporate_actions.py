@@ -2,10 +2,10 @@ from datetime import date, timedelta
 
 import pytest
 
-from quant_balance.backtest import BacktestEngine
-from quant_balance.corporate_actions import CorporateAction, CorporateActionBook
-from quant_balance.models import AccountConfig, MarketBar, Order, Portfolio
-from quant_balance.strategy import Strategy
+from quant_balance.core.backtest import BacktestEngine
+from quant_balance.core.corporate_actions import CorporateAction, CorporateActionBook
+from quant_balance.core.models import AccountConfig, MarketBar, Order, Portfolio
+from quant_balance.core.strategy import Strategy
 
 
 class ExplicitOrderStrategy(Strategy):

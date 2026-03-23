@@ -4,14 +4,14 @@
 
 ## 快速开始
 
-安装后直接启动 Web 服务：
+项目当前统一以 API 形式提供 Web 能力：
 
 ```bash
 pip install -e .
 quant-balance --open-browser
 ```
 
-浏览器会自动打开回测演示页面。你也可以手动访问 <http://127.0.0.1:8765/demo>。
+API 服务会启动在 <http://127.0.0.1:8765>，默认文档地址为 <http://127.0.0.1:8765/docs>。
 
 可选参数：
 
@@ -23,7 +23,7 @@ quant-balance --host 0.0.0.0 --port 9000 --developer-mode
 |------|------|--------|
 | `--host` | 绑定地址 | `127.0.0.1` |
 | `--port` | 绑定端口 | `8765` |
-| `--open-browser` | 启动后自动打开浏览器 | 关闭 |
+| `--open-browser` | 启动后自动打开接口文档页 | 关闭 |
 | `--developer-mode` | 允许本地路径输入模式 | 关闭 |
 | `--example-csv` | 示例 CSV 文件路径 | `examples/demo_backtest.csv` |
 
@@ -35,7 +35,7 @@ quant-balance --host 0.0.0.0 --port 9000 --developer-mode
 - **公司行为**：现金分红、送转/拆股、可选前复权视角
 - **风控管理**：持仓比例、最大回撤、最大持仓数控制
 - **策略接口**：均线交叉策略示例，可扩展自定义策略
-- **Web 演示**：本地浏览器回测界面，支持 CSV 上传和示例数据
+- **Web API**：提供面向前端页面的 JSON 接口与接口文档入口
 
 ## 回测报告示例
 
@@ -59,16 +59,12 @@ quant-balance --host 0.0.0.0 --port 9000 --developer-mode
 ```text
 quant-balance/
 ├── src/quant_balance/
-│   ├── models.py            # 数据模型（行情、订单、持仓、账户配置）
-│   ├── strategy.py          # 策略接口与均线交叉策略
-│   ├── backtest.py          # 回测引擎
-│   ├── report.py            # 回测报告生成
-│   ├── risk.py              # 风控管理
-│   ├── market_rules.py      # A股市场规则（涨跌停、T+1）
-│   ├── corporate_actions.py # 公司行为处理（分红、送转）
-│   ├── demo.py              # 回测演示逻辑（CSV 解析、验证）
-│   ├── web_demo.py          # Web 服务（WSGI）
-│   └── cli.py               # 命令行入口
+│   ├── backtest_inputs.py   # 回测输入定义与基础校验
+│   ├── csv_loader.py        # CSV 解析与行情加载
+│   ├── api/                 # FastAPI 接口层（HTTP、元信息、响应组装）
+│   ├── core/                # 回测核心模块（模型、策略、引擎、报表、风控、市场规则）
+│   ├── services/            # 共享业务编排层
+│   └── main.py              # 统一入口（命令行解析 + 进程启动）
 ├── examples/                # 示例数据
 ├── tests/                   # 测试用例
 └── docs/                    # 文档

@@ -1,8 +1,8 @@
 from datetime import date, timedelta
 
-from quant_balance.backtest import BacktestEngine
-from quant_balance.models import AccountConfig, Fill, MarketBar, Order, Portfolio
-from quant_balance.strategy import Strategy
+from quant_balance.core.backtest import BacktestEngine
+from quant_balance.core.models import AccountConfig, Fill, MarketBar, Order, Portfolio
+from quant_balance.core.strategy import Strategy
 
 
 class StaggeredMultiAssetStrategy(Strategy):

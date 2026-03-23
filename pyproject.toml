@@ -11,7 +11,10 @@ requires-python = ">=3.11"
 authors = [
   { name = "Eric" }
 ]
-dependencies = []
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+]
 
 [project.optional-dependencies]
 dev = [

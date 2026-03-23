@@ -24,3 +24,4 @@ def test_help_shows_web_server_options() -> None:
     assert "--developer-mode" in help_text
     assert "--open-browser" in help_text
     assert "--example-csv" in help_text
+    assert "--server-mode" not in help_text

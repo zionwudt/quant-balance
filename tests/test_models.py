@@ -1,4 +1,4 @@
-from quant_balance.models import Portfolio, Position
+from quant_balance.core.models import Portfolio, Position
 
 
 def test_portfolio_total_equity_uses_latest_prices_when_available() -> None:

@@ -1,8 +1,8 @@
 from datetime import date, timedelta
 
-from quant_balance.backtest import BacktestEngine
-from quant_balance.models import AccountConfig, MarketBar
-from quant_balance.strategy import BuyAndHoldStrategy
+from quant_balance.core.backtest import BacktestEngine
+from quant_balance.core.models import AccountConfig, MarketBar
+from quant_balance.core.strategy import BuyAndHoldStrategy
 
 
 def _sample_bars() -> list[MarketBar]:

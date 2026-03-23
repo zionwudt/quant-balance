@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from quant_balance.report import SHORT_SAMPLE_WARNING, generate_report
+from quant_balance.core.report import SHORT_SAMPLE_WARNING, generate_report
 
 
 def test_generate_report_degrades_annualized_metrics_for_short_samples() -> None:

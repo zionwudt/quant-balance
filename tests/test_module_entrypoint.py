@@ -22,3 +22,4 @@ def test_python_dash_m_quant_balance_help_works() -> None:
     assert "--host" in help_text
     assert "--port" in help_text
     assert "知衡" in help_text or "QuantBalance" in help_text
+    assert "--server-mode" not in help_text

@@ -1,5 +1,5 @@
-from quant_balance.models import AccountConfig, Order, Portfolio, Position
-from quant_balance.risk import RiskManager
+from quant_balance.core.models import AccountConfig, Order, Portfolio, Position
+from quant_balance.core.risk import RiskManager
 
 
 def test_validate_order_rejects_invalid_quantity_and_price() -> None:
