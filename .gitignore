@@ -19,6 +19,9 @@ dist/
 .idea/
 .claude/
 .github/
+.agents/
+.junie/
+.qwen/
 
 # OS
 .DS_Store
