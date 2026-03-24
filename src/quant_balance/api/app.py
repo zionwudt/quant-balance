@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from quant_balance import __version__
@@ -14,6 +15,8 @@ from quant_balance.api.schemas import (
 )
 from quant_balance.core.strategies import SIGNAL_REGISTRY, STRATEGY_REGISTRY
 from quant_balance.logging_utils import get_logger, log_event
+
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 WEB_DEPENDENCY_HINT = "启动 API 模式需要先安装项目依赖：pip install -e ."
 
@@ -45,6 +48,8 @@ def create_api_app() -> Any:
 
     try:
         from fastapi import FastAPI, HTTPException
+        from fastapi.responses import FileResponse
+        from fastapi.staticfiles import StaticFiles
     except ImportError as exc:
         raise RuntimeError(WEB_DEPENDENCY_HINT) from exc
 
@@ -63,6 +68,19 @@ def create_api_app() -> Any:
         version=__version__,
         description="QuantBalance 回测与研究接口 — backtesting.py + vectorbt",
     )
+
+    # ── Web 前端静态文件 ──
+    static_dir = WEB_DIR / "static"
+    if static_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    @app.get("/")
+    def dashboard():
+        """返回 Web 前端入口页面。"""
+        index_path = WEB_DIR / "index.html"
+        if index_path.is_file():
+            return FileResponse(str(index_path))
+        return {"message": "QuantBalance API is running. Visit /docs for API documentation."}
 
     @app.get("/health")
     def health() -> dict[str, str]:

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>知衡 QuantBalance</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/variables.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/pages.css">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- 顶栏 -->
+    <header class="topbar">
+      <button class="topbar-hamburger">☰</button>
+      <div class="topbar-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 12h4l3-9 4 18 3-9h4"/>
+        </svg>
+        知衡
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-ghost btn-sm" id="theme-toggle" title="切换主题">☾</button>
+      </div>
+    </header>
+
+    <!-- 侧栏 -->
+    <nav class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">回测中心</div>
+        <div class="sidebar-item active" data-page="backtest">
+          <span class="sidebar-item-icon">📊</span>
+          <span>新建回测</span>
+        </div>
+        <div class="sidebar-item" data-page="history" style="opacity:0.4;cursor:default">
+          <span class="sidebar-item-icon">📋</span>
+          <span>历史记录</span>
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">选股研究</div>
+        <div class="sidebar-item" data-page="screening" style="opacity:0.4;cursor:default">
+          <span class="sidebar-item-icon">🔍</span>
+          <span>股票池筛选</span>
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">设置</div>
+        <div class="sidebar-item" data-page="settings" style="opacity:0.4;cursor:default">
+          <span class="sidebar-item-icon">⚙</span>
+          <span>配置</span>
+        </div>
+      </div>
+    </nav>
+
+    <!-- 主内容 -->
+    <main class="main-content">
+      <!-- 由 app.js 动态填充 -->
+    </main>
+
+    <!-- 进度条 -->
+    <div class="progress-bar"></div>
+
+    <!-- 状态栏 -->
+    <footer class="statusbar">
+      <span><span class="statusbar-dot"></span>就绪</span>
+      <span class="statusbar-separator">|</span>
+      <span>知衡 QuantBalance</span>
+    </footer>
+  </div>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

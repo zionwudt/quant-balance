@@ -1,0 +1,86 @@
+/**
+ * 知衡 QuantBalance — API 封装
+ */
+
+const API_TIMEOUT = 30_000;
+
+class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function request(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
+
+  try {
+    const resp = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new ApiError(body.detail || `请求失败 (${resp.status})`, resp.status);
+    }
+
+    return await resp.json();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new ApiError('请求超时，请重试', 0);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export const api = {
+  getMeta() {
+    return request('/api/meta');
+  },
+
+  getStrategies() {
+    return request('/api/strategies');
+  },
+
+  runBacktest(params) {
+    return request('/api/backtest/run', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
+
+  runOptimize(params) {
+    return request('/api/backtest/optimize', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
+
+  runScreening(params) {
+    return request('/api/screening/run', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
+
+  getConfigStatus() {
+    return request('/api/config/status');
+  },
+
+  saveTushareToken(token, validateOnly = false) {
+    return request('/api/config/tushare-token', {
+      method: 'POST',
+      body: JSON.stringify({ token, validate_only: validateOnly }),
+    });
+  },
+};
+
+export { ApiError };

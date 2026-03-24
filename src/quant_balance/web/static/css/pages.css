@@ -1,0 +1,244 @@
+/* 知衡 QuantBalance — 页面布局 */
+
+/* ── 整体布局 ── */
+.app-layout {
+  display: grid;
+  grid-template-rows: 48px 1fr 28px;
+  grid-template-columns: 220px 1fr;
+  grid-template-areas:
+    "topbar  topbar"
+    "sidebar main"
+    "status  status";
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── 顶栏 ── */
+.topbar {
+  grid-area: topbar;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  gap: var(--space-4);
+  z-index: 100;
+}
+.topbar-logo {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.topbar-logo svg { width: 20px; height: 20px; }
+.topbar-nav {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: var(--space-4);
+}
+.topbar-nav .btn { font-size: var(--text-xs); }
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.topbar-hamburger {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+/* ── 侧栏 ── */
+.sidebar {
+  grid-area: sidebar;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: var(--space-3) 0;
+  transition: width var(--transition-base);
+}
+.sidebar-section {
+  padding: var(--space-2) var(--space-4);
+}
+.sidebar-section-title {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin: 1px 0;
+}
+.sidebar-item:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.sidebar-item.active {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent);
+}
+.sidebar-item-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ── 主内容区 ── */
+.main-content {
+  grid-area: main;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+/* ── 状态栏 ── */
+.statusbar {
+  grid-area: status;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  gap: var(--space-4);
+}
+.statusbar-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--profit);
+  margin-right: var(--space-1);
+}
+.statusbar-separator {
+  color: var(--border);
+}
+
+/* ── 回测页布局 ── */
+.backtest-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+}
+.backtest-params {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.backtest-results {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* 指标卡片网格 */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+/* 图表容器 */
+.chart-container {
+  width: 100%;
+  height: 350px;
+  position: relative;
+}
+
+/* 成交明细滚动容器 */
+.trades-table-wrapper {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* ── 响应式 ── */
+
+/* 侧栏折叠为图标栏 */
+@media (max-width: 1279px) {
+  .app-layout {
+    grid-template-columns: 56px 1fr;
+  }
+  .sidebar {
+    width: 56px;
+  }
+  .sidebar-item span,
+  .sidebar-section-title {
+    display: none;
+  }
+  .sidebar-item {
+    justify-content: center;
+    padding: var(--space-2);
+  }
+}
+
+/* 侧栏隐藏 */
+@media (max-width: 959px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "topbar"
+      "main"
+      "status";
+  }
+  .sidebar {
+    display: none;
+  }
+  .sidebar.open {
+    display: block;
+    position: fixed;
+    top: 48px;
+    left: 0;
+    bottom: 28px;
+    width: 220px;
+    z-index: 200;
+    box-shadow: var(--shadow-elevated);
+  }
+  .topbar-hamburger { display: block; }
+
+  .backtest-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 顶部加载进度条 */
+.progress-bar {
+  position: fixed;
+  top: 48px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  z-index: 999;
+}
+.progress-bar.active {
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 200% 100%;
+  animation: progress-slide 1.5s ease-in-out infinite;
+}
+@keyframes progress-slide {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
