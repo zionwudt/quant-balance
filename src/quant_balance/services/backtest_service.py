@@ -39,6 +39,9 @@ def run_single_backtest(
     commission: float = 0.001,
     params: dict | None = None,
     data_provider: str | None = None,
+    benchmark_symbol: str | None = None,
+    benchmark_asset_type: str | None = None,
+    benchmark_data_provider: str | None = None,
 ) -> dict:
     """执行单股精细回测，返回 API 可直接消费的结果字典。"""
     strategy_cls = STRATEGY_REGISTRY.get(strategy)
@@ -46,10 +49,26 @@ def run_single_backtest(
         raise ValueError(f"未知策略: {strategy}，可用: {list(STRATEGY_REGISTRY)}")
 
     started_at = perf_counter()
-    load_kwargs = {"asset_type": asset_type, "adjust": "qfq"}
-    if data_provider is not None:
-        load_kwargs["provider"] = data_provider
-    df = load_dataframe(symbol, start_date, end_date, **load_kwargs)
+    df = _load_market_dataframe(
+        symbol,
+        start_date,
+        end_date,
+        asset_type=asset_type,
+        data_provider=data_provider,
+    )
+    benchmark_df = None
+    resolved_benchmark_asset_type = benchmark_asset_type or asset_type
+    resolved_benchmark_data_provider = (
+        benchmark_data_provider if benchmark_data_provider is not None else data_provider
+    )
+    if benchmark_symbol is not None:
+        benchmark_df = _load_market_dataframe(
+            benchmark_symbol,
+            start_date,
+            end_date,
+            asset_type=resolved_benchmark_asset_type,
+            data_provider=resolved_benchmark_data_provider,
+        )
 
     result = run_backtest(
         df, strategy_cls,
@@ -64,11 +83,17 @@ def run_single_backtest(
             "data_provider": df.attrs.get("data_provider", data_provider),
         },
     )
+    summary = normalize_bt_stats(
+        result.stats,
+        risk_params=params,
+        benchmark_df=benchmark_df,
+        benchmark_symbol=benchmark_symbol,
+    )
 
     payload = {
-        "summary": result.report,
+        "summary": summary,
         "trades": bt_trades_to_dicts(result.trades, params),
-        "equity_curve": equity_curve_to_dicts(result.equity_curve),
+        "equity_curve": equity_curve_to_dicts(result.equity_curve, benchmark_df=benchmark_df),
         "run_context": {
             "symbol": symbol,
             "start_date": start_date,
@@ -80,6 +105,15 @@ def run_single_backtest(
             "params": params or {},
             "bars_count": len(df),
             "data_provider": df.attrs.get("data_provider", data_provider),
+            "benchmark_symbol": benchmark_symbol,
+            "benchmark_asset_type": (
+                benchmark_df.attrs.get("asset_type", resolved_benchmark_asset_type)
+                if benchmark_df is not None else None
+            ),
+            "benchmark_data_provider": (
+                benchmark_df.attrs.get("data_provider", resolved_benchmark_data_provider)
+                if benchmark_df is not None else None
+            ),
         },
     }
     log_event(
@@ -97,6 +131,15 @@ def run_single_backtest(
         bars_count=len(df),
         trades_count=len(result.trades),
         data_provider=df.attrs.get("data_provider", data_provider),
+        benchmark_symbol=benchmark_symbol,
+        benchmark_asset_type=(
+            benchmark_df.attrs.get("asset_type", resolved_benchmark_asset_type)
+            if benchmark_df is not None else None
+        ),
+        benchmark_data_provider=(
+            benchmark_df.attrs.get("data_provider", resolved_benchmark_data_provider)
+            if benchmark_df is not None else None
+        ),
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )
     return payload
@@ -132,10 +175,13 @@ def run_optimize(
     walk_forward_config = _normalize_walk_forward_config(walk_forward)
 
     started_at = perf_counter()
-    load_kwargs = {"asset_type": asset_type, "adjust": "qfq"}
-    if data_provider is not None:
-        load_kwargs["provider"] = data_provider
-    df = load_dataframe(symbol, start_date, end_date, **load_kwargs)
+    df = _load_market_dataframe(
+        symbol,
+        start_date,
+        end_date,
+        asset_type=asset_type,
+        data_provider=data_provider,
+    )
     walk_forward_windows = _count_walk_forward_windows(len(df), walk_forward_config)
 
     optimize_result = optimize(
@@ -219,6 +265,20 @@ def run_optimize(
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )
     return payload
+
+
+def _load_market_dataframe(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    *,
+    asset_type: str,
+    data_provider: str | None,
+) -> pd.DataFrame:
+    load_kwargs = {"asset_type": asset_type, "adjust": "qfq"}
+    if data_provider is not None:
+        load_kwargs["provider"] = data_provider
+    return load_dataframe(symbol, start_date, end_date, **load_kwargs)
 
 
 def _normalize_param_ranges(

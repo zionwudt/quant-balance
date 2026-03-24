@@ -69,10 +69,30 @@ class BacktestRunRequest(BaseModel):
     cash: float = Field(100_000.0, gt=0, description="初始资金")
     commission: float = Field(0.001, ge=0, description="佣金比例")
     params: dict = Field(default_factory=dict, description="策略参数")
+    benchmark_symbol: str | None = Field(
+        None,
+        description="可选基准代码；传入后会返回基准对比字段",
+    )
+    benchmark_asset_type: AssetType | None = Field(
+        None,
+        description="可选基准资产类型；不传则沿用 asset_type",
+    )
+    benchmark_data_provider: str | None = Field(
+        None,
+        description="可选基准行情数据源；不传则沿用 data_provider",
+    )
     data_provider: str | None = Field(
         None,
         description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",
     )
+
+    @model_validator(mode="after")
+    def validate_benchmark_options(self) -> "BacktestRunRequest":
+        if self.benchmark_symbol is None and (
+            self.benchmark_asset_type is not None or self.benchmark_data_provider is not None
+        ):
+            raise ValueError("benchmark_asset_type / benchmark_data_provider 需要配合 benchmark_symbol 一起传入")
+        return self
 
 
 class OptimizeConstraintRequest(BaseModel):

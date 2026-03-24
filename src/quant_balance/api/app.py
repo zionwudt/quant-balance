@@ -238,10 +238,13 @@ def create_api_app() -> Any:
             "start_date": req.start_date,
             "end_date": req.end_date,
             "asset_type": req.asset_type,
+            "benchmark_symbol": req.benchmark_symbol,
+            "benchmark_asset_type": req.benchmark_asset_type,
             "strategy": req.strategy,
             "cash": req.cash,
             "commission": req.commission,
             "data_provider": req.data_provider,
+            "benchmark_data_provider": req.benchmark_data_provider,
         }
         try:
             kwargs = {
@@ -254,8 +257,14 @@ def create_api_app() -> Any:
                 "commission": req.commission,
                 "params": req.params,
             }
+            if req.benchmark_symbol is not None:
+                kwargs["benchmark_symbol"] = req.benchmark_symbol
+            if req.benchmark_asset_type is not None:
+                kwargs["benchmark_asset_type"] = req.benchmark_asset_type
             if req.data_provider is not None:
                 kwargs["data_provider"] = req.data_provider
+            if req.benchmark_data_provider is not None:
+                kwargs["benchmark_data_provider"] = req.benchmark_data_provider
             return run_single_backtest(**kwargs)
         except (ValueError, DataLoadError) as exc:
             _log_api_error(

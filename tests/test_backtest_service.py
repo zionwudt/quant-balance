@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pandas as pd
 import pytest
@@ -41,7 +41,17 @@ def _fake_backtest_result() -> BacktestResult:
         }
     ])
     return BacktestResult(
-        stats=pd.Series({"Return [%]": 2.0}),
+        stats=pd.Series({
+            "_equity_curve": equity_curve,
+            "_trades": trades,
+            "Equity Final [$]": 102_000.0,
+            "Return [%]": 2.0,
+            "Return (Ann.) [%]": 12.0,
+            "Sharpe Ratio": 1.5,
+            "Sortino Ratio": 2.0,
+            "Max. Drawdown [%]": -1.0,
+            "# Trades": 1,
+        }),
         trades=trades,
         equity_curve=equity_curve,
         report={"final_equity": 102_000.0, "trades_count": 1},
@@ -278,6 +288,56 @@ def test_run_single_backtest_passes_convertible_bond_asset_type():
         asset_type="convertible_bond",
         adjust="qfq",
     )
+
+
+def test_run_single_backtest_includes_benchmark_payload():
+    sample_df = _make_sample_df()
+    sample_df.attrs["data_provider"] = "akshare"
+    sample_df.attrs["asset_type"] = "stock"
+    benchmark_df = _make_sample_df()
+    benchmark_df.attrs["data_provider"] = "baostock"
+    benchmark_df.attrs["asset_type"] = "stock"
+    with (
+        patch(
+            "quant_balance.services.backtest_service.load_dataframe",
+            side_effect=[sample_df, benchmark_df],
+        ) as mock_load,
+        patch("quant_balance.services.backtest_service.run_backtest", return_value=_fake_backtest_result()),
+    ):
+        result = run_single_backtest(
+            symbol="600519.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            data_provider="akshare",
+            benchmark_symbol="000300.SH",
+            benchmark_data_provider="baostock",
+        )
+
+    assert result["summary"]["benchmark_symbol"] == "000300.SH"
+    assert result["summary"]["benchmark_total_return_pct"] == 1.0
+    assert result["equity_curve"][0]["benchmark_equity"] == 100_000.0
+    assert result["equity_curve"][1]["benchmark_return_pct"] == 1.0
+    assert result["run_context"]["benchmark_symbol"] == "000300.SH"
+    assert result["run_context"]["benchmark_asset_type"] == "stock"
+    assert result["run_context"]["benchmark_data_provider"] == "baostock"
+    assert mock_load.call_args_list == [
+        call(
+            "600519.SH",
+            "2024-01-01",
+            "2024-06-30",
+            asset_type="stock",
+            adjust="qfq",
+            provider="akshare",
+        ),
+        call(
+            "000300.SH",
+            "2024-01-01",
+            "2024-06-30",
+            asset_type="stock",
+            adjust="qfq",
+            provider="baostock",
+        ),
+    ]
 
 
 def test_run_optimize_emits_structured_log(caplog: pytest.LogCaptureFixture):

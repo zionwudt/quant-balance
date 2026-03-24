@@ -98,6 +98,16 @@ def test_backtest_schema_requires_core_fields():
         BacktestRunRequest.model_validate({})
 
 
+def test_backtest_schema_rejects_orphan_benchmark_options():
+    with pytest.raises(ValidationError):
+        BacktestRunRequest.model_validate({
+            "symbol": "600519.SH",
+            "start_date": "2024-01-01",
+            "end_date": "2024-06-30",
+            "benchmark_asset_type": "stock",
+        })
+
+
 def test_optimize_constraint_schema_requires_single_right_operand():
     with pytest.raises(ValidationError):
         OptimizeConstraintRequest.model_validate({
@@ -268,6 +278,38 @@ def test_backtest_run_delegates_convertible_bond_asset_type():
         cash=100_000.0,
         commission=0.001,
         params={},
+    )
+
+
+def test_backtest_run_delegates_benchmark_fields_to_service():
+    payload = {"summary": {"final_equity": 123456.0}}
+    with patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/run", "POST")
+        request = BacktestRunRequest(
+            symbol="600519.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            benchmark_symbol="000300.SH",
+            benchmark_asset_type="stock",
+            benchmark_data_provider="baostock",
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        symbol="600519.SH",
+        start_date="2024-01-01",
+        end_date="2024-06-30",
+        asset_type="stock",
+        strategy="sma_cross",
+        cash=100_000.0,
+        commission=0.001,
+        params={},
+        benchmark_symbol="000300.SH",
+        benchmark_asset_type="stock",
+        benchmark_data_provider="baostock",
     )
 
 

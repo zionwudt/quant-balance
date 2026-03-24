@@ -81,6 +81,12 @@ def _request(app, method: str, path: str, payload: dict | None = None) -> tuple[
 
 def test_api_http_smoke_end_to_end():
     sample_df = _make_sample_df()
+    benchmark_df = sample_df.copy()
+    benchmark_close = [10 + index * 0.01 for index in range(len(benchmark_df))]
+    benchmark_df["Open"] = benchmark_close
+    benchmark_df["High"] = benchmark_close
+    benchmark_df["Low"] = benchmark_close
+    benchmark_df["Close"] = benchmark_close
     optimize_result = OptimizeResult(
         best_stats=pd.Series({"Return [%]": 127.18, "Sharpe Ratio": 3.9, "# Trades": 4}),
         best_params={"fast_period": pd.Index([4])[0], "slow_period": pd.Index([18])[0]},
@@ -104,7 +110,7 @@ def test_api_http_smoke_end_to_end():
         provider=None,
         db_path=None,
     ):
-        df = sample_df.copy()
+        df = benchmark_df.copy() if symbol == "000300.SH" else sample_df.copy()
         df.attrs["asset_type"] = asset_type
         df.attrs["data_provider"] = provider or "tushare"
         return df
@@ -245,6 +251,7 @@ def test_api_http_smoke_end_to_end():
                 "strategy": "sma_cross",
                 "cash": 100_000.0,
                 "commission": 0.0,
+                "benchmark_symbol": "000300.SH",
                 "params": {
                     "fast_period": 5,
                     "slow_period": 20,
@@ -258,11 +265,19 @@ def test_api_http_smoke_end_to_end():
         assert backtest_payload["summary"]["stop_loss_pct"] == 0.05
         assert backtest_payload["summary"]["take_profit_pct"] == 0.1
         assert backtest_payload["summary"]["trades_count"] > 0
+        assert "calmar_ratio" in backtest_payload["summary"]
+        assert len(backtest_payload["summary"]["monthly_returns"]) > 0
+        assert isinstance(backtest_payload["summary"]["rolling_sharpe"], list)
+        assert len(backtest_payload["summary"]["yearly_stats"]) > 0
+        assert backtest_payload["summary"]["benchmark_symbol"] == "000300.SH"
         assert len(backtest_payload["trades"]) > 0
         assert "stop_loss_price" in backtest_payload["trades"][0]
         assert "exit_reason" in backtest_payload["trades"][0]
         assert len(backtest_payload["equity_curve"]) > 0
+        assert "benchmark_equity" in backtest_payload["equity_curve"][0]
+        assert "excess_return_pct" in backtest_payload["equity_curve"][0]
         assert backtest_payload["run_context"]["asset_type"] == "stock"
+        assert backtest_payload["run_context"]["benchmark_symbol"] == "000300.SH"
 
         cb_backtest_status, _, cb_backtest_payload = _request(
             app,

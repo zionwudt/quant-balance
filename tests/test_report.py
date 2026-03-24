@@ -1,5 +1,8 @@
 """测试报告格式化工具。"""
 
+import json
+import math
+
 import pandas as pd
 
 from quant_balance.core.backtest import run_backtest
@@ -70,6 +73,26 @@ def test_equity_curve_to_dicts():
     assert "equity" in curve[0]
 
 
+def test_equity_curve_to_dicts_includes_benchmark_fields():
+    equity_df = pd.DataFrame(
+        {"Equity": [100_000.0, 102_000.0]},
+        index=pd.to_datetime(["2024-01-02", "2024-01-03"]),
+    )
+    benchmark_df = pd.DataFrame(
+        {"Close": [10.0, 10.5]},
+        index=pd.to_datetime(["2024-01-02", "2024-01-03"]),
+    )
+
+    curve = equity_curve_to_dicts(equity_df, benchmark_df=benchmark_df)
+
+    assert curve[0]["benchmark_equity"] == 100_000.0
+    assert curve[1]["benchmark_equity"] == 105_000.0
+    assert curve[1]["strategy_return_pct"] == 2.0
+    assert curve[1]["benchmark_return_pct"] == 5.0
+    assert curve[1]["excess_return_pct"] == -3.0
+    json.dumps(curve, allow_nan=False)
+
+
 def test_empty_trades_df():
     assert bt_trades_to_dicts(pd.DataFrame()) == []
     assert bt_trades_to_dicts(None) == []
@@ -119,3 +142,44 @@ def test_normalize_bt_stats_includes_risk_summary():
     assert report["take_profit_pct"] == 0.2
     assert report["stop_loss_trades"] == 1
     assert report["take_profit_trades"] == 0
+
+
+def test_normalize_bt_stats_includes_enhanced_sections_and_benchmark_summary():
+    dates = pd.date_range("2024-01-02", periods=80, freq="B")
+    equity_values = [
+        100_000.0 * (1 + index * 0.002 + math.sin(index / 5) * 0.01)
+        for index in range(len(dates))
+    ]
+    benchmark_close = [
+        10.0 * (1 + index * 0.0015 + math.cos(index / 7) * 0.005)
+        for index in range(len(dates))
+    ]
+    equity_curve = pd.DataFrame({"Equity": equity_values}, index=dates)
+    benchmark_df = pd.DataFrame({"Close": benchmark_close}, index=dates)
+
+    report = normalize_bt_stats(
+        pd.Series({
+            "_equity_curve": equity_curve,
+            "Equity Final [$]": equity_values[-1],
+            "Return [%]": (equity_values[-1] / equity_values[0] - 1) * 100,
+            "Return (Ann.) [%]": 24.0,
+            "Sharpe Ratio": 1.6,
+            "Sortino Ratio": 2.1,
+            "Max. Drawdown [%]": -4.0,
+            "# Trades": 5,
+        }),
+        benchmark_df=benchmark_df,
+        benchmark_symbol="000300.SH",
+        rolling_sharpe_window=20,
+    )
+
+    assert report["calmar_ratio"] == 6.0
+    assert report["rolling_sharpe_window_bars"] == 20
+    assert len(report["monthly_returns"]) >= 3
+    assert len(report["rolling_sharpe"]) > 0
+    assert len(report["yearly_stats"]) == 1
+    assert report["benchmark_symbol"] == "000300.SH"
+    assert "benchmark_total_return_pct" in report
+    assert "beta" in report
+    assert "alpha_annualized_pct" in report
+    json.dumps(report, allow_nan=False)

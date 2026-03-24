@@ -15,6 +15,7 @@
 - 参数优化：基于 `backtesting.py Backtest.optimize()`，支持 top-N 排名、参数约束与 Walk-Forward 验证
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
 - 可转债研究：`asset_type=convertible_bond` 时支持日线加载、单标回测/优化、显式列表筛选，并附带转股价值 / 转股溢价率 / 纯债溢价率 / 推导转股价等字段
+- 报告增强：单股回测 `summary` 内置 Calmar、月度收益、滚动 Sharpe、分年统计，并支持可选 benchmark 对比（基准权益、超额收益、Beta、Alpha）
 - 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
 - 历史股票池：`get_pool_at_date()` + 行业 / 市值 / PE / ST / 次新过滤，避免幸存者偏差
@@ -165,6 +166,7 @@ quant-balance
   "strategy": "sma_cross",
   "cash": 100000,
   "commission": 0.001,
+  "benchmark_symbol": "000300.SH",
   "params": {
     "fast_period": 5,
     "slow_period": 20,
@@ -173,6 +175,12 @@ quant-balance
   }
 }
 ```
+
+说明：
+
+- 响应顶层结构继续保持 `summary`、`trades`、`equity_curve`、`run_context`
+- `summary` 会额外返回 `calmar_ratio`、`monthly_returns`、`rolling_sharpe`、`yearly_stats`
+- 传入 `benchmark_symbol` 后，`summary` 和 `equity_curve` 会同步返回基准相关字段；如需单独指定基准资产类型或数据源，可额外传 `benchmark_asset_type`、`benchmark_data_provider`
 
 可转债示例：
 
