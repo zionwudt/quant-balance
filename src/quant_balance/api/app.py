@@ -10,6 +10,7 @@ from quant_balance import __version__
 from quant_balance.api.schemas import (
     BacktestRunRequest,
     OptimizeRequest,
+    PortfolioRunRequest,
     ScreeningRunRequest,
     TushareTokenRequest,
 )
@@ -61,6 +62,7 @@ def create_api_app() -> Any:
         validate_tushare_token,
     )
     from quant_balance.services.backtest_service import run_optimize, run_single_backtest
+    from quant_balance.services.portfolio_service import run_portfolio_research
     from quant_balance.services.screening_service import run_stock_screening
 
     app = FastAPI(
@@ -276,6 +278,50 @@ def create_api_app() -> Any:
         except Exception as exc:  # noqa: BLE001
             _log_api_error(
                 endpoint="/api/screening/run",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.post("/api/portfolio/run")
+    def portfolio_run(req: PortfolioRunRequest) -> dict:
+        """组合回测。"""
+        context = {
+            "symbols_count": len(req.symbols),
+            "start_date": req.start_date,
+            "end_date": req.end_date,
+            "allocation": req.allocation,
+            "rebalance_frequency": req.rebalance_frequency,
+            "cash": req.cash,
+            "commission": req.commission,
+            "data_provider": req.data_provider,
+        }
+        try:
+            kwargs = {
+                "symbols": req.symbols,
+                "start_date": req.start_date,
+                "end_date": req.end_date,
+                "allocation": req.allocation,
+                "weights": req.weights,
+                "rebalance_frequency": req.rebalance_frequency,
+                "cash": req.cash,
+                "commission": req.commission,
+            }
+            if req.data_provider is not None:
+                kwargs["data_provider"] = req.data_provider
+            return run_portfolio_research(**kwargs)
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/portfolio/run",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/portfolio/run",
                 status_code=500,
                 exc=exc,
                 context=context,

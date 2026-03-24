@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -49,6 +51,26 @@ class ScreeningRunRequest(BaseModel):
     top_n: int = Field(20, gt=0, description="返回前 N 名")
     cash: float = Field(100_000.0, gt=0, description="初始资金")
     symbols: list[str] | None = Field(None, description="自定义股票列表（传入则忽略 pool_date）")
+    data_provider: str | None = Field(
+        None,
+        description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",
+    )
+
+
+class PortfolioRunRequest(BaseModel):
+    """组合回测请求。"""
+
+    symbols: list[str] = Field(..., min_length=1, description="股票代码列表")
+    start_date: str = Field(..., description="回测起始日期 YYYY-MM-DD")
+    end_date: str = Field(..., description="回测结束日期 YYYY-MM-DD")
+    allocation: Literal["equal", "custom"] = Field("equal", description="权重模式")
+    weights: dict[str, float] = Field(default_factory=dict, description="自定义权重，如 {AAA: 0.6, BBB: 0.4}")
+    rebalance_frequency: Literal["daily", "weekly", "monthly", "quarterly"] = Field(
+        "monthly",
+        description="再平衡频率",
+    )
+    cash: float = Field(100_000.0, gt=0, description="初始资金")
+    commission: float = Field(0.001, ge=0, description="佣金比例")
     data_provider: str | None = Field(
         None,
         description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",

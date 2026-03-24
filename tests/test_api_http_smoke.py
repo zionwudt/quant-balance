@@ -94,6 +94,7 @@ def test_api_http_smoke_end_to_end():
             "quant_balance.services.backtest_service.optimize",
             return_value=(optimize_stats, {"fast_period": pd.Index([4])[0], "slow_period": pd.Index([18])[0]}),
         ),
+        patch("quant_balance.services.portfolio_service.load_multi_dataframes", side_effect=fake_load_multi_dataframes),
         patch("quant_balance.services.screening_service.load_multi_dataframes", side_effect=fake_load_multi_dataframes),
         patch("quant_balance.services.screening_service.get_pool_at_date", return_value=["AAA", "BBB"]),
     ):
@@ -109,6 +110,7 @@ def test_api_http_smoke_end_to_end():
         assert "sma_cross" in meta_payload["strategies"]
         assert "macd" in meta_payload["strategies"]
         assert "dca" in meta_payload["signals"]
+        assert meta_payload["defaults"]["portfolio"]["allocation"] == "equal"
 
         strategies_status, _, strategies_payload = _request(app, "GET", "/api/strategies")
         assert strategies_status == 200
@@ -165,6 +167,29 @@ def test_api_http_smoke_end_to_end():
         assert optimize_payload["best_params"]["fast_period"] in [4, 5, 6]
         assert optimize_payload["best_params"]["slow_period"] in [18, 20, 22]
         assert optimize_payload["best_stats"]["total_return_pct"] > 0
+
+        portfolio_status, _, portfolio_payload = _request(
+            app,
+            "POST",
+            "/api/portfolio/run",
+            {
+                "symbols": ["AAA", "BBB"],
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "allocation": "custom",
+                "weights": {"AAA": 0.6, "BBB": 0.4},
+                "rebalance_frequency": "monthly",
+                "cash": 100_000.0,
+                "commission": 0.0,
+            },
+        )
+        assert portfolio_status == 200
+        assert portfolio_payload["summary"]["symbols_count"] == 2
+        assert portfolio_payload["summary"]["allocation"] == "custom"
+        assert portfolio_payload["summary"]["rebalance_frequency"] == "monthly"
+        assert len(portfolio_payload["equity_curve"]) > 0
+        assert len(portfolio_payload["weights"]) > 0
+        assert len(portfolio_payload["rebalances"]) > 0
 
         screening_status, _, screening_payload = _request(
             app,

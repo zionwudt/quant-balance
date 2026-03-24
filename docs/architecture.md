@@ -34,6 +34,7 @@ DATA LAYER
         ▼
 ENGINE LAYER
   backtest.py     -> backtesting.py
+  portfolio.py    -> vectorbt (portfolio)
   screening.py    -> vectorbt
   strategies.py   -> Strategy 类 + signal 函数
   report.py       -> 统计翻译器
@@ -41,6 +42,7 @@ ENGINE LAYER
         ▼
 SERVICE LAYER
   backtest_service.py
+  portfolio_service.py
   screening_service.py
         │
         ▼
@@ -110,6 +112,13 @@ API LAYER
 - 可将 `signal_params.stop_loss_pct` / `take_profit_pct` 映射到 `vectorbt` 风险退出
 - 输出排名表与明细结果
 
+`src/quant_balance/core/portfolio.py`
+
+- 组合回测基于 `vectorbt.Portfolio.from_orders`
+- 输入为对齐后的收盘价宽表与目标权重矩阵
+- 支持 `equal` / `custom` 权重模式与日 / 周 / 月 / 季再平衡
+- 输出组合 summary、equity_curve、weights、rebalances
+
 `src/quant_balance/core/report.py`
 
 - 将 `backtesting.py` stats 标准化为稳定字典
@@ -131,6 +140,12 @@ API LAYER
 - 负责信号校验、Top N 排名与返回结构
 - 支持可选 `data_provider`
 
+`src/quant_balance/services/portfolio_service.py`
+
+- 编排 `load_multi_dataframes() -> run_portfolio_backtest()`
+- 负责组合参数校验、已加载 / 跳过股票列表与 API 返回结构
+- 支持可选 `data_provider`
+
 ### API 层
 
 `src/quant_balance/api/app.py`
@@ -144,12 +159,14 @@ API LAYER
 - `POST /api/config/tushare-token`
 - `POST /api/backtest/run`
 - `POST /api/backtest/optimize`
+- `POST /api/portfolio/run`
 - `POST /api/screening/run`
 
 `src/quant_balance/api/schemas.py`
 
 - `BacktestRunRequest`
 - `OptimizeRequest`
+- `PortfolioRunRequest`
 - `ScreeningRunRequest`
 - `TushareTokenRequest`
 
@@ -171,6 +188,7 @@ API LAYER
 - `CACHE_HIT` / `CACHE_MISS`：数据层缓存命中与未命中，字段使用 `symbol`、`start_date`、`end_date`、`adjust`、`data_provider`、`dataset`
 - `BACKTEST_RUN`：单股精细回测，字段使用 `symbol`、`start_date`、`end_date`、`strategy`、`bars_count`、`data_provider`
 - `BACKTEST_OPTIMIZE`：参数优化，字段使用 `symbol`、`start_date`、`end_date`、`strategy`、`maximize`、`param_ranges`、`best_params`
+- `PORTFOLIO_RUN`：组合回测，字段使用 `symbols`、`start_date`、`end_date`、`allocation`、`rebalance_frequency`、`data_provider`
 - `SCREENING_RUN`：批量筛选，字段使用 `pool_date`、`start_date`、`end_date`、`signal`、`top_n`、`total_screened`、`data_provider`
 - `API_ERROR`：API 400/500 错误路径，字段使用 `endpoint`、`status_code`、`detail` 和请求上下文
 
@@ -209,7 +227,7 @@ symbol + param_ranges
 
 ## 当前约束
 
-- 只支持单股精细回测；组合级仓位撮合仍未实现
+- 单股精细回测与组合研究明确分为两条引擎链路，不混用撮合模型
 - 只支持日线数据
 - 统一使用前复权价格作为研究视角
 - 股票池与财务数据仍主要依赖 Tushare，尚未做多 provider 统一抽象

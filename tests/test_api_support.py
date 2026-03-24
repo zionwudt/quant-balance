@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from quant_balance.api.app import create_api_app
-from quant_balance.api.schemas import BacktestRunRequest, ScreeningRunRequest, TushareTokenRequest
+from quant_balance.api.schemas import BacktestRunRequest, PortfolioRunRequest, ScreeningRunRequest, TushareTokenRequest
 
 
 def _get_route_endpoint(app, path: str, method: str):
@@ -31,6 +31,7 @@ def test_create_api_app_registers_expected_routes():
         ("/api/strategies", "GET"),
         ("/api/backtest/run", "POST"),
         ("/api/backtest/optimize", "POST"),
+        ("/api/portfolio/run", "POST"),
         ("/api/screening/run", "POST"),
     }
     actual_routes = {
@@ -58,6 +59,7 @@ def test_meta_endpoint_includes_defaults():
 
     assert result["server_mode"] == "api"
     assert result["defaults"]["backtest"]["strategy"] == "sma_cross"
+    assert result["defaults"]["portfolio"]["allocation"] == "equal"
     assert "sma_cross" in result["strategies"]
     assert "macd" in result["strategies"]
     assert "dca" in result["strategies"]
@@ -68,6 +70,7 @@ def test_post_routes_expose_request_body_in_openapi():
 
     assert "requestBody" in schema["paths"]["/api/backtest/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/backtest/optimize"]["post"]
+    assert "requestBody" in schema["paths"]["/api/portfolio/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/screening/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/config/tushare-token"]["post"]
 
@@ -230,6 +233,54 @@ def test_screening_run_maps_value_error_to_http_400():
 
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "未知信号"
+
+
+def test_portfolio_run_delegates_to_service():
+    payload = {"summary": {"final_equity": 123456.0}}
+    with patch("quant_balance.services.portfolio_service.run_portfolio_research", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/portfolio/run", "POST")
+        request = PortfolioRunRequest(
+            symbols=["AAA", "BBB"],
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            allocation="custom",
+            weights={"AAA": 0.6, "BBB": 0.4},
+            rebalance_frequency="monthly",
+            cash=100_000.0,
+            commission=0.001,
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        symbols=["AAA", "BBB"],
+        start_date="2024-01-01",
+        end_date="2024-06-30",
+        allocation="custom",
+        weights={"AAA": 0.6, "BBB": 0.4},
+        rebalance_frequency="monthly",
+        cash=100_000.0,
+        commission=0.001,
+    )
+
+
+def test_portfolio_run_maps_value_error_to_http_400():
+    with patch("quant_balance.services.portfolio_service.run_portfolio_research", side_effect=ValueError("bad weights")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/portfolio/run", "POST")
+        request = PortfolioRunRequest(
+            symbols=["AAA", "BBB"],
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+        )
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint(request)
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "bad weights"
 
 
 def test_tushare_token_endpoint_maps_invalid_token_to_http_400(caplog: pytest.LogCaptureFixture):

@@ -24,12 +24,12 @@
 
 | 维度 | 当前能力 | 当前空缺 |
 | ------ | ------ | ------ |
-| 回测 | 单股精细回测 | 组合级撮合与持仓管理 |
+| 回测 | 单股精细回测 + `vectorbt` 组合再平衡研究 | 组合级撮合与持仓管理 |
 | 筛选 | 历史股票池 + 信号批量排名 | 多因子打分、条件筛选器 |
 | 策略 | `sma_cross` / `ema_cross` / `buy_and_hold` / `macd` / `rsi` / `bollinger` / `grid` / `dca` / `ma_rsi_filter` | 组合级策略、更多因子过滤器 |
 | 数据 | Tushare 日线、复权因子、财务快照 | 分钟线、更多基本面表 |
 | 报告 | 收益、回撤、Sharpe、交易列表、权益曲线 | 基准对比、月度热力图、分年统计 |
-| API | `/api/backtest/*`、`/api/screening/run` | 历史记录、信号中心、模拟盘相关 API |
+| API | `/api/backtest/*`、`/api/portfolio/run`、`/api/screening/run` | 历史记录、信号中心、模拟盘相关 API |
 | Web | 仅设计稿 | 尚未落地 Dashboard |
 
 ## 已完成的重构内容
@@ -51,6 +51,7 @@
 ### 服务 + API
 
 - `backtest_service.py`
+- `portfolio_service.py`
 - `screening_service.py`
 - `api/schemas.py`
 - `api/app.py`
@@ -130,6 +131,21 @@
 - `top_n`
 - `cash`
 - `symbols`（可选）
+
+### `POST /api/portfolio/run`
+
+组合回测。
+
+请求字段：
+
+- `symbols`
+- `start_date`
+- `end_date`
+- `allocation`
+- `weights`
+- `rebalance_frequency`
+- `cash`
+- `commission`
 
 ## 核心约束
 

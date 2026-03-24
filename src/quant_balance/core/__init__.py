@@ -1,6 +1,7 @@
 """回测核心子包。"""
 
 from quant_balance.core.backtest import BacktestResult, optimize, run_backtest
+from quant_balance.core.portfolio import PortfolioBacktestResult, run_portfolio_backtest
 from quant_balance.core.report import (
     bt_trades_to_dicts,
     equity_curve_to_dicts,
@@ -32,6 +33,7 @@ from quant_balance.core.strategies import (
 
 __all__ = [
     "BacktestResult",
+    "PortfolioBacktestResult",
     "BollingerBreakout",
     "BuyAndHold",
     "DcaStrategy",
@@ -55,6 +57,7 @@ __all__ = [
     "normalize_bt_stats",
     "normalize_vbt_stats",
     "optimize",
+    "run_portfolio_backtest",
     "rsi_signals",
     "run_backtest",
     "run_screening",
