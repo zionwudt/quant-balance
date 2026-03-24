@@ -1,5 +1,6 @@
 """数据获取层。"""
 
+from quant_balance.data.cb_loader import load_dataframe as load_convertible_bond_dataframe
 from quant_balance.data.common import DataLoadError
 from quant_balance.data.fundamental_loader import (
     FinancialSnapshot,
@@ -22,6 +23,7 @@ __all__ = [
     "filter_pool_at_date",
     "get_pool_at_date",
     "load_dataframe",
+    "load_convertible_bond_dataframe",
     "load_financial_at",
     "update_fundamental_cache",
 ]

@@ -8,7 +8,7 @@
 
 - 单股精细回测：`backtesting.py`
 - 批量筛选：`vectorbt`
-- 数据层：Tushare + SQLite
+- 数据层：股票 + 可转债日线、Tushare + SQLite
 - API：FastAPI + Pydantic
 
 阶段进度：
@@ -24,10 +24,10 @@
 
 | 维度 | 当前能力 | 当前空缺 |
 | ------ | ------ | ------ |
-| 回测 | 单股精细回测 + `vectorbt` 组合再平衡研究 | 组合级撮合与持仓管理 |
-| 筛选 | 历史股票池 + 行业/市值/PE/ST/次新过滤 + 信号批量排名 + 多因子打分 | 更强的条件筛选器与因子库 |
+| 回测 | 股票/可转债单标精细回测 + `vectorbt` 组合再平衡研究 | 组合级撮合与持仓管理 |
+| 筛选 | 历史股票池 + 行业/市值/PE/ST/次新过滤 + 信号批量排名 + 多因子打分 + 可转债显式列表筛选 | 更强的条件筛选器与因子库 |
 | 策略 | `sma_cross` / `ema_cross` / `buy_and_hold` / `macd` / `rsi` / `bollinger` / `grid` / `dca` / `ma_rsi_filter` | 组合级策略、更多因子过滤器 |
-| 数据 | Tushare 日线、复权因子、多表基本面快照 | 分钟线、更丰富的另类数据 |
+| 数据 | 股票日线、可转债日线、复权因子、多表基本面快照 | 分钟线、更丰富的另类数据 |
 | 报告 | 收益、回撤、Sharpe、交易列表、权益曲线 | 基准对比、月度热力图、分年统计 |
 | API | `/api/backtest/*`、`/api/portfolio/run`、`/api/screening/run` | 历史记录、信号中心、模拟盘相关 API |
 | Web | 仅设计稿 | 尚未落地 Dashboard |
@@ -37,6 +37,7 @@
 ### 数据层
 
 - `tushare_loader.py` 支持 `load_dataframe()`
+- `cb_loader.py` 支持可转债日线、缓存和研究字段推导
 - `data_adapter.py` 支持批量加载 `dict[str, DataFrame]`
 - `stock_pool.py` 提供历史时点股票池与可组合过滤器
 - `fundamental_loader.py` 提供按公告日对齐的多表基本面快照与增量缓存
@@ -100,6 +101,7 @@
 - `symbol`
 - `start_date`
 - `end_date`
+- `asset_type`
 - `strategy`
 - `cash`
 - `commission`
@@ -114,6 +116,7 @@
 - `symbol`
 - `start_date`
 - `end_date`
+- `asset_type`
 - `strategy`
 - `cash`
 - `commission`
@@ -139,6 +142,7 @@
 - `pool_date`
 - `start_date`
 - `end_date`
+- `asset_type`
 - `signal`
 - `signal_params`
 - `pool_filters`
@@ -200,6 +204,13 @@
 当前研究默认使用前复权日线（`qfq`）。
 
 如果未来要同时引入“研究价格”和“执行价格”的双轨机制，需要在现有第三方引擎封装之外新增一层价格视角协调逻辑，而不是恢复旧的自研撮合内核。
+
+### 4. 可转债简化规则
+
+- 可转债当前通过 `asset_type=convertible_bond` 接入现有回测/筛选/优化接口
+- 数据源当前仅支持 `tushare`
+- 回测仍沿用股票化的通用撮合与佣金模型，尚未单独建模涨跌停、强赎、回售等条款
+- 批量筛选当前要求显式传入可转债 `symbols`，不复用股票池过滤
 
 ## 后续阶段
 

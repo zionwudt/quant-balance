@@ -19,6 +19,7 @@ def load_multi_dataframes(
     start_date: str,
     end_date: str,
     *,
+    asset_type: Literal["stock", "convertible_bond"] = "stock",
     adjust: Literal["none", "qfq"] = "qfq",
     data_provider: str | None = None,
     db_path: Path | None = None,
@@ -30,7 +31,7 @@ def load_multi_dataframes(
     result: dict[str, pd.DataFrame] = {}
     for symbol in symbols:
         try:
-            load_kwargs = {"adjust": adjust, "db_path": db_path}
+            load_kwargs = {"asset_type": asset_type, "adjust": adjust, "db_path": db_path}
             if data_provider is not None:
                 load_kwargs["provider"] = data_provider
             df = load_dataframe(symbol, start_date, end_date, **load_kwargs)
@@ -44,6 +45,7 @@ def load_multi_dataframes(
                 symbol=symbol,
                 start_date=start_date,
                 end_date=end_date,
+                asset_type=asset_type,
                 adjust=adjust,
                 data_provider=data_provider,
                 error_type=type(exc).__name__,

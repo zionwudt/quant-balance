@@ -9,6 +9,7 @@ from typing import Literal
 
 import pandas as pd
 
+from quant_balance.data.cb_loader import load_dataframe as load_cb_dataframe
 from quant_balance.data.akshare_loader import fetch_daily_bar_rows as fetch_akshare_daily_bar_rows
 from quant_balance.data.baostock_loader import fetch_daily_bar_rows as fetch_baostock_daily_bar_rows
 from quant_balance.data.common import DataLoadError, resolve_daily_provider_order
@@ -46,7 +47,23 @@ def _rows_to_dataframe(rows: list[tuple], *, provider: str) -> pd.DataFrame:
     df = pd.DataFrame(records)
     df.set_index("Date", inplace=True)
     df.attrs["data_provider"] = provider
+    df.attrs["asset_type"] = "stock"
     return df
+
+
+def _resolve_cb_provider_order(
+    *,
+    provider: str | None = None,
+    providers: Sequence[str] | None = None,
+) -> list[str]:
+    if provider is None and providers is None:
+        return ["tushare"]
+
+    provider_order = resolve_daily_provider_order(provider=provider, providers=providers)
+    unsupported = [name for name in provider_order if name != "tushare"]
+    if unsupported:
+        raise DataLoadError("可转债当前仅支持 tushare 日线数据源。")
+    return provider_order
 
 
 def load_dataframe(
@@ -54,12 +71,21 @@ def load_dataframe(
     start_date: str,
     end_date: str,
     *,
+    asset_type: Literal["stock", "convertible_bond"] = "stock",
     adjust: Literal["none", "qfq"] = "qfq",
     provider: str | None = None,
     providers: Sequence[str] | None = None,
     db_path: Path | None = None,
 ) -> pd.DataFrame:
     """加载日线行情，支持多数据源按顺序回退。"""
+    if asset_type == "convertible_bond":
+        _resolve_cb_provider_order(provider=provider, providers=providers)
+        df = load_cb_dataframe(ts_code, start_date, end_date, db_path=db_path)
+        df.attrs["asset_type"] = "convertible_bond"
+        return df
+    if asset_type != "stock":
+        raise DataLoadError(f"不支持的资产类型 {asset_type!r}，当前支持: stock, convertible_bond")
+
     provider_order = resolve_daily_provider_order(provider=provider, providers=providers)
     start = _to_yyyymmdd(start_date)
     end = _to_yyyymmdd(end_date)
@@ -79,6 +105,7 @@ def load_dataframe(
                 errors.append(f"{provider_name}: {exc}")
                 continue
             df.attrs["data_provider"] = provider_name
+            df.attrs["asset_type"] = "stock"
             return df
 
         conn = get_connection(db_path)

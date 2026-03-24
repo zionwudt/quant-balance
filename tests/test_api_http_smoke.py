@@ -95,11 +95,36 @@ def test_api_http_smoke_end_to_end():
         candidate_count=9,
     )
 
-    def fake_load_dataframe(symbol: str, start_date: str, end_date: str, adjust: str = "qfq", db_path=None):
-        return sample_df.copy()
+    def fake_load_dataframe(
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        asset_type: str = "stock",
+        adjust: str = "qfq",
+        provider=None,
+        db_path=None,
+    ):
+        df = sample_df.copy()
+        df.attrs["asset_type"] = asset_type
+        df.attrs["data_provider"] = provider or "tushare"
+        return df
 
-    def fake_load_multi_dataframes(symbols, start_date: str, end_date: str, adjust: str = "qfq", db_path=None):
-        return {symbol: sample_df.copy() for symbol in symbols}
+    def fake_load_multi_dataframes(
+        symbols,
+        start_date: str,
+        end_date: str,
+        asset_type: str = "stock",
+        adjust: str = "qfq",
+        data_provider=None,
+        db_path=None,
+    ):
+        payload = {}
+        for symbol in symbols:
+            df = sample_df.copy()
+            df.attrs["asset_type"] = asset_type
+            df.attrs["data_provider"] = data_provider or "tushare"
+            payload[symbol] = df
+        return payload
 
     with (
         patch("quant_balance.services.backtest_service.load_dataframe", side_effect=fake_load_dataframe),
@@ -237,6 +262,24 @@ def test_api_http_smoke_end_to_end():
         assert "stop_loss_price" in backtest_payload["trades"][0]
         assert "exit_reason" in backtest_payload["trades"][0]
         assert len(backtest_payload["equity_curve"]) > 0
+        assert backtest_payload["run_context"]["asset_type"] == "stock"
+
+        cb_backtest_status, _, cb_backtest_payload = _request(
+            app,
+            "POST",
+            "/api/backtest/run",
+            {
+                "symbol": "110043.SH",
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "asset_type": "convertible_bond",
+                "strategy": "buy_and_hold",
+                "cash": 100_000.0,
+                "commission": 0.0,
+            },
+        )
+        assert cb_backtest_status == 200
+        assert cb_backtest_payload["run_context"]["asset_type"] == "convertible_bond"
 
         optimize_status, _, optimize_payload = _request(
             app,
@@ -341,3 +384,22 @@ def test_api_http_smoke_end_to_end():
         assert screening_status == 200
         assert screening_payload["total_screened"] == 2
         assert len(screening_payload["rankings"]) == 2
+        assert screening_payload["run_context"]["asset_type"] == "stock"
+
+        cb_screening_status, _, cb_screening_payload = _request(
+            app,
+            "POST",
+            "/api/screening/run",
+            {
+                "pool_date": "2024-01-01",
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "asset_type": "convertible_bond",
+                "signal": "sma_cross",
+                "symbols": ["110043.SH", "113001.SH"],
+                "top_n": 2,
+                "cash": 100_000.0,
+            },
+        )
+        assert cb_screening_status == 200
+        assert cb_screening_payload["run_context"]["asset_type"] == "convertible_bond"

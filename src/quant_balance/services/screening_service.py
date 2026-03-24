@@ -27,6 +27,7 @@ def run_stock_screening(
     pool_date: str,
     start_date: str,
     end_date: str,
+    asset_type: str = "stock",
     signal: str = "sma_cross",
     signal_params: dict | None = None,
     top_n: int = 20,
@@ -48,7 +49,12 @@ def run_stock_screening(
         raise ValueError(f"未知信号: {signal}，可用: {list(SIGNAL_REGISTRY)}")
 
     started_at = perf_counter()
-    if _has_active_pool_filters(pool_filters):
+    if asset_type == "convertible_bond":
+        if _has_active_pool_filters(pool_filters):
+            raise ValueError("可转债筛选暂不支持 pool_filters，请直接传入 symbols。")
+        if symbols is None:
+            raise ValueError("可转债筛选当前需要显式传入 symbols。")
+    elif _has_active_pool_filters(pool_filters):
         records = filter_pool_at_date(
             pool_date,
             filters=pool_filters,
@@ -59,7 +65,7 @@ def run_stock_screening(
         symbols = get_pool_at_date(pool_date)
     requested_symbols_count = len(symbols)
 
-    load_kwargs = {}
+    load_kwargs = {"asset_type": asset_type}
     if data_provider is not None:
         load_kwargs["data_provider"] = data_provider
     data = load_multi_dataframes(symbols, start_date, end_date, **load_kwargs)
@@ -71,6 +77,7 @@ def run_stock_screening(
                 "pool_date": pool_date,
                 "start_date": start_date,
                 "end_date": end_date,
+                "asset_type": asset_type,
                 "signal": signal,
                 "signal_params": signal_params or {},
                 "pool_filters": pool_filters or {},
@@ -85,6 +92,7 @@ def run_stock_screening(
             pool_date=pool_date,
             start_date=start_date,
             end_date=end_date,
+            asset_type=asset_type,
             signal=signal,
             signal_params=signal_params or {},
             pool_filters=pool_filters or {},
@@ -105,6 +113,7 @@ def run_stock_screening(
             "pool_date": pool_date,
             "start_date": start_date,
             "end_date": end_date,
+            "asset_type": asset_type,
             "signal": signal,
             "data_provider": data_provider,
         },
@@ -126,6 +135,7 @@ def run_stock_screening(
             "pool_date": pool_date,
             "start_date": start_date,
             "end_date": end_date,
+            "asset_type": asset_type,
             "signal": signal,
             "signal_params": signal_params or {},
             "pool_filters": pool_filters or {},
@@ -140,6 +150,7 @@ def run_stock_screening(
         pool_date=pool_date,
         start_date=start_date,
         end_date=end_date,
+        asset_type=asset_type,
         signal=signal,
         signal_params=signal_params or {},
         pool_filters=pool_filters or {},

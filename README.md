@@ -1,6 +1,6 @@
 # 知衡（QuantBalance）
 
-面向个人投资者的 A 股量化研究与回测系统。
+面向个人投资者的 A 股与可转债量化研究与回测系统。
 
 当前主干已经完成一次回测内核重构：
 
@@ -14,6 +14,7 @@
 - 单股精细回测：`sma_cross`、`ema_cross`、`buy_and_hold`、`macd`、`rsi`、`bollinger`、`grid`、`dca`、`ma_rsi_filter`
 - 参数优化：基于 `backtesting.py Backtest.optimize()`，支持 top-N 排名、参数约束与 Walk-Forward 验证
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
+- 可转债研究：`asset_type=convertible_bond` 时支持日线加载、单标回测/优化、显式列表筛选，并附带转股价值 / 转股溢价率 / 纯债溢价率 / 推导转股价等字段
 - 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
 - 历史股票池：`get_pool_at_date()` + 行业 / 市值 / PE / ST / 次新过滤，避免幸存者偏差
@@ -23,11 +24,11 @@
 
 ## 当前边界
 
-- 市场：仅 A 股
+- 市场：A 股 + 可转债
 - 频率：仅日线
 - 用途：本地研究与原型验证，不作为实盘建议
-- 交易规则：当前统一为 `backtesting.py` 标准佣金模型
-- 暂不支持：组合级持仓撮合、分钟级数据、实盘下单
+- 交易规则：当前统一为 `backtesting.py` 标准佣金模型；可转债暂未单独建模涨跌停、强赎、回售等规则
+- 暂不支持：组合级持仓撮合、分钟级数据、实盘下单、可转债历史全市场池
 
 ## 安装
 
@@ -106,7 +107,13 @@ quant-balance
 - `POST /api/portfolio/run`
 - `POST /api/screening/run`
 
-四个行情研究类 `POST` 接口都支持可选字段 `data_provider`，可显式指定 `akshare`、`baostock` 或 `tushare`。
+`/api/backtest/run`、`/api/backtest/optimize`、`/api/screening/run` 都支持可选字段 `asset_type`。
+
+- `asset_type=stock` 时沿用现有股票语义
+- `asset_type=convertible_bond` 时切换到可转债日线加载；当前仅支持 `tushare`
+- `factors/rank` 与 `stock-pool/filter` 仍保持股票语义
+
+四个行情研究类 `POST` 接口都支持可选字段 `data_provider`，但可转债当前仅接受 `tushare`。
 
 ## 内置策略
 
@@ -154,6 +161,7 @@ quant-balance
   "symbol": "600519.SH",
   "start_date": "2024-01-01",
   "end_date": "2024-12-31",
+  "asset_type": "stock",
   "strategy": "sma_cross",
   "cash": 100000,
   "commission": 0.001,
@@ -166,6 +174,20 @@ quant-balance
 }
 ```
 
+可转债示例：
+
+```json
+{
+  "symbol": "110043.SH",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "asset_type": "convertible_bond",
+  "strategy": "buy_and_hold",
+  "cash": 100000,
+  "commission": 0.001
+}
+```
+
 ### `POST /api/backtest/optimize`
 
 ```json
@@ -173,6 +195,7 @@ quant-balance
   "symbol": "600519.SH",
   "start_date": "2024-01-01",
   "end_date": "2024-12-31",
+  "asset_type": "stock",
   "strategy": "sma_cross",
   "cash": 100000,
   "commission": 0.001,
@@ -244,6 +267,7 @@ quant-balance
   "pool_date": "2024-01-01",
   "start_date": "2024-01-01",
   "end_date": "2024-12-31",
+  "asset_type": "stock",
   "signal": "sma_cross",
   "signal_params": {
     "fast": 5,
@@ -255,6 +279,26 @@ quant-balance
   "cash": 100000
 }
 ```
+
+可转债筛选示例：
+
+```json
+{
+  "pool_date": "2024-01-01",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "asset_type": "convertible_bond",
+  "signal": "sma_cross",
+  "symbols": ["110043.SH", "113001.SH"],
+  "top_n": 20,
+  "cash": 100000
+}
+```
+
+说明：
+
+- 可转债筛选当前需要显式传入 `symbols`
+- 可转债筛选暂不支持 `pool_filters`
 
 ### `POST /api/portfolio/run`
 
@@ -291,6 +335,7 @@ src/quant_balance/
 │   ├── report.py           # 统计标准化与输出转换
 │   └── data_adapter.py     # 多标的数据加载适配
 ├── data/
+│   ├── cb_loader.py        # 可转债日线 + 研究字段 + 缓存
 │   ├── market_loader.py    # 统一日线入口 + provider fallback
 │   ├── tushare_loader.py   # Tushare 日线 / 复权
 │   ├── akshare_loader.py   # AkShare 日线
@@ -332,7 +377,9 @@ core/screening.py -> vectorbt
 ## 设计约束
 
 - 回测与筛选统一使用前复权日线（`qfq`）
-- `load_dataframe()` 支持 `provider=` 显式指定，或按 `[data].daily_providers` 自动回退
+- `load_dataframe()` 支持 `asset_type=stock|convertible_bond`
+- 股票 `load_dataframe()` 支持 `provider=` 显式指定，或按 `[data].daily_providers` 自动回退
+- 可转债日线当前仅支持 `tushare`，会额外输出 `ConversionValue`、`ConversionPremiumRate`、`PureBondPremiumRate`、`ConversionPrice` 等字段
 - 组合回测通过目标权重矩阵做再平衡，不重新引入旧的自研多标的撮合内核
 - `load_financial_at()` 会把估值与财报字段聚合成稳定快照，其中财报类字段严格按 `ann_date` 过滤
 - 股票池过滤始终建立在 `get_pool_at_date()` 的历史池之上，可叠加行业 / 市值 / PE / ST / 次新条件
@@ -352,10 +399,10 @@ core/screening.py -> vectorbt
 核心事件与字段约定：
 
 - `CACHE_HIT` / `CACHE_MISS`：`symbol`、`start_date`、`end_date`、`adjust`、`data_provider`、`dataset`、`rows_count`
-- `BACKTEST_RUN`：`symbol`、`start_date`、`end_date`、`strategy`、`cash`、`commission`、`bars_count`、`data_provider`
-- `BACKTEST_OPTIMIZE`：`symbol`、`start_date`、`end_date`、`strategy`、`maximize`、`param_ranges`、`best_params`、`data_provider`
+- `BACKTEST_RUN`：`symbol`、`start_date`、`end_date`、`asset_type`、`strategy`、`cash`、`commission`、`bars_count`、`data_provider`
+- `BACKTEST_OPTIMIZE`：`symbol`、`start_date`、`end_date`、`asset_type`、`strategy`、`maximize`、`param_ranges`、`best_params`、`data_provider`
 - `FACTORS_RANK`：`pool_date`、`factors`、`candidate_count`、`scored_count`、`top_n`
-- `SCREENING_RUN`：`pool_date`、`start_date`、`end_date`、`signal`、`top_n`、`total_screened`、`data_provider`
+- `SCREENING_RUN`：`pool_date`、`start_date`、`end_date`、`asset_type`、`signal`、`top_n`、`total_screened`、`data_provider`
 - `API_ERROR`：`endpoint`、`status_code`、`detail`，以及对应请求的 `symbol` / `strategy` / `signal` / `pool_date`
 
 默认日志级别为 `INFO`，可通过环境变量 `QUANT_BALANCE_LOG_LEVEL` 调整。

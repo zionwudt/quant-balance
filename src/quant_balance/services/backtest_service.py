@@ -33,6 +33,7 @@ def run_single_backtest(
     symbol: str,
     start_date: str,
     end_date: str,
+    asset_type: str = "stock",
     strategy: str = "sma_cross",
     cash: float = 100_000.0,
     commission: float = 0.001,
@@ -45,7 +46,7 @@ def run_single_backtest(
         raise ValueError(f"未知策略: {strategy}，可用: {list(STRATEGY_REGISTRY)}")
 
     started_at = perf_counter()
-    load_kwargs = {"adjust": "qfq"}
+    load_kwargs = {"asset_type": asset_type, "adjust": "qfq"}
     if data_provider is not None:
         load_kwargs["provider"] = data_provider
     df = load_dataframe(symbol, start_date, end_date, **load_kwargs)
@@ -58,6 +59,7 @@ def run_single_backtest(
             "symbol": symbol,
             "start_date": start_date,
             "end_date": end_date,
+            "asset_type": asset_type,
             "strategy": strategy,
             "data_provider": df.attrs.get("data_provider", data_provider),
         },
@@ -71,6 +73,7 @@ def run_single_backtest(
             "symbol": symbol,
             "start_date": start_date,
             "end_date": end_date,
+            "asset_type": df.attrs.get("asset_type", asset_type),
             "strategy": strategy,
             "cash": cash,
             "commission": commission,
@@ -86,6 +89,7 @@ def run_single_backtest(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
+        asset_type=df.attrs.get("asset_type", asset_type),
         strategy=strategy,
         cash=cash,
         commission=commission,
@@ -103,6 +107,7 @@ def run_optimize(
     symbol: str,
     start_date: str,
     end_date: str,
+    asset_type: str = "stock",
     strategy: str = "sma_cross",
     cash: float = 100_000.0,
     commission: float = 0.001,
@@ -127,7 +132,7 @@ def run_optimize(
     walk_forward_config = _normalize_walk_forward_config(walk_forward)
 
     started_at = perf_counter()
-    load_kwargs = {"adjust": "qfq"}
+    load_kwargs = {"asset_type": asset_type, "adjust": "qfq"}
     if data_provider is not None:
         load_kwargs["provider"] = data_provider
     df = load_dataframe(symbol, start_date, end_date, **load_kwargs)
@@ -145,6 +150,7 @@ def run_optimize(
             "symbol": symbol,
             "start_date": start_date,
             "end_date": end_date,
+            "asset_type": asset_type,
             "strategy": strategy,
             "data_provider": df.attrs.get("data_provider", data_provider),
         },
@@ -161,6 +167,7 @@ def run_optimize(
             "symbol": symbol,
             "start_date": start_date,
             "end_date": end_date,
+            "asset_type": df.attrs.get("asset_type", asset_type),
             "strategy": strategy,
             "maximize": maximize,
             "param_ranges": _jsonable_value(normalized_param_ranges),
@@ -185,6 +192,7 @@ def run_optimize(
                 "symbol": symbol,
                 "start_date": start_date,
                 "end_date": end_date,
+                "asset_type": asset_type,
                 "strategy": strategy,
                 "data_provider": df.attrs.get("data_provider", data_provider),
             },
@@ -196,6 +204,7 @@ def run_optimize(
         symbol=symbol,
         start_date=start_date,
         end_date=end_date,
+        asset_type=df.attrs.get("asset_type", asset_type),
         strategy=strategy,
         maximize=maximize,
         param_ranges=_jsonable_value(normalized_param_ranges),

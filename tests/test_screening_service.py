@@ -90,6 +90,7 @@ def test_run_stock_screening_passes_data_provider():
         ["AAA"],
         "2024-01-01",
         "2024-06-30",
+        asset_type="stock",
         data_provider="baostock",
     )
 
@@ -127,4 +128,49 @@ def test_run_stock_screening_applies_pool_filters_before_loading_data():
         filters={"industries": ["银行"], "exclude_st": True},
         symbols=["AAA", "BBB"],
     )
-    mock_load.assert_called_once_with(["BBB"], "2024-01-01", "2024-06-30")
+    mock_load.assert_called_once_with(["BBB"], "2024-01-01", "2024-06-30", asset_type="stock")
+
+
+def test_run_stock_screening_rejects_pool_filters_for_convertible_bond():
+    with pytest.raises(ValueError, match="暂不支持 pool_filters"):
+        run_stock_screening(
+            pool_date="2024-01-01",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            asset_type="convertible_bond",
+            pool_filters={"exclude_st": True},
+            symbols=["110043.SH"],
+        )
+
+
+def test_run_stock_screening_requires_symbols_for_convertible_bond():
+    with pytest.raises(ValueError, match="需要显式传入 symbols"):
+        run_stock_screening(
+            pool_date="2024-01-01",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            asset_type="convertible_bond",
+        )
+
+
+def test_run_stock_screening_passes_convertible_bond_asset_type():
+    dummy_df = pd.DataFrame({"Close": [100, 101, 102]})
+    with (
+        patch("quant_balance.services.screening_service.load_multi_dataframes", return_value={"110043.SH": dummy_df}) as mock_load,
+        patch("quant_balance.services.screening_service.run_screening", return_value=ScreeningResult(rankings=pd.DataFrame(), details={})),
+    ):
+        result = run_stock_screening(
+            pool_date="2024-01-01",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            asset_type="convertible_bond",
+            symbols=["110043.SH"],
+        )
+
+    assert result["run_context"]["asset_type"] == "convertible_bond"
+    mock_load.assert_called_once_with(
+        ["110043.SH"],
+        "2024-01-01",
+        "2024-06-30",
+        asset_type="convertible_bond",
+    )

@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+AssetType = Literal["stock", "convertible_bond"]
+
 
 class StockPoolFiltersRequest(BaseModel):
     """股票池过滤条件。"""
@@ -59,9 +61,10 @@ class FactorsRankRequest(BaseModel):
 class BacktestRunRequest(BaseModel):
     """单股精细回测请求。"""
 
-    symbol: str = Field(..., description="股票代码，如 600519.SH")
+    symbol: str = Field(..., description="标的代码，如 600519.SH / 110043.SH")
     start_date: str = Field(..., description="起始日期 YYYY-MM-DD")
     end_date: str = Field(..., description="结束日期 YYYY-MM-DD")
+    asset_type: AssetType = Field("stock", description="资产类型：stock / convertible_bond")
     strategy: str = Field("sma_cross", description="策略名称")
     cash: float = Field(100_000.0, gt=0, description="初始资金")
     commission: float = Field(0.001, ge=0, description="佣金比例")
@@ -101,9 +104,10 @@ class WalkForwardRequest(BaseModel):
 class OptimizeRequest(BaseModel):
     """参数优化请求。"""
 
-    symbol: str = Field(..., description="股票代码")
+    symbol: str = Field(..., description="标的代码")
     start_date: str = Field(..., description="起始日期 YYYY-MM-DD")
     end_date: str = Field(..., description="结束日期 YYYY-MM-DD")
+    asset_type: AssetType = Field("stock", description="资产类型：stock / convertible_bond")
     strategy: str = Field("sma_cross", description="策略名称")
     cash: float = Field(100_000.0, gt=0)
     commission: float = Field(0.001, ge=0)
@@ -124,6 +128,7 @@ class ScreeningRunRequest(BaseModel):
     pool_date: str = Field(..., description="股票池基准日期 YYYY-MM-DD")
     start_date: str = Field(..., description="回测起始日期 YYYY-MM-DD")
     end_date: str = Field(..., description="回测结束日期 YYYY-MM-DD")
+    asset_type: AssetType = Field("stock", description="资产类型：stock / convertible_bond")
     signal: str = Field("sma_cross", description="信号函数名称")
     signal_params: dict = Field(default_factory=dict, description="信号参数")
     pool_filters: StockPoolFiltersRequest = Field(default_factory=StockPoolFiltersRequest, description="股票池过滤条件")

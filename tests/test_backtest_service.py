@@ -232,6 +232,7 @@ def test_run_optimize_returns_walk_forward_payload():
 def test_run_single_backtest_passes_data_provider():
     sample_df = _make_sample_df()
     sample_df.attrs["data_provider"] = "akshare"
+    sample_df.attrs["asset_type"] = "stock"
     with (
         patch("quant_balance.services.backtest_service.load_dataframe", return_value=sample_df) as mock_load,
         patch("quant_balance.services.backtest_service.run_backtest", return_value=_fake_backtest_result()),
@@ -248,8 +249,34 @@ def test_run_single_backtest_passes_data_provider():
         "600519.SH",
         "2024-01-01",
         "2024-06-30",
+        asset_type="stock",
         adjust="qfq",
         provider="akshare",
+    )
+
+
+def test_run_single_backtest_passes_convertible_bond_asset_type():
+    sample_df = _make_sample_df()
+    sample_df.attrs["data_provider"] = "tushare"
+    sample_df.attrs["asset_type"] = "convertible_bond"
+    with (
+        patch("quant_balance.services.backtest_service.load_dataframe", return_value=sample_df) as mock_load,
+        patch("quant_balance.services.backtest_service.run_backtest", return_value=_fake_backtest_result()),
+    ):
+        result = run_single_backtest(
+            symbol="110043.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            asset_type="convertible_bond",
+        )
+
+    assert result["run_context"]["asset_type"] == "convertible_bond"
+    mock_load.assert_called_once_with(
+        "110043.SH",
+        "2024-01-01",
+        "2024-06-30",
+        asset_type="convertible_bond",
+        adjust="qfq",
     )
 
 

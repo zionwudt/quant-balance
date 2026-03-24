@@ -71,3 +71,52 @@ def test_load_dataframe_rejects_unknown_provider(tmp_path: Path) -> None:
     with pytest.raises(DataLoadError, match="不支持的数据源"):
         load_dataframe("AAA", "2026-01-05", "2026-01-06", provider="unknown", db_path=tmp_path / "cache.db")
 
+
+def test_load_dataframe_routes_convertible_bond_to_cb_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: dict[str, object] = {}
+
+    def fake_cb_loader(ts_code: str, start_date: str, end_date: str, *, db_path: Path | None = None):
+        called.update({
+            "ts_code": ts_code,
+            "start_date": start_date,
+            "end_date": end_date,
+            "db_path": db_path,
+        })
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {"Open": [100.0], "High": [101.0], "Low": [99.0], "Close": [100.5], "Volume": [1000.0]},
+            index=pd.to_datetime(["2026-01-05"]),
+        )
+        df.attrs["data_provider"] = "tushare"
+        df.attrs["asset_type"] = "convertible_bond"
+        return df
+
+    monkeypatch.setattr("quant_balance.data.market_loader.load_cb_dataframe", fake_cb_loader)
+
+    df = load_dataframe(
+        "110043.SH",
+        "2026-01-05",
+        "2026-01-06",
+        asset_type="convertible_bond",
+        db_path=tmp_path / "cache.db",
+    )
+
+    assert list(df["Close"]) == [100.5]
+    assert df.attrs["asset_type"] == "convertible_bond"
+    assert called["ts_code"] == "110043.SH"
+
+
+def test_load_dataframe_rejects_non_tushare_provider_for_convertible_bond(tmp_path: Path) -> None:
+    with pytest.raises(DataLoadError, match="仅支持 tushare"):
+        load_dataframe(
+            "110043.SH",
+            "2026-01-05",
+            "2026-01-06",
+            asset_type="convertible_bond",
+            provider="akshare",
+            db_path=tmp_path / "cache.db",
+        )

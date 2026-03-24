@@ -14,12 +14,14 @@ def build_api_meta() -> dict:
         "factors": list_factor_definitions(),
         "defaults": {
             "backtest": {
+                "asset_type": "stock",
                 "strategy": "sma_cross",
                 "cash": 100_000.0,
                 "commission": 0.001,
                 "data_provider": None,
             },
             "optimize": {
+                "asset_type": "stock",
                 "strategy": "sma_cross",
                 "cash": 100_000.0,
                 "commission": 0.001,
@@ -27,6 +29,7 @@ def build_api_meta() -> dict:
                 "data_provider": None,
             },
             "screening": {
+                "asset_type": "stock",
                 "signal": "sma_cross",
                 "pool_filters": {
                     "industries": [],
@@ -86,6 +89,7 @@ def build_api_meta() -> dict:
             "组合回测基于 vectorbt 目标权重矩阵，适合做多标的轮动与再平衡研究。",
             "数据默认使用前复权价格（qfq）。",
             "行情数据默认按 akshare -> baostock -> tushare 顺序回退，也可在请求中显式指定。",
+            "backtest / optimize / screening 支持 asset_type=convertible_bond；当前可转债仅支持 tushare，并沿用简化版股票化撮合规则。",
             "默认面向本地研究演示，不作为实盘建议。",
         ],
         "server_mode": "api",
