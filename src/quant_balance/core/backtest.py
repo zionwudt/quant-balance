@@ -52,7 +52,7 @@ def run_backtest(
         stats=stats,
         trades=stats["_trades"],
         equity_curve=stats["_equity_curve"],
-        report=normalize_bt_stats(stats),
+        report=normalize_bt_stats(stats, risk_params=strategy_params),
     )
     log_fields = {
         "stage": "engine",

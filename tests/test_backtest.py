@@ -55,6 +55,26 @@ def test_run_backtest_dca_uses_incremental_orders():
     assert len(result.trades) >= 3
 
 
+def test_run_backtest_exposes_risk_exit_summary():
+    df = pd.DataFrame({
+        "Open": [100.0, 100.0, 100.0, 94.0, 93.0, 92.0],
+        "High": [100.0, 100.0, 100.0, 94.0, 93.0, 92.0],
+        "Low": [100.0, 100.0, 100.0, 94.0, 93.0, 92.0],
+        "Close": [100.0, 100.0, 100.0, 94.0, 93.0, 92.0],
+        "Volume": [1_000_000] * 6,
+    }, index=pd.date_range("2024-01-01", periods=6, freq="B"))
+    result = run_backtest(
+        df,
+        BuyAndHold,
+        strategy_params={"stop_loss_pct": 0.05, "take_profit_pct": 0.2},
+    )
+
+    assert result.report["stop_loss_pct"] == 0.05
+    assert result.report["take_profit_pct"] == 0.2
+    assert "stop_loss_trades" in result.report
+    assert "take_profit_trades" in result.report
+
+
 def test_normalize_bt_stats_handles_keys():
     df = _make_sample_df()
     result = run_backtest(df, BuyAndHold)

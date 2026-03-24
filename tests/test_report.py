@@ -31,6 +31,34 @@ def test_bt_trades_to_dicts():
         assert "pnl" in trades[0]
 
 
+def test_bt_trades_to_dicts_includes_risk_fields():
+    trades_df = pd.DataFrame([
+        {
+            "Size": 100,
+            "EntryBar": 0,
+            "ExitBar": 1,
+            "EntryPrice": 100.0,
+            "ExitPrice": 94.0,
+            "SL": 95.0,
+            "TP": 120.0,
+            "PnL": -600.0,
+            "ReturnPct": -0.06,
+            "EntryTime": "2024-01-01 00:00:00",
+            "ExitTime": "2024-01-02 00:00:00",
+            "Duration": "1 days 00:00:00",
+        }
+    ])
+
+    trades = bt_trades_to_dicts(
+        trades_df,
+        risk_params={"stop_loss_pct": 0.05, "take_profit_pct": 0.2},
+    )
+
+    assert trades[0]["stop_loss_price"] == 95.0
+    assert trades[0]["take_profit_price"] == 120.0
+    assert trades[0]["exit_reason"] == "stop_loss"
+
+
 def test_equity_curve_to_dicts():
     df = _make_sample_df()
     result = run_backtest(df, SmaCross, strategy_params={"fast_period": 5, "slow_period": 20})
@@ -68,3 +96,26 @@ def test_normalize_bt_stats_reads_initial_equity_from_equity_curve():
 
     assert report["initial_equity"] == 100_000.0
     assert report["max_drawdown_pct"] == 12.5
+
+
+def test_normalize_bt_stats_includes_risk_summary():
+    trades_df = pd.DataFrame([
+        {
+            "EntryPrice": 100.0,
+            "ExitPrice": 94.0,
+            "SL": 95.0,
+            "TP": 120.0,
+        }
+    ])
+    report = normalize_bt_stats(
+        pd.Series({
+            "_equity_curve": pd.DataFrame({"Equity": [100_000.0, 99_400.0]}),
+            "_trades": trades_df,
+        }),
+        risk_params={"stop_loss_pct": 0.05, "take_profit_pct": 0.2},
+    )
+
+    assert report["stop_loss_pct"] == 0.05
+    assert report["take_profit_pct"] == 0.2
+    assert report["stop_loss_trades"] == 1
+    assert report["take_profit_trades"] == 0

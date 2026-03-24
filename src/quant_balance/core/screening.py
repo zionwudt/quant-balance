@@ -13,6 +13,8 @@ from quant_balance.logging_utils import get_logger, log_event
 
 logger = get_logger(__name__)
 
+RISK_PARAM_KEYS = {"stop_loss_pct", "take_profit_pct"}
+
 @dataclass(slots=True)
 class ScreeningResult:
     """批量筛选结果。"""
@@ -41,6 +43,10 @@ def run_screening(
     import vectorbt as vbt
 
     params = signal_params or {}
+    signal_call_params = {
+        key: value for key, value in params.items()
+        if key not in RISK_PARAM_KEYS
+    }
     portfolio_kwargs = _resolve_portfolio_kwargs(signal_func, params)
     details: dict[str, dict] = {}
     failed_symbols: list[str] = []
@@ -48,7 +54,7 @@ def run_screening(
 
     for symbol, df in data.items():
         try:
-            entries, exits = signal_func(df, **params)
+            entries, exits = signal_func(df, **signal_call_params)
             pf = vbt.Portfolio.from_signals(
                 df["Close"],
                 entries,
@@ -110,7 +116,26 @@ def _resolve_portfolio_kwargs(
     signal_func: Callable[[pd.DataFrame], tuple[pd.Series, pd.Series]],
     params: dict[str, object],
 ) -> dict[str, object]:
+    kwargs: dict[str, object] = {}
     builder = getattr(signal_func, "qb_portfolio_kwargs", None)
     if callable(builder):
-        return dict(builder(params))
-    return {}
+        kwargs.update(dict(builder(params)))
+
+    stop_loss_pct = _optional_positive_float(params.get("stop_loss_pct"))
+    take_profit_pct = _optional_positive_float(params.get("take_profit_pct"))
+    if stop_loss_pct is not None:
+        if stop_loss_pct >= 1:
+            raise ValueError("stop_loss_pct 必须位于 [0, 1) 区间")
+        kwargs["sl_stop"] = stop_loss_pct
+    if take_profit_pct is not None:
+        kwargs["tp_stop"] = take_profit_pct
+    return kwargs
+
+
+def _optional_positive_float(value: object) -> float | None:
+    if value in (None, "", 0, 0.0):
+        return None
+    number = float(value)
+    if number < 0:
+        raise ValueError("风险退出比例必须 >= 0")
+    return number

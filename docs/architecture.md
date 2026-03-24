@@ -100,12 +100,14 @@ API LAYER
 
 - 薄包装 `backtesting.Backtest`
 - 暴露 `run_backtest()` 和 `optimize()`
+- 支持策略级 `stop_loss_pct` / `take_profit_pct`
 - 输出 `BacktestResult`
 
 `src/quant_balance/core/screening.py`
 
 - 延迟导入 `vectorbt`
 - 对多只股票批量运行信号函数
+- 可将 `signal_params.stop_loss_pct` / `take_profit_pct` 映射到 `vectorbt` 风险退出
 - 输出排名表与明细结果
 
 `src/quant_balance/core/report.py`

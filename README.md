@@ -117,6 +117,7 @@ quant-balance
 - `buy_and_hold`：无额外参数
 
 单股回测继续使用 `strategy + params`，批量筛选继续使用 `signal + signal_params`。
+如需启用风险退出，可额外传入 `stop_loss_pct` / `take_profit_pct`，例如 `0.08` 表示 8%。
 
 ### `GET /api/config/status`
 
@@ -153,7 +154,9 @@ quant-balance
   "commission": 0.001,
   "params": {
     "fast_period": 5,
-    "slow_period": 20
+    "slow_period": 20,
+    "stop_loss_pct": 0.08,
+    "take_profit_pct": 0.2
   }
 }
 ```
@@ -186,7 +189,9 @@ quant-balance
   "signal": "sma_cross",
   "signal_params": {
     "fast": 5,
-    "slow": 20
+    "slow": 20,
+    "stop_loss_pct": 0.08,
+    "take_profit_pct": 0.2
   },
   "top_n": 20,
   "cash": 100000

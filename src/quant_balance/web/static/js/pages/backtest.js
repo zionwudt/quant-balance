@@ -131,6 +131,11 @@ function updateStrategyParams(container) {
   const strategy = container.querySelector('#bt-strategy').value;
   const section = container.querySelector('#bt-params-section');
 
+  const riskParams = [
+    { key: 'stop_loss_pct', label: '止损比例', value: '', unit: '比例', parser: 'float', step: 0.01, min: 0 },
+    { key: 'take_profit_pct', label: '止盈比例', value: '', unit: '比例', parser: 'float', step: 0.01, min: 0 },
+  ];
+
   const paramDefs = {
     sma_cross: [
       { key: 'fast_period', label: '短均线', value: 5, unit: '日', parser: 'int', step: 1, min: 1 },
@@ -172,14 +177,14 @@ function updateStrategyParams(container) {
     ],
   };
 
-  const params = paramDefs[strategy] || [];
+  const params = [...(paramDefs[strategy] || []), ...riskParams];
   if (params.length === 0) {
     section.innerHTML = '';
     return;
   }
 
   section.innerHTML = `
-    <label class="form-label">策略参数</label>
+    <label class="form-label">策略参数 / 风险控制</label>
     ${params.map(p => `
       <div style="display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-1)">
         <span style="font-size:var(--text-sm);color:var(--text-secondary);width:60px">${p.label}</span>

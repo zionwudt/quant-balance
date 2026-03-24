@@ -70,3 +70,27 @@ def test_run_screening_emits_structured_log(caplog: pytest.LogCaptureFixture):
     assert payload["stage"] == "engine"
     assert payload["signal"] == "sma_cross"
     assert payload["total_screened"] == 2
+
+
+def test_run_screening_accepts_risk_exit_params():
+    close = [100.0, 100.0, 99.0, 94.0, 93.0, 92.0]
+    df = pd.DataFrame({
+        "Open": close,
+        "High": close,
+        "Low": close,
+        "Close": close,
+        "Volume": [1_000_000] * len(close),
+    }, index=pd.date_range("2024-01-01", periods=len(close), freq="B"))
+
+    def one_shot_signal(dataframe: pd.DataFrame):
+        entries = pd.Series([True] + [False] * (len(dataframe) - 1), index=dataframe.index)
+        exits = pd.Series([False] * len(dataframe), index=dataframe.index)
+        return entries, exits
+
+    result = run_screening(
+        {"AAA": df},
+        one_shot_signal,
+        signal_params={"stop_loss_pct": 0.05, "take_profit_pct": 0.2},
+    )
+
+    assert result.details["AAA"]["total_trades"] == 1

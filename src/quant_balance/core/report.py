@@ -5,11 +5,13 @@ from __future__ import annotations
 import pandas as pd
 
 
-def normalize_bt_stats(stats: pd.Series) -> dict:
+def normalize_bt_stats(stats: pd.Series, risk_params: dict | None = None) -> dict:
     """将 backtesting.py 的 stats Series 转为标准化字典。"""
     def _safe(key: str, default=None):
         try:
             val = stats[key]
+            if isinstance(val, (pd.Series, pd.DataFrame)):
+                return val
             if pd.isna(val):
                 return default
             return val
@@ -25,7 +27,7 @@ def normalize_bt_stats(stats: pd.Series) -> dict:
             pass
         return default
 
-    return {
+    report = {
         "initial_equity": _initial_equity(),
         "final_equity": _safe("Equity Final [$]"),
         "total_return_pct": _safe("Return [%]"),
@@ -43,6 +45,8 @@ def normalize_bt_stats(stats: pd.Series) -> dict:
         "avg_trade_duration": str(_safe("Avg. Trade Duration", "")),
         "exposure_pct": _safe("Exposure Time [%]"),
     }
+    report.update(_risk_summary(_safe("_trades"), risk_params))
+    return report
 
 
 def normalize_vbt_stats(stats: pd.Series) -> dict:
@@ -68,23 +72,30 @@ def normalize_vbt_stats(stats: pd.Series) -> dict:
     }
 
 
-def bt_trades_to_dicts(trades_df: pd.DataFrame) -> list[dict]:
+def bt_trades_to_dicts(
+    trades_df: pd.DataFrame,
+    risk_params: dict | None = None,
+) -> list[dict]:
     """将 backtesting.py 的交易 DataFrame 转为字典列表。"""
     if trades_df is None or trades_df.empty:
         return []
     records = []
     for _, row in trades_df.iterrows():
+        stop_loss_price, take_profit_price = _trade_risk_targets(row, risk_params)
         records.append({
             "size": int(row.get("Size", 0)),
             "entry_bar": int(row.get("EntryBar", 0)),
             "exit_bar": int(row.get("ExitBar", 0)),
             "entry_price": float(row.get("EntryPrice", 0)),
             "exit_price": float(row.get("ExitPrice", 0)),
+            "stop_loss_price": stop_loss_price,
+            "take_profit_price": take_profit_price,
             "pnl": float(row.get("PnL", 0)),
             "return_pct": float(row.get("ReturnPct", 0)) * 100,
             "entry_time": str(row.get("EntryTime", "")),
             "exit_time": str(row.get("ExitTime", "")),
             "duration": str(row.get("Duration", "")),
+            "exit_reason": _infer_exit_reason(row, risk_params),
         })
     return records
 
@@ -100,3 +111,72 @@ def equity_curve_to_dicts(equity_df: pd.DataFrame) -> list[dict]:
             "equity": float(row.get("Equity", 0)),
         })
     return records
+
+
+def _risk_summary(
+    trades_df: pd.DataFrame | None,
+    risk_params: dict | None,
+) -> dict[str, object]:
+    stop_loss_pct = _optional_float((risk_params or {}).get("stop_loss_pct"))
+    take_profit_pct = _optional_float((risk_params or {}).get("take_profit_pct"))
+    if stop_loss_pct is None and take_profit_pct is None:
+        return {}
+
+    trades = bt_trades_to_dicts(trades_df, risk_params)
+    return {
+        "stop_loss_pct": stop_loss_pct,
+        "take_profit_pct": take_profit_pct,
+        "stop_loss_trades": sum(trade["exit_reason"] == "stop_loss" for trade in trades),
+        "take_profit_trades": sum(trade["exit_reason"] == "take_profit" for trade in trades),
+    }
+
+
+def _trade_risk_targets(
+    row: pd.Series,
+    risk_params: dict | None,
+) -> tuple[float | None, float | None]:
+    entry_price = float(row.get("EntryPrice", 0))
+    stop_loss_pct = _optional_float((risk_params or {}).get("stop_loss_pct"))
+    take_profit_pct = _optional_float((risk_params or {}).get("take_profit_pct"))
+
+    stop_loss_price = _safe_trade_float(row.get("SL"))
+    take_profit_price = _safe_trade_float(row.get("TP"))
+
+    if stop_loss_price is None and stop_loss_pct is not None:
+        stop_loss_price = entry_price * (1 - stop_loss_pct)
+    if take_profit_price is None and take_profit_pct is not None:
+        take_profit_price = entry_price * (1 + take_profit_pct)
+    return stop_loss_price, take_profit_price
+
+
+def _infer_exit_reason(
+    row: pd.Series,
+    risk_params: dict | None,
+) -> str | None:
+    entry_price = float(row.get("EntryPrice", 0))
+    exit_price = float(row.get("ExitPrice", 0))
+    stop_loss_pct = _optional_float((risk_params or {}).get("stop_loss_pct"))
+    take_profit_pct = _optional_float((risk_params or {}).get("take_profit_pct"))
+    tolerance = max(entry_price * 1e-6, 1e-9)
+
+    if stop_loss_pct is not None:
+        stop_threshold = entry_price * (1 - stop_loss_pct)
+        if exit_price <= stop_threshold + tolerance:
+            return "stop_loss"
+    if take_profit_pct is not None:
+        take_profit_threshold = entry_price * (1 + take_profit_pct)
+        if exit_price >= take_profit_threshold - tolerance:
+            return "take_profit"
+    return None
+
+
+def _optional_float(value: object) -> float | None:
+    if value in (None, "", 0, 0.0):
+        return None
+    return float(value)
+
+
+def _safe_trade_float(value: object) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    return float(value)

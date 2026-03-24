@@ -51,7 +51,7 @@ def run_single_backtest(
 
     payload = {
         "summary": result.report,
-        "trades": bt_trades_to_dicts(result.trades),
+        "trades": bt_trades_to_dicts(result.trades, params),
         "equity_curve": equity_curve_to_dicts(result.equity_curve),
         "run_context": {
             "symbol": symbol,

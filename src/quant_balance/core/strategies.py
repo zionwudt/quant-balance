@@ -69,7 +69,35 @@ def _latest_cross_below(
 # backtesting.py 策略类
 # ---------------------------------------------------------------------------
 
-class SmaCross(Strategy):
+class RiskManagedStrategy(Strategy):
+    """支持通用止损 / 止盈参数的策略基类。"""
+
+    stop_loss_pct = 0.0
+    take_profit_pct = 0.0
+
+    def _buy_with_risk_controls(self, *, size: float | None = None) -> None:
+        self._validate_risk_params()
+        kwargs: dict[str, float] = {}
+        if size is not None:
+            kwargs["size"] = size
+        self.buy(**kwargs)
+
+    def _sync_risk_orders(self) -> None:
+        self._validate_risk_params()
+        for trade in self.trades:
+            if self.stop_loss_pct > 0 and trade.sl is None:
+                trade.sl = trade.entry_price * (1 - self.stop_loss_pct)
+            if self.take_profit_pct > 0 and trade.tp is None:
+                trade.tp = trade.entry_price * (1 + self.take_profit_pct)
+
+    def _validate_risk_params(self) -> None:
+        if self.stop_loss_pct < 0 or self.stop_loss_pct >= 1:
+            raise ValueError("stop_loss_pct 必须位于 [0, 1) 区间")
+        if self.take_profit_pct < 0:
+            raise ValueError("take_profit_pct 必须 >= 0")
+
+
+class SmaCross(RiskManagedStrategy):
     """SMA 金叉/死叉策略。"""
 
     fast_period = 5
@@ -81,13 +109,14 @@ class SmaCross(Strategy):
         self.slow_ma = self.I(sma, price, self.slow_period)
 
     def next(self):
+        self._sync_risk_orders()
         if crossover(self.fast_ma, self.slow_ma):
-            self.buy()
+            self._buy_with_risk_controls()
         elif crossover(self.slow_ma, self.fast_ma):
             self.position.close()
 
 
-class EmaCross(Strategy):
+class EmaCross(RiskManagedStrategy):
     """EMA 金叉/死叉策略。"""
 
     fast_period = 12
@@ -99,24 +128,27 @@ class EmaCross(Strategy):
         self.slow_ma = self.I(ema, price, self.slow_period)
 
     def next(self):
+        self._sync_risk_orders()
         if crossover(self.fast_ma, self.slow_ma):
-            self.buy()
+            self._buy_with_risk_controls()
         elif crossover(self.slow_ma, self.fast_ma):
             self.position.close()
 
 
-class BuyAndHold(Strategy):
+class BuyAndHold(RiskManagedStrategy):
     """买入并持有。"""
 
     def init(self):
-        pass
+        self.has_entered = False
 
     def next(self):
-        if not self.position:
-            self.buy()
+        self._sync_risk_orders()
+        if not self.position and not self.has_entered:
+            self._buy_with_risk_controls()
+            self.has_entered = True
 
 
-class MacdCross(Strategy):
+class MacdCross(RiskManagedStrategy):
     """MACD 零轴附近金叉/死叉趋势跟随策略。"""
 
     fast_period = 12
@@ -135,13 +167,14 @@ class MacdCross(Strategy):
         )
 
     def next(self):
+        self._sync_risk_orders()
         if crossover(self.macd_line, self.signal_line):
-            self.buy()
+            self._buy_with_risk_controls()
         elif crossover(self.signal_line, self.macd_line):
             self.position.close()
 
 
-class RsiStrategy(Strategy):
+class RsiStrategy(RiskManagedStrategy):
     """RSI 超卖反弹策略。"""
 
     period = 14
@@ -152,13 +185,14 @@ class RsiStrategy(Strategy):
         self.rsi_value = self.I(rsi, self.data.Close, self.period)
 
     def next(self):
+        self._sync_risk_orders()
         if not self.position and _latest_cross_above(self.rsi_value, self.oversold):
-            self.buy()
+            self._buy_with_risk_controls()
         elif self.position and _latest_cross_above(self.rsi_value, self.overbought):
             self.position.close()
 
 
-class BollingerBreakout(Strategy):
+class BollingerBreakout(RiskManagedStrategy):
     """布林带上轨突破入场、跌回中轨离场策略。"""
 
     period = 20
@@ -176,13 +210,14 @@ class BollingerBreakout(Strategy):
         )
 
     def next(self):
+        self._sync_risk_orders()
         if crossover(self.data.Close, self.upper_band):
-            self.buy()
+            self._buy_with_risk_controls()
         elif crossover(self.middle_band, self.data.Close):
             self.position.close()
 
 
-class GridStrategy(Strategy):
+class GridStrategy(RiskManagedStrategy):
     """基于均线锚定上下网格的均值回归策略。"""
 
     anchor_period = 20
@@ -193,15 +228,16 @@ class GridStrategy(Strategy):
         self.anchor = self.I(sma, price, self.anchor_period)
 
     def next(self):
+        self._sync_risk_orders()
         lower = self.anchor * (1 - self.grid_pct)
         upper = self.anchor * (1 + self.grid_pct)
         if not self.position and _latest_cross_below(self.data.Close, lower):
-            self.buy()
+            self._buy_with_risk_controls()
         elif self.position and _latest_cross_above(self.data.Close, upper):
             self.position.close()
 
 
-class DcaStrategy(Strategy):
+class DcaStrategy(RiskManagedStrategy):
     """定期定额买入策略。"""
 
     interval_days = 20
@@ -213,15 +249,17 @@ class DcaStrategy(Strategy):
 
     def next(self):
         self.bar_counter += 1
+        self._sync_risk_orders()
+        self._validate_risk_params()
         if self.trade_fraction <= 0 or self.trade_fraction > 1:
             raise ValueError("trade_fraction 必须位于 (0, 1] 区间")
         if self.interval_days < 1:
             raise ValueError("interval_days 必须 >= 1")
         if (self.bar_counter - 1) % self.interval_days == 0:
-            self.buy(size=self.trade_fraction)
+            self._buy_with_risk_controls(size=self.trade_fraction)
 
 
-class MaRsiFilter(Strategy):
+class MaRsiFilter(RiskManagedStrategy):
     """均线趋势 + RSI 动量过滤策略。"""
 
     fast_period = 10
@@ -237,6 +275,7 @@ class MaRsiFilter(Strategy):
         self.rsi_value = self.I(rsi, price, self.rsi_period)
 
     def next(self):
+        self._sync_risk_orders()
         entry_state = (
             self.fast_ma[-1] > self.slow_ma[-1]
             and self.rsi_value[-1] > self.rsi_threshold
@@ -255,7 +294,7 @@ class MaRsiFilter(Strategy):
         )
 
         if not self.position and entry_state and not prev_entry_state:
-            self.buy()
+            self._buy_with_risk_controls()
         elif self.position and exit_state and not prev_exit_state:
             self.position.close()
 

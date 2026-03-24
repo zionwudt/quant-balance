@@ -128,13 +128,22 @@ def test_api_http_smoke_end_to_end():
                 "strategy": "sma_cross",
                 "cash": 100_000.0,
                 "commission": 0.0,
-                "params": {"fast_period": 5, "slow_period": 20},
+                "params": {
+                    "fast_period": 5,
+                    "slow_period": 20,
+                    "stop_loss_pct": 0.05,
+                    "take_profit_pct": 0.1,
+                },
             },
         )
         assert backtest_status == 200
         assert backtest_payload["summary"]["initial_equity"] == 100_000.0
+        assert backtest_payload["summary"]["stop_loss_pct"] == 0.05
+        assert backtest_payload["summary"]["take_profit_pct"] == 0.1
         assert backtest_payload["summary"]["trades_count"] > 0
         assert len(backtest_payload["trades"]) > 0
+        assert "stop_loss_price" in backtest_payload["trades"][0]
+        assert "exit_reason" in backtest_payload["trades"][0]
         assert len(backtest_payload["equity_curve"]) > 0
 
         optimize_status, _, optimize_payload = _request(
@@ -166,7 +175,12 @@ def test_api_http_smoke_end_to_end():
                 "start_date": "2024-01-01",
                 "end_date": "2024-12-31",
                 "signal": "sma_cross",
-                "signal_params": {"fast": 5, "slow": 20},
+                "signal_params": {
+                    "fast": 5,
+                    "slow": 20,
+                    "stop_loss_pct": 0.05,
+                    "take_profit_pct": 0.1,
+                },
                 "top_n": 2,
                 "cash": 100_000.0,
             },
