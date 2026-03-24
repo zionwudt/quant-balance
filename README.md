@@ -16,8 +16,8 @@
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
 - 历史股票池：`get_pool_at_date()` 避免幸存者偏差
-- 财务快照：`load_financial_at()` 按公告日对齐，避免未来函数
-- 数据缓存：SQLite 本地缓存日线、复权因子和财务数据
+- 财务快照：`load_financial_at()` 聚合 `daily_basic / income / balancesheet / cashflow / fina_indicator`，按公告日对齐，避免未来函数
+- 数据缓存：SQLite 本地缓存日线、复权因子和多表基本面数据
 - Web API：返回 JSON，便于前端或脚本消费
 
 ## 当前边界
@@ -73,7 +73,7 @@ Tushare token 获取地址：[tushare.pro/register](https://tushare.pro/register
 说明：
 
 - `daily_providers` 决定日线行情优先级，默认顺序会优先走 `AkShare -> Baostock -> Tushare`
-- 即使 `tushare` 放在兜底位，股票池和财务快照当前仍然是 Tushare-first
+- 即使 `tushare` 放在兜底位，股票池和基本面快照当前仍然是 Tushare-first
 - 如果请求体显式传入 `data_provider`，会覆盖默认回退链
 
 首次使用时，如果 `config/config.toml` 不存在或 `[tushare].token` 为空，CLI 会打印引导信息并退出，不再等到请求行情时才抛出错误。
@@ -274,7 +274,7 @@ core/screening.py -> vectorbt
 - 回测与筛选统一使用前复权日线（`qfq`）
 - `load_dataframe()` 支持 `provider=` 显式指定，或按 `[data].daily_providers` 自动回退
 - 组合回测通过目标权重矩阵做再平衡，不重新引入旧的自研多标的撮合内核
-- `load_financial_at()` 严格按 `ann_date` 过滤
+- `load_financial_at()` 会把估值与财报字段聚合成稳定快照，其中财报类字段严格按 `ann_date` 过滤
 - `get_pool_at_date()` 基于历史上市状态构建股票池
 - `backtesting.py` 负责单股精细回测
 - `vectorbt` 负责批量扫描与组合研究，不承担单股交易明细输出

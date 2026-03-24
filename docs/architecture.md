@@ -82,7 +82,9 @@ API LAYER
 `src/quant_balance/data/fundamental_loader.py`
 
 - 提供 `load_financial_at(symbol, as_of_date)`
-- 严格按 `ann_date` 对齐财务快照
+- 维护 `daily_basic / income / balancesheet / cashflow / fina_indicator` 多表缓存
+- 财报类字段严格按 `ann_date` 对齐，估值字段使用最近 `trade_date` 快照补充
+- 支持按查询日期做增量同步
 - 用于规避未来函数
 - 当前仍为 Tushare-first
 

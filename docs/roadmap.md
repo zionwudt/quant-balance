@@ -27,7 +27,7 @@
 | 回测 | 单股精细回测 + `vectorbt` 组合再平衡研究 | 组合级撮合与持仓管理 |
 | 筛选 | 历史股票池 + 信号批量排名 | 多因子打分、条件筛选器 |
 | 策略 | `sma_cross` / `ema_cross` / `buy_and_hold` / `macd` / `rsi` / `bollinger` / `grid` / `dca` / `ma_rsi_filter` | 组合级策略、更多因子过滤器 |
-| 数据 | Tushare 日线、复权因子、财务快照 | 分钟线、更多基本面表 |
+| 数据 | Tushare 日线、复权因子、多表基本面快照 | 分钟线、更丰富的另类数据 |
 | 报告 | 收益、回撤、Sharpe、交易列表、权益曲线 | 基准对比、月度热力图、分年统计 |
 | API | `/api/backtest/*`、`/api/portfolio/run`、`/api/screening/run` | 历史记录、信号中心、模拟盘相关 API |
 | Web | 仅设计稿 | 尚未落地 Dashboard |
@@ -39,7 +39,7 @@
 - `tushare_loader.py` 支持 `load_dataframe()`
 - `data_adapter.py` 支持批量加载 `dict[str, DataFrame]`
 - `stock_pool.py` 提供历史时点股票池
-- `fundamental_loader.py` 提供按公告日对齐的财务快照
+- `fundamental_loader.py` 提供按公告日对齐的多表基本面快照与增量缓存
 
 ### 引擎层
 
