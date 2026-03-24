@@ -25,6 +25,10 @@ dependencies = [
 dev = [
   "pytest>=8.0",
 ]
+cn_data = [
+  "akshare",
+  "baostock",
+]
 
 [project.scripts]
 quant-balance = "quant_balance.main:main"

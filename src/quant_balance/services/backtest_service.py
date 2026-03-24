@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from quant_balance.core.backtest import optimize, run_backtest
 from quant_balance.core.report import bt_trades_to_dicts, equity_curve_to_dicts, normalize_bt_stats
 from quant_balance.core.strategies import STRATEGY_REGISTRY
-from quant_balance.data.tushare_loader import load_dataframe
+from quant_balance.data import load_dataframe
 
 
 def run_single_backtest(
@@ -19,13 +19,17 @@ def run_single_backtest(
     cash: float = 100_000.0,
     commission: float = 0.001,
     params: dict | None = None,
+    data_provider: str | None = None,
 ) -> dict:
     """执行单股精细回测，返回 API 可直接消费的结果字典。"""
     strategy_cls = STRATEGY_REGISTRY.get(strategy)
     if strategy_cls is None:
         raise ValueError(f"未知策略: {strategy}，可用: {list(STRATEGY_REGISTRY)}")
 
-    df = load_dataframe(symbol, start_date, end_date, adjust="qfq")
+    load_kwargs = {"adjust": "qfq"}
+    if data_provider is not None:
+        load_kwargs["provider"] = data_provider
+    df = load_dataframe(symbol, start_date, end_date, **load_kwargs)
 
     result = run_backtest(
         df, strategy_cls,
@@ -46,6 +50,7 @@ def run_single_backtest(
             "commission": commission,
             "params": params or {},
             "bars_count": len(df),
+            "data_provider": df.attrs.get("data_provider", data_provider),
         },
     }
 
@@ -60,6 +65,7 @@ def run_optimize(
     commission: float = 0.001,
     maximize: str = "Sharpe Ratio",
     param_ranges: dict | None = None,
+    data_provider: str | None = None,
 ) -> dict:
     """执行参数优化，返回最优参数和统计。"""
     strategy_cls = STRATEGY_REGISTRY.get(strategy)
@@ -69,7 +75,10 @@ def run_optimize(
     if not param_ranges:
         raise ValueError("param_ranges 不能为空")
 
-    df = load_dataframe(symbol, start_date, end_date, adjust="qfq")
+    load_kwargs = {"adjust": "qfq"}
+    if data_provider is not None:
+        load_kwargs["provider"] = data_provider
+    df = load_dataframe(symbol, start_date, end_date, **load_kwargs)
 
     stats, best_params = optimize(
         df, strategy_cls,
@@ -88,6 +97,7 @@ def run_optimize(
             "strategy": strategy,
             "maximize": maximize,
             "param_ranges": _jsonable_value(param_ranges),
+            "data_provider": df.attrs.get("data_provider", data_provider),
         },
     }
 

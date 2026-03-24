@@ -20,7 +20,7 @@ def create_api_app() -> Any:
         raise RuntimeError(WEB_DEPENDENCY_HINT) from exc
 
     from quant_balance.api.meta import build_api_meta
-    from quant_balance.data.tushare_loader import DataLoadError
+    from quant_balance.data import DataLoadError
     from quant_balance.services.backtest_service import run_optimize, run_single_backtest
     from quant_balance.services.screening_service import run_stock_screening
 
@@ -57,15 +57,18 @@ def create_api_app() -> Any:
     def backtest_run(req: BacktestRunRequest) -> dict:
         """单股精细回测。"""
         try:
-            return run_single_backtest(
-                symbol=req.symbol,
-                start_date=req.start_date,
-                end_date=req.end_date,
-                strategy=req.strategy,
-                cash=req.cash,
-                commission=req.commission,
-                params=req.params,
-            )
+            kwargs = {
+                "symbol": req.symbol,
+                "start_date": req.start_date,
+                "end_date": req.end_date,
+                "strategy": req.strategy,
+                "cash": req.cash,
+                "commission": req.commission,
+                "params": req.params,
+            }
+            if req.data_provider is not None:
+                kwargs["data_provider"] = req.data_provider
+            return run_single_backtest(**kwargs)
         except (ValueError, DataLoadError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -73,16 +76,19 @@ def create_api_app() -> Any:
     def backtest_optimize(req: OptimizeRequest) -> dict:
         """参数优化。"""
         try:
-            return run_optimize(
-                symbol=req.symbol,
-                start_date=req.start_date,
-                end_date=req.end_date,
-                strategy=req.strategy,
-                cash=req.cash,
-                commission=req.commission,
-                maximize=req.maximize,
-                param_ranges=req.param_ranges,
-            )
+            kwargs = {
+                "symbol": req.symbol,
+                "start_date": req.start_date,
+                "end_date": req.end_date,
+                "strategy": req.strategy,
+                "cash": req.cash,
+                "commission": req.commission,
+                "maximize": req.maximize,
+                "param_ranges": req.param_ranges,
+            }
+            if req.data_provider is not None:
+                kwargs["data_provider"] = req.data_provider
+            return run_optimize(**kwargs)
         except (ValueError, DataLoadError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -90,16 +96,19 @@ def create_api_app() -> Any:
     def screening_run(req: ScreeningRunRequest) -> dict:
         """批量选股筛选。"""
         try:
-            return run_stock_screening(
-                pool_date=req.pool_date,
-                start_date=req.start_date,
-                end_date=req.end_date,
-                signal=req.signal,
-                signal_params=req.signal_params,
-                top_n=req.top_n,
-                cash=req.cash,
-                symbols=req.symbols,
-            )
+            kwargs = {
+                "pool_date": req.pool_date,
+                "start_date": req.start_date,
+                "end_date": req.end_date,
+                "signal": req.signal,
+                "signal_params": req.signal_params,
+                "top_n": req.top_n,
+                "cash": req.cash,
+                "symbols": req.symbols,
+            }
+            if req.data_provider is not None:
+                kwargs["data_provider"] = req.data_provider
+            return run_stock_screening(**kwargs)
         except (ValueError, DataLoadError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

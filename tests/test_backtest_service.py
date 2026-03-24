@@ -120,3 +120,27 @@ def test_run_optimize_returns_normalized_output():
     assert result["run_context"]["param_ranges"] == {"fast_period": [5, 6, 7, 8, 9], "slow_period": [20, 30]}
     mock_load.assert_called_once()
     mock_optimize.assert_called_once()
+
+
+def test_run_single_backtest_passes_data_provider():
+    sample_df = _make_sample_df()
+    sample_df.attrs["data_provider"] = "akshare"
+    with (
+        patch("quant_balance.services.backtest_service.load_dataframe", return_value=sample_df) as mock_load,
+        patch("quant_balance.services.backtest_service.run_backtest", return_value=_fake_backtest_result()),
+    ):
+        result = run_single_backtest(
+            symbol="600519.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            data_provider="akshare",
+        )
+
+    assert result["run_context"]["data_provider"] == "akshare"
+    mock_load.assert_called_once_with(
+        "600519.SH",
+        "2024-01-01",
+        "2024-06-30",
+        adjust="qfq",
+        provider="akshare",
+    )

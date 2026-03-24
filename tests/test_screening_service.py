@@ -68,3 +68,26 @@ def test_run_stock_screening_uses_pool_and_top_n():
     mock_pool.assert_called_once_with("2024-01-01")
     mock_load.assert_called_once()
     mock_run.assert_called_once()
+
+
+def test_run_stock_screening_passes_data_provider():
+    dummy_df = pd.DataFrame({"Close": [1, 2, 3]})
+    with (
+        patch("quant_balance.services.screening_service.load_multi_dataframes", return_value={"AAA": dummy_df}) as mock_load,
+        patch("quant_balance.services.screening_service.run_screening", return_value=ScreeningResult(rankings=pd.DataFrame(), details={})),
+    ):
+        result = run_stock_screening(
+            pool_date="2024-01-01",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            symbols=["AAA"],
+            data_provider="baostock",
+        )
+
+    assert result["run_context"]["data_provider"] == "baostock"
+    mock_load.assert_called_once_with(
+        ["AAA"],
+        "2024-01-01",
+        "2024-06-30",
+        data_provider="baostock",
+    )

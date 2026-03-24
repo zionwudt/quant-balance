@@ -7,7 +7,7 @@
 - `backtesting.py`：单股精细回测、交易明细、权益曲线、参数优化
 - `vectorbt`：批量筛选、快速排名、信号级向量化扫描
 - `FastAPI + Pydantic`：统一的 HTTP API
-- `Tushare + SQLite`：行情、复权因子、股票池与财务缓存
+- `AkShare / Baostock / Tushare + SQLite`：多源行情 + Tushare 股票池/财务缓存
 
 旧的自研回测内核模块已经从主干移除：
 
@@ -22,7 +22,12 @@
 
 ```text
 DATA LAYER
+  market_loader.py
   tushare_loader.py
+  akshare_loader.py
+  baostock_loader.py
+  market_cache.py
+  common.py
   stock_pool.py
   fundamental_loader.py
         │
@@ -49,24 +54,35 @@ API LAYER
 
 ### 数据层
 
+`src/quant_balance/data/market_loader.py`
+
+- 提供统一的 `load_dataframe()` 入口
+- 负责按 provider 顺序回退：`akshare -> baostock -> tushare`
+- 对非 Tushare provider 统一走本地 SQLite 缓存
+
 `src/quant_balance/data/tushare_loader.py`
 
-- 加载日线行情
-- 维护 SQLite 缓存
-- 返回 `backtesting.py` / `vectorbt` 可直接消费的 `DataFrame`
-- 支持 `adjust="qfq"` 与 `adjust="none"`
+- 负责 Tushare 日线与复权因子处理
+- 复用既有 SQLite 缓存表，保持兼容
+
+`src/quant_balance/data/akshare_loader.py` / `src/quant_balance/data/baostock_loader.py`
+
+- 提供 provider 级日线抓取实现
+- 统一输出标准化 OHLCV 行格式
 
 `src/quant_balance/data/stock_pool.py`
 
 - 提供 `get_pool_at_date(date)`
 - 按历史上市状态构建股票池
 - 用于规避幸存者偏差
+- 当前仍为 Tushare-first
 
 `src/quant_balance/data/fundamental_loader.py`
 
 - 提供 `load_financial_at(symbol, as_of_date)`
 - 严格按 `ann_date` 对齐财务快照
 - 用于规避未来函数
+- 当前仍为 Tushare-first
 
 ### 引擎层
 
@@ -101,11 +117,13 @@ API LAYER
 - 编排 `load_dataframe() -> run_backtest() / optimize()`
 - 负责策略校验、参数透传与 API 返回结构
 - 负责 JSON 序列化清洗
+- 支持可选 `data_provider`
 
 `src/quant_balance/services/screening_service.py`
 
 - 编排 `get_pool_at_date() -> load_multi_dataframes() -> run_screening()`
 - 负责信号校验、Top N 排名与返回结构
+- 支持可选 `data_provider`
 
 ### API 层
 
@@ -134,6 +152,7 @@ API LAYER
 pool_date
   -> get_pool_at_date()
   -> load_multi_dataframes()
+  -> load_dataframe(provider fallback)
   -> run_screening()
   -> rankings
 ```
@@ -142,7 +161,7 @@ pool_date
 
 ```text
 symbol + date range
-  -> load_dataframe()
+  -> load_dataframe(provider fallback)
   -> run_backtest()
   -> summary + trades + equity_curve
 ```
@@ -151,7 +170,7 @@ symbol + date range
 
 ```text
 symbol + param_ranges
-  -> load_dataframe()
+  -> load_dataframe(provider fallback)
   -> optimize()
   -> best_params + best_stats
 ```
@@ -161,6 +180,7 @@ symbol + param_ranges
 - 只支持单股精细回测；组合级仓位撮合仍未实现
 - 只支持日线数据
 - 统一使用前复权价格作为研究视角
+- 股票池与财务数据仍主要依赖 Tushare，尚未做多 provider 统一抽象
 - A 股特有规则当前简化为标准佣金模型
 
 ## 已验证项

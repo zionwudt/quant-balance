@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import sqlite3
-import tomllib
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_CONFIG_PATH = _PROJECT_ROOT / "config" / "config.toml"
-CACHE_DB_PATH = Path.home() / ".quant_balance" / "cache.db"
+from quant_balance.data.common import CACHE_DB_PATH, DataLoadError, load_tushare_token
 
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS daily_bars (
@@ -35,10 +32,6 @@ CREATE TABLE IF NOT EXISTS daily_adj_factors (
     PRIMARY KEY (ts_code, trade_date)
 );
 """
-
-class DataLoadError(ValueError):
-    """数据加载异常。"""
-
 
 def _get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     """获取 SQLite 连接，首次时自动建表。"""
@@ -108,24 +101,6 @@ def _save_adj_factors_to_cache(conn: sqlite3.Connection, rows: list[tuple]) -> N
     conn.commit()
 
 
-def _load_tushare_token() -> str:
-    """从 config/config.toml 读取 Tushare token。"""
-    if not _CONFIG_PATH.exists():
-        raise DataLoadError(
-            f"未找到配置文件 {_CONFIG_PATH}，"
-            "请复制 config/config.example.toml 为 config/config.toml 并填入你的 Tushare token。"
-        )
-    with open(_CONFIG_PATH, "rb") as f:
-        config = tomllib.load(f)
-    token = (config.get("tushare") or {}).get("token", "")
-    if not token or token == "你的token":
-        raise DataLoadError(
-            "config/config.toml 中的 [tushare] token 未设置，"
-            "请填入你的 Tushare token。获取方式：https://tushare.pro/register"
-        )
-    return token
-
-
 def _fetch_from_tushare(
     ts_code: str,
     start_date: str,
@@ -139,7 +114,7 @@ def _fetch_from_tushare(
             "需要安装 tushare 才能获取行情数据，请运行：pip install tushare"
         ) from exc
 
-    token = _load_tushare_token()
+    token = load_tushare_token()
     pro = ts.pro_api(token)
 
     df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
@@ -174,7 +149,7 @@ def _fetch_adj_factors_from_tushare(
             "需要安装 tushare 才能获取行情数据，请运行：pip install tushare"
         ) from exc
 
-    token = _load_tushare_token()
+    token = load_tushare_token()
     pro = ts.pro_api(token)
 
     df = pro.adj_factor(ts_code=ts_code, start_date=start_date, end_date=end_date)

@@ -6,6 +6,10 @@
 # 获取方式：https://tushare.pro/register
 token = "你的token"
 
+[data]
+# 日线数据源优先级；会按顺序自动回退
+daily_providers = ["akshare", "baostock", "tushare"]
+
 [server]
 host = "127.0.0.1"
 port = 8765

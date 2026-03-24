@@ -6,10 +6,10 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from quant_balance.data.tushare_loader import (
+from quant_balance.data.common import (
     CACHE_DB_PATH,
     DataLoadError,
-    _load_tushare_token,
+    load_tushare_token,
 )
 
 _CREATE_FINANCIAL_SQL = """
@@ -73,7 +73,7 @@ def _fetch_and_cache_financial(conn: sqlite3.Connection, ts_code: str) -> None:
             "需要安装 tushare 才能获取财务数据，请运行：pip install tushare"
         ) from exc
 
-    token = _load_tushare_token()
+    token = load_tushare_token()
     pro = ts.pro_api(token)
 
     df = pro.fina_indicator(

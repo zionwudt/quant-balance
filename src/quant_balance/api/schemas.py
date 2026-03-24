@@ -15,6 +15,10 @@ class BacktestRunRequest(BaseModel):
     cash: float = Field(100_000.0, gt=0, description="初始资金")
     commission: float = Field(0.001, ge=0, description="佣金比例")
     params: dict = Field(default_factory=dict, description="策略参数")
+    data_provider: str | None = Field(
+        None,
+        description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",
+    )
 
 
 class OptimizeRequest(BaseModel):
@@ -28,6 +32,10 @@ class OptimizeRequest(BaseModel):
     commission: float = Field(0.001, ge=0)
     maximize: str = Field("Sharpe Ratio", description="优化目标")
     param_ranges: dict = Field(..., description="参数搜索范围，如 {fast_period: [5,10,15]}")
+    data_provider: str | None = Field(
+        None,
+        description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",
+    )
 
 
 class ScreeningRunRequest(BaseModel):
@@ -41,3 +49,7 @@ class ScreeningRunRequest(BaseModel):
     top_n: int = Field(20, gt=0, description="返回前 N 名")
     cash: float = Field(100_000.0, gt=0, description="初始资金")
     symbols: list[str] | None = Field(None, description="自定义股票列表（传入则忽略 pool_date）")
+    data_provider: str | None = Field(
+        None,
+        description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",
+    )

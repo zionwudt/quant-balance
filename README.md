@@ -6,7 +6,7 @@
 
 - 单股精细回测基于 `backtesting.py`
 - 批量筛选基于 `vectorbt`
-- 行情与股票池数据来自 Tushare + SQLite 缓存
+- 行情支持 AkShare / Baostock / Tushare，多数据源自动回退并带本地缓存
 - API 层基于 FastAPI + Pydantic
 
 ## 当前能力
@@ -33,6 +33,12 @@
 pip install -e .
 ```
 
+如果要启用 AkShare / Baostock 日线数据源：
+
+```bash
+pip install -e .[cn_data]
+```
+
 开发环境：
 
 ```bash
@@ -53,12 +59,21 @@ cp config/config.example.toml config/config.toml
 [tushare]
 token = "你的token"
 
+[data]
+daily_providers = ["akshare", "baostock", "tushare"]
+
 [server]
 host = "127.0.0.1"
 port = 8765
 ```
 
 Tushare token 获取地址：[tushare.pro/register](https://tushare.pro/register)
+
+说明：
+
+- `daily_providers` 决定日线行情优先级，默认顺序会优先走 `AkShare -> Baostock -> Tushare`
+- 即使 `tushare` 放在兜底位，股票池和财务快照当前仍然是 Tushare-first
+- 如果请求体显式传入 `data_provider`，会覆盖默认回退链
 
 ## 启动
 
@@ -81,6 +96,8 @@ quant-balance
 - `POST /api/backtest/run`
 - `POST /api/backtest/optimize`
 - `POST /api/screening/run`
+
+三个 `POST` 接口都支持可选字段 `data_provider`，可显式指定 `akshare`、`baostock` 或 `tushare`。
 
 ### `POST /api/backtest/run`
 
@@ -149,7 +166,12 @@ src/quant_balance/
 │   ├── report.py           # 统计标准化与输出转换
 │   └── data_adapter.py     # 多标的数据加载适配
 ├── data/
-│   ├── tushare_loader.py   # 日线 / 复权 / DataFrame 加载
+│   ├── market_loader.py    # 统一日线入口 + provider fallback
+│   ├── tushare_loader.py   # Tushare 日线 / 复权
+│   ├── akshare_loader.py   # AkShare 日线
+│   ├── baostock_loader.py  # Baostock 日线
+│   ├── market_cache.py     # 非 Tushare provider 行情缓存
+│   ├── common.py           # data 层公共配置 / 错误 / provider 解析
 │   ├── stock_pool.py       # 历史股票池
 │   └── fundamental_loader.py
 ├── services/
@@ -161,24 +183,26 @@ src/quant_balance/
 请求流：
 
 ```text
-Tushare + SQLite
+AkShare / Baostock / Tushare
+            │
+            ▼
+   data/market_loader.py
+            │
+            ▼
+data/*.py / services/*.py
       │
       ▼
-data/*.py
-      │
-      ▼
-services/*.py
-      │
-      ├── core/backtest.py  -> backtesting.py
-      └── core/screening.py -> vectorbt
-      │
-      ▼
-api/app.py
+core/backtest.py  -> backtesting.py
+core/screening.py -> vectorbt
+            │
+            ▼
+        api/app.py
 ```
 
 ## 设计约束
 
 - 回测与筛选统一使用前复权日线（`qfq`）
+- `load_dataframe()` 支持 `provider=` 显式指定，或按 `[data].daily_providers` 自动回退
 - `load_financial_at()` 严格按 `ann_date` 过滤
 - `get_pool_at_date()` 基于历史上市状态构建股票池
 - `backtesting.py` 负责单股精细回测

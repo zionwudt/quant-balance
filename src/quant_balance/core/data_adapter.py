@@ -7,7 +7,7 @@ from typing import Literal
 
 import pandas as pd
 
-from quant_balance.data.tushare_loader import load_dataframe
+from quant_balance.data import load_dataframe
 
 
 def load_multi_dataframes(
@@ -16,6 +16,7 @@ def load_multi_dataframes(
     end_date: str,
     *,
     adjust: Literal["none", "qfq"] = "qfq",
+    data_provider: str | None = None,
     db_path: Path | None = None,
 ) -> dict[str, pd.DataFrame]:
     """批量加载多只股票的 OHLCV DataFrame。
@@ -25,10 +26,10 @@ def load_multi_dataframes(
     result: dict[str, pd.DataFrame] = {}
     for symbol in symbols:
         try:
-            df = load_dataframe(
-                symbol, start_date, end_date,
-                adjust=adjust, db_path=db_path,
-            )
+            load_kwargs = {"adjust": adjust, "db_path": db_path}
+            if data_provider is not None:
+                load_kwargs["provider"] = data_provider
+            df = load_dataframe(symbol, start_date, end_date, **load_kwargs)
             if not df.empty:
                 result[symbol] = df
         except Exception as exc:  # noqa: BLE001

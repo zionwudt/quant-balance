@@ -18,6 +18,7 @@ def run_stock_screening(
     top_n: int = 20,
     cash: float = 100_000.0,
     symbols: list[str] | None = None,
+    data_provider: str | None = None,
 ) -> dict:
     """执行批量选股筛选，返回 API 可直接消费的结果字典。
 
@@ -34,7 +35,10 @@ def run_stock_screening(
     if symbols is None:
         symbols = get_pool_at_date(pool_date)
 
-    data = load_multi_dataframes(symbols, start_date, end_date)
+    load_kwargs = {}
+    if data_provider is not None:
+        load_kwargs["data_provider"] = data_provider
+    data = load_multi_dataframes(symbols, start_date, end_date, **load_kwargs)
     if not data:
         return {
             "rankings": [],
@@ -72,6 +76,7 @@ def run_stock_screening(
             "signal": signal,
             "signal_params": signal_params or {},
             "top_n": top_n,
+            "data_provider": data_provider,
         },
     }
 
