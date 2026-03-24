@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from quant_balance.core.backtest import BacktestResult, run_backtest
-from quant_balance.core.strategies import BuyAndHold, SmaCross
+from quant_balance.core.strategies import BuyAndHold, DcaStrategy, SmaCross
 
 
 def _make_sample_df(days: int = 100) -> pd.DataFrame:
@@ -39,6 +39,20 @@ def test_run_backtest_sma_cross():
     assert isinstance(result, BacktestResult)
     assert "total_return_pct" in result.report
     assert "sharpe_ratio" in result.report
+
+
+def test_run_backtest_dca_uses_incremental_orders():
+    df = _make_sample_df(80)
+    result = run_backtest(
+        df,
+        DcaStrategy,
+        cash=100_000.0,
+        strategy_params={"interval_days": 20, "trade_fraction": 0.2},
+    )
+
+    assert isinstance(result, BacktestResult)
+    assert result.report["trades_count"] >= 3
+    assert len(result.trades) >= 3
 
 
 def test_normalize_bt_stats_handles_keys():

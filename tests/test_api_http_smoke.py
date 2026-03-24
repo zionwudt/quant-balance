@@ -107,11 +107,15 @@ def test_api_http_smoke_end_to_end():
         assert meta_status == 200
         assert meta_payload["server_mode"] == "api"
         assert "sma_cross" in meta_payload["strategies"]
+        assert "macd" in meta_payload["strategies"]
+        assert "dca" in meta_payload["signals"]
 
         strategies_status, _, strategies_payload = _request(app, "GET", "/api/strategies")
         assert strategies_status == 200
-        assert len(strategies_payload["strategies"]) >= 3
-        assert len(strategies_payload["signals"]) >= 2
+        strategy_names = {item["name"] for item in strategies_payload["strategies"]}
+        signal_names = {item["name"] for item in strategies_payload["signals"]}
+        assert {"sma_cross", "macd", "dca", "ma_rsi_filter"}.issubset(strategy_names)
+        assert {"sma_cross", "macd", "dca", "ma_rsi_filter"}.issubset(signal_names)
 
         backtest_status, _, backtest_payload = _request(
             app,

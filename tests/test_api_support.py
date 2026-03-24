@@ -59,6 +59,8 @@ def test_meta_endpoint_includes_defaults():
     assert result["server_mode"] == "api"
     assert result["defaults"]["backtest"]["strategy"] == "sma_cross"
     assert "sma_cross" in result["strategies"]
+    assert "macd" in result["strategies"]
+    assert "dca" in result["strategies"]
 
 
 def test_post_routes_expose_request_body_in_openapi():

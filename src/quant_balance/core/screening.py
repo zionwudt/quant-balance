@@ -41,6 +41,7 @@ def run_screening(
     import vectorbt as vbt
 
     params = signal_params or {}
+    portfolio_kwargs = _resolve_portfolio_kwargs(signal_func, params)
     details: dict[str, dict] = {}
     failed_symbols: list[str] = []
     started_at = perf_counter()
@@ -54,6 +55,7 @@ def run_screening(
                 exits,
                 init_cash=cash,
                 freq=freq,
+                **portfolio_kwargs,
             )
             stats = pf.stats()
             details[symbol] = {
@@ -102,3 +104,13 @@ def run_screening(
     log_fields.update(log_context or {})
     log_event(logger, "SCREENING_RUN", **log_fields)
     return ScreeningResult(rankings=rankings, details=details)
+
+
+def _resolve_portfolio_kwargs(
+    signal_func: Callable[[pd.DataFrame], tuple[pd.Series, pd.Series]],
+    params: dict[str, object],
+) -> dict[str, object]:
+    builder = getattr(signal_func, "qb_portfolio_kwargs", None)
+    if callable(builder):
+        return dict(builder(params))
+    return {}

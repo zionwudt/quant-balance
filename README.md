@@ -11,7 +11,7 @@
 
 ## 当前能力
 
-- 单股精细回测：`sma_cross`、`ema_cross`、`buy_and_hold`
+- 单股精细回测：`sma_cross`、`ema_cross`、`buy_and_hold`、`macd`、`rsi`、`bollinger`、`grid`、`dca`、`ma_rsi_filter`
 - 参数优化：基于 `backtesting.py Backtest.optimize()`
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
 - 历史股票池：`get_pool_at_date()` 避免幸存者偏差
@@ -102,6 +102,21 @@ quant-balance
 - `POST /api/screening/run`
 
 三个 `POST` 接口都支持可选字段 `data_provider`，可显式指定 `akshare`、`baostock` 或 `tushare`。
+
+## 内置策略
+
+`GET /api/strategies` 会返回当前可用策略与信号函数。当前内置策略如下：
+
+- `sma_cross` / `ema_cross`：均线交叉，参数通过 `params` 传 `fast_period`、`slow_period`
+- `macd`：MACD 金叉/死叉，参数使用 `fast_period`、`slow_period`、`signal_period`
+- `rsi`：RSI 超卖反弹，参数使用 `period`、`oversold`、`overbought`
+- `bollinger`：布林带上轨突破，参数使用 `period`、`num_std`
+- `grid`：均线锚定网格，参数使用 `anchor_period`、`grid_pct`
+- `dca`：定期定额买入，参数使用 `interval_days`、`trade_fraction`
+- `ma_rsi_filter`：均线趋势 + RSI 过滤，参数使用 `fast_period`、`slow_period`、`rsi_period`、`rsi_threshold`、`exit_rsi`
+- `buy_and_hold`：无额外参数
+
+单股回测继续使用 `strategy + params`，批量筛选继续使用 `signal + signal_params`。
 
 ### `GET /api/config/status`
 

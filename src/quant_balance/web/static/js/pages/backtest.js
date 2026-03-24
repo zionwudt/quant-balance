@@ -15,7 +15,17 @@ export async function initBacktestPage(container) {
     const meta = await api.getMeta();
     strategies = meta.strategies || [];
   } catch {
-    strategies = ['sma_cross'];
+    strategies = [
+      'sma_cross',
+      'ema_cross',
+      'buy_and_hold',
+      'macd',
+      'rsi',
+      'bollinger',
+      'grid',
+      'dca',
+      'ma_rsi_filter',
+    ];
   }
 
   container.innerHTML = buildHTML();
@@ -123,14 +133,43 @@ function updateStrategyParams(container) {
 
   const paramDefs = {
     sma_cross: [
-      { key: 'fast_period', label: '短均线', value: 5, unit: '日' },
-      { key: 'slow_period', label: '长均线', value: 20, unit: '日' },
+      { key: 'fast_period', label: '短均线', value: 5, unit: '日', parser: 'int', step: 1, min: 1 },
+      { key: 'slow_period', label: '长均线', value: 20, unit: '日', parser: 'int', step: 1, min: 2 },
     ],
     ema_cross: [
-      { key: 'fast_period', label: '短均线', value: 12, unit: '日' },
-      { key: 'slow_period', label: '长均线', value: 26, unit: '日' },
+      { key: 'fast_period', label: '短均线', value: 12, unit: '日', parser: 'int', step: 1, min: 1 },
+      { key: 'slow_period', label: '长均线', value: 26, unit: '日', parser: 'int', step: 1, min: 2 },
     ],
     buy_and_hold: [],
+    macd: [
+      { key: 'fast_period', label: '快线', value: 12, unit: '日', parser: 'int', step: 1, min: 1 },
+      { key: 'slow_period', label: '慢线', value: 26, unit: '日', parser: 'int', step: 1, min: 2 },
+      { key: 'signal_period', label: '信号线', value: 9, unit: '日', parser: 'int', step: 1, min: 1 },
+    ],
+    rsi: [
+      { key: 'period', label: 'RSI 窗口', value: 14, unit: '日', parser: 'int', step: 1, min: 2 },
+      { key: 'oversold', label: '超卖线', value: 30, unit: '', parser: 'float', step: 1, min: 1 },
+      { key: 'overbought', label: '超买线', value: 70, unit: '', parser: 'float', step: 1, min: 1 },
+    ],
+    bollinger: [
+      { key: 'period', label: '窗口', value: 20, unit: '日', parser: 'int', step: 1, min: 2 },
+      { key: 'num_std', label: '标准差', value: 2.0, unit: '倍', parser: 'float', step: 0.1, min: 0.1 },
+    ],
+    grid: [
+      { key: 'anchor_period', label: '锚均线', value: 20, unit: '日', parser: 'int', step: 1, min: 2 },
+      { key: 'grid_pct', label: '网格幅度', value: 0.05, unit: '比例', parser: 'float', step: 0.01, min: 0.01 },
+    ],
+    dca: [
+      { key: 'interval_days', label: '定投间隔', value: 20, unit: '日', parser: 'int', step: 1, min: 1 },
+      { key: 'trade_fraction', label: '每次仓位', value: 0.2, unit: '比例', parser: 'float', step: 0.05, min: 0.01 },
+    ],
+    ma_rsi_filter: [
+      { key: 'fast_period', label: '短均线', value: 10, unit: '日', parser: 'int', step: 1, min: 1 },
+      { key: 'slow_period', label: '长均线', value: 30, unit: '日', parser: 'int', step: 1, min: 2 },
+      { key: 'rsi_period', label: 'RSI 窗口', value: 14, unit: '日', parser: 'int', step: 1, min: 2 },
+      { key: 'rsi_threshold', label: '入场 RSI', value: 55, unit: '', parser: 'float', step: 1, min: 1 },
+      { key: 'exit_rsi', label: '离场 RSI', value: 45, unit: '', parser: 'float', step: 1, min: 1 },
+    ],
   };
 
   const params = paramDefs[strategy] || [];
@@ -144,7 +183,16 @@ function updateStrategyParams(container) {
     ${params.map(p => `
       <div style="display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-1)">
         <span style="font-size:var(--text-sm);color:var(--text-secondary);width:60px">${p.label}</span>
-        <input class="input mono" data-param="${p.key}" type="number" value="${p.value}" style="width:80px">
+        <input
+          class="input mono"
+          data-param="${p.key}"
+          data-param-parser="${p.parser || 'int'}"
+          type="number"
+          value="${p.value}"
+          step="${p.step ?? 1}"
+          min="${p.min ?? ''}"
+          style="width:100px"
+        >
         <span style="font-size:var(--text-xs);color:var(--text-muted)">${p.unit}</span>
       </div>
     `).join('')}
@@ -173,7 +221,13 @@ async function runBacktest(container) {
   // 收集策略参数
   const params = {};
   container.querySelectorAll('[data-param]').forEach(el => {
-    params[el.dataset.param] = parseInt(el.value);
+    if (!el.value) {
+      return;
+    }
+    const parser = el.dataset.paramParser || 'int';
+    params[el.dataset.param] = parser === 'float'
+      ? parseFloat(el.value)
+      : parseInt(el.value, 10);
   });
 
   // 运行中状态

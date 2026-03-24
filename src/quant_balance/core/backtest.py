@@ -31,18 +31,19 @@ def run_backtest(
     *,
     cash: float = 100_000.0,
     commission: float = 0.001,
-    exclusive_orders: bool = True,
+    exclusive_orders: bool | None = None,
     finalize_trades: bool = True,
     strategy_params: dict | None = None,
     log_context: dict[str, object] | None = None,
 ) -> BacktestResult:
     """执行单股回测，返回标准化结果。"""
+    resolved_exclusive_orders = _resolve_exclusive_orders(strategy_cls, exclusive_orders)
     bt = Backtest(
         df,
         strategy_cls,
         cash=cash,
         commission=commission,
-        exclusive_orders=exclusive_orders,
+        exclusive_orders=resolved_exclusive_orders,
         finalize_trades=finalize_trades,
     )
     started_at = perf_counter()
@@ -59,6 +60,7 @@ def run_backtest(
         "bars_count": len(df),
         "cash": cash,
         "commission": commission,
+        "exclusive_orders": resolved_exclusive_orders,
         "params": strategy_params or {},
         "trades_count": len(result.trades),
         "duration_ms": round((perf_counter() - started_at) * 1000, 2),
@@ -74,18 +76,20 @@ def optimize(
     *,
     cash: float = 100_000.0,
     commission: float = 0.001,
+    exclusive_orders: bool | None = None,
     maximize: str = "Sharpe Ratio",
     constraint: Callable[[object], bool] | None = None,
     log_context: dict[str, object] | None = None,
     **param_ranges,
 ) -> tuple[pd.Series, dict]:
     """参数优化，返回 (best_stats, best_params)。"""
+    resolved_exclusive_orders = _resolve_exclusive_orders(strategy_cls, exclusive_orders)
     bt = Backtest(
         df,
         strategy_cls,
         cash=cash,
         commission=commission,
-        exclusive_orders=True,
+        exclusive_orders=resolved_exclusive_orders,
         finalize_trades=True,
     )
     kwargs: dict = {**param_ranges, "maximize": maximize}
@@ -103,6 +107,7 @@ def optimize(
         "bars_count": len(df),
         "cash": cash,
         "commission": commission,
+        "exclusive_orders": resolved_exclusive_orders,
         "maximize": maximize,
         "param_ranges": param_ranges,
         "best_params": best_params,
@@ -111,3 +116,12 @@ def optimize(
     log_fields.update(log_context or {})
     log_event(logger, "BACKTEST_OPTIMIZE", **log_fields)
     return stats, best_params
+
+
+def _resolve_exclusive_orders(
+    strategy_cls: type[Strategy],
+    override: bool | None,
+) -> bool:
+    if override is not None:
+        return override
+    return bool(getattr(strategy_cls, "qb_exclusive_orders", True))

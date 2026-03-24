@@ -26,7 +26,7 @@
 | ------ | ------ | ------ |
 | 回测 | 单股精细回测 | 组合级撮合与持仓管理 |
 | 筛选 | 历史股票池 + 信号批量排名 | 多因子打分、条件筛选器 |
-| 策略 | `sma_cross` / `ema_cross` / `buy_and_hold` | MACD、RSI、布林带、网格、定投等 |
+| 策略 | `sma_cross` / `ema_cross` / `buy_and_hold` / `macd` / `rsi` / `bollinger` / `grid` / `dca` / `ma_rsi_filter` | 组合级策略、更多因子过滤器 |
 | 数据 | Tushare 日线、复权因子、财务快照 | 分钟线、更多基本面表 |
 | 报告 | 收益、回撤、Sharpe、交易列表、权益曲线 | 基准对比、月度热力图、分年统计 |
 | API | `/api/backtest/*`、`/api/screening/run` | 历史记录、信号中心、模拟盘相关 API |

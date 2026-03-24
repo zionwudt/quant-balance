@@ -89,7 +89,11 @@ API LAYER
 `src/quant_balance/core/strategies.py`
 
 - `SmaCross`、`EmaCross`、`BuyAndHold`
-- `sma_cross_signals()`、`ema_cross_signals()`
+- `MacdCross`、`RsiStrategy`、`BollingerBreakout`
+- `GridStrategy`、`DcaStrategy`、`MaRsiFilter`
+- `sma_cross_signals()`、`ema_cross_signals()`、`macd_signals()`
+- `rsi_signals()`、`bollinger_signals()`、`grid_signals()`
+- `dca_signals()`、`ma_rsi_filter_signals()`
 - 同时维护 `STRATEGY_REGISTRY` 和 `SIGNAL_REGISTRY`
 
 `src/quant_balance/core/backtest.py`
