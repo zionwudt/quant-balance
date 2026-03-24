@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import patch
 
 import pandas as pd
@@ -144,3 +145,36 @@ def test_run_single_backtest_passes_data_provider():
         adjust="qfq",
         provider="akshare",
     )
+
+
+def test_run_optimize_emits_structured_log(caplog: pytest.LogCaptureFixture):
+    sample_df = _make_sample_df()
+    sample_df.attrs["data_provider"] = "tushare"
+    stats = pd.Series({"Return [%]": 12.5, "Sharpe Ratio": 1.8, "# Trades": 6})
+    caplog.set_level(logging.INFO, logger="quant_balance")
+
+    with (
+        patch("quant_balance.services.backtest_service.load_dataframe", return_value=sample_df),
+        patch(
+            "quant_balance.services.backtest_service.optimize",
+            return_value=(stats, {"fast_period": 5, "slow_period": 20}),
+        ),
+    ):
+        run_optimize(
+            symbol="600519.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            strategy="sma_cross",
+            maximize="Sharpe Ratio",
+            param_ranges={"fast_period": [5, 6], "slow_period": [20, 30]},
+        )
+
+    records = [
+        record for record in caplog.records
+        if getattr(record, "qb_event", None) == "BACKTEST_OPTIMIZE"
+    ]
+    assert len(records) == 1
+    payload = records[0].qb_payload
+    assert payload["stage"] == "service"
+    assert payload["strategy"] == "sma_cross"
+    assert payload["symbol"] == "600519.SH"

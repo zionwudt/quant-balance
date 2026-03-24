@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 
 from quant_balance.data import load_dataframe
+from quant_balance.logging_utils import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 def load_multi_dataframes(
@@ -33,5 +37,16 @@ def load_multi_dataframes(
             if not df.empty:
                 result[symbol] = df
         except Exception as exc:  # noqa: BLE001
-            print(f"[data_adapter] 跳过 {symbol}: {exc}")
+            log_event(
+                logger,
+                "DATA_LOAD_SKIP",
+                level=logging.WARNING,
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                adjust=adjust,
+                data_provider=data_provider,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
     return result

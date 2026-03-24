@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from time import perf_counter
 
 from quant_balance.core.backtest import optimize, run_backtest
 from quant_balance.core.report import bt_trades_to_dicts, equity_curve_to_dicts, normalize_bt_stats
 from quant_balance.core.strategies import STRATEGY_REGISTRY
 from quant_balance.data import load_dataframe
+from quant_balance.logging_utils import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 def run_single_backtest(
@@ -26,6 +30,7 @@ def run_single_backtest(
     if strategy_cls is None:
         raise ValueError(f"未知策略: {strategy}，可用: {list(STRATEGY_REGISTRY)}")
 
+    started_at = perf_counter()
     load_kwargs = {"adjust": "qfq"}
     if data_provider is not None:
         load_kwargs["provider"] = data_provider
@@ -35,9 +40,16 @@ def run_single_backtest(
         df, strategy_cls,
         cash=cash, commission=commission,
         strategy_params=params,
+        log_context={
+            "symbol": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+            "strategy": strategy,
+            "data_provider": df.attrs.get("data_provider", data_provider),
+        },
     )
 
-    return {
+    payload = {
         "summary": result.report,
         "trades": bt_trades_to_dicts(result.trades),
         "equity_curve": equity_curve_to_dicts(result.equity_curve),
@@ -53,6 +65,23 @@ def run_single_backtest(
             "data_provider": df.attrs.get("data_provider", data_provider),
         },
     }
+    log_event(
+        logger,
+        "BACKTEST_RUN",
+        stage="service",
+        symbol=symbol,
+        start_date=start_date,
+        end_date=end_date,
+        strategy=strategy,
+        cash=cash,
+        commission=commission,
+        params=params or {},
+        bars_count=len(df),
+        trades_count=len(result.trades),
+        data_provider=df.attrs.get("data_provider", data_provider),
+        duration_ms=round((perf_counter() - started_at) * 1000, 2),
+    )
+    return payload
 
 
 def run_optimize(
@@ -75,6 +104,7 @@ def run_optimize(
     if not param_ranges:
         raise ValueError("param_ranges 不能为空")
 
+    started_at = perf_counter()
     load_kwargs = {"adjust": "qfq"}
     if data_provider is not None:
         load_kwargs["provider"] = data_provider
@@ -84,10 +114,17 @@ def run_optimize(
         df, strategy_cls,
         cash=cash, commission=commission,
         maximize=maximize,
+        log_context={
+            "symbol": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+            "strategy": strategy,
+            "data_provider": df.attrs.get("data_provider", data_provider),
+        },
         **param_ranges,
     )
 
-    return {
+    payload = {
         "best_params": _jsonable_value(best_params),
         "best_stats": normalize_bt_stats(stats),
         "run_context": {
@@ -100,6 +137,21 @@ def run_optimize(
             "data_provider": df.attrs.get("data_provider", data_provider),
         },
     }
+    log_event(
+        logger,
+        "BACKTEST_OPTIMIZE",
+        stage="service",
+        symbol=symbol,
+        start_date=start_date,
+        end_date=end_date,
+        strategy=strategy,
+        maximize=maximize,
+        param_ranges=_jsonable_value(param_ranges),
+        best_params=_jsonable_value(best_params),
+        data_provider=df.attrs.get("data_provider", data_provider),
+        duration_ms=round((perf_counter() - started_at) * 1000, 2),
+    )
+    return payload
 
 
 def _jsonable_value(value: object) -> object:

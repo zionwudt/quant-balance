@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -52,3 +53,20 @@ def test_load_dataframe_can_return_raw_prices(tmp_path: Path) -> None:
     df = load_dataframe("AAA", "2026-01-05", "2026-01-06", adjust="none", db_path=db_path)
 
     assert list(df["Close"]) == [10.0, 9.5]
+
+
+def test_load_dataframe_emits_cache_hit_logs(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    db_path = tmp_path / "cache.db"
+    _seed_cache(db_path)
+    caplog.set_level(logging.INFO, logger="quant_balance")
+
+    load_dataframe("AAA", "2026-01-05", "2026-01-06", db_path=db_path)
+
+    cache_records = [
+        record for record in caplog.records
+        if getattr(record, "qb_event", None) == "CACHE_HIT"
+    ]
+    payloads = [record.qb_payload for record in cache_records]
+
+    assert any(payload["dataset"] == "daily_bars" for payload in payloads)
+    assert any(payload["dataset"] == "daily_adj_factors" for payload in payloads)

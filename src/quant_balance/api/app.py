@@ -2,13 +2,37 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from quant_balance import __version__
 from quant_balance.api.schemas import BacktestRunRequest, OptimizeRequest, ScreeningRunRequest
 from quant_balance.core.strategies import SIGNAL_REGISTRY, STRATEGY_REGISTRY
+from quant_balance.logging_utils import get_logger, log_event
 
 WEB_DEPENDENCY_HINT = "启动 API 模式需要先安装项目依赖：pip install -e ."
+
+logger = get_logger(__name__)
+
+
+def _log_api_error(
+    *,
+    endpoint: str,
+    status_code: int,
+    exc: Exception,
+    context: dict[str, object],
+) -> None:
+    log_event(
+        logger,
+        "API_ERROR",
+        level=logging.WARNING if status_code < 500 else logging.ERROR,
+        exc_info=status_code >= 500,
+        endpoint=endpoint,
+        status_code=status_code,
+        error_type=type(exc).__name__,
+        detail=str(exc),
+        **context,
+    )
 
 
 def create_api_app() -> Any:
@@ -56,6 +80,15 @@ def create_api_app() -> Any:
     @app.post("/api/backtest/run")
     def backtest_run(req: BacktestRunRequest) -> dict:
         """单股精细回测。"""
+        context = {
+            "symbol": req.symbol,
+            "start_date": req.start_date,
+            "end_date": req.end_date,
+            "strategy": req.strategy,
+            "cash": req.cash,
+            "commission": req.commission,
+            "data_provider": req.data_provider,
+        }
         try:
             kwargs = {
                 "symbol": req.symbol,
@@ -70,11 +103,35 @@ def create_api_app() -> Any:
                 kwargs["data_provider"] = req.data_provider
             return run_single_backtest(**kwargs)
         except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/backtest/run",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/backtest/run",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
 
     @app.post("/api/backtest/optimize")
     def backtest_optimize(req: OptimizeRequest) -> dict:
         """参数优化。"""
+        context = {
+            "symbol": req.symbol,
+            "start_date": req.start_date,
+            "end_date": req.end_date,
+            "strategy": req.strategy,
+            "cash": req.cash,
+            "commission": req.commission,
+            "maximize": req.maximize,
+            "data_provider": req.data_provider,
+        }
         try:
             kwargs = {
                 "symbol": req.symbol,
@@ -90,11 +147,35 @@ def create_api_app() -> Any:
                 kwargs["data_provider"] = req.data_provider
             return run_optimize(**kwargs)
         except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/backtest/optimize",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/backtest/optimize",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
 
     @app.post("/api/screening/run")
     def screening_run(req: ScreeningRunRequest) -> dict:
         """批量选股筛选。"""
+        context = {
+            "pool_date": req.pool_date,
+            "start_date": req.start_date,
+            "end_date": req.end_date,
+            "signal": req.signal,
+            "top_n": req.top_n,
+            "cash": req.cash,
+            "symbols_count": len(req.symbols) if req.symbols is not None else None,
+            "data_provider": req.data_provider,
+        }
         try:
             kwargs = {
                 "pool_date": req.pool_date,
@@ -110,7 +191,21 @@ def create_api_app() -> Any:
                 kwargs["data_provider"] = req.data_provider
             return run_stock_screening(**kwargs)
         except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/screening/run",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/screening/run",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
 
     return app
 

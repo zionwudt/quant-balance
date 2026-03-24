@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
+from time import perf_counter
 
 import pandas as pd
 
+from quant_balance.logging_utils import get_logger, log_event
+
+logger = get_logger(__name__)
 
 @dataclass(slots=True)
 class ScreeningResult:
@@ -23,6 +28,7 @@ def run_screening(
     cash: float = 100_000.0,
     freq: str = "1D",
     signal_params: dict | None = None,
+    log_context: dict[str, object] | None = None,
 ) -> ScreeningResult:
     """对多只股票执行批量回测筛选。
 
@@ -36,6 +42,8 @@ def run_screening(
 
     params = signal_params or {}
     details: dict[str, dict] = {}
+    failed_symbols: list[str] = []
+    started_at = perf_counter()
 
     for symbol, df in data.items():
         try:
@@ -58,7 +66,20 @@ def run_screening(
                 "final_value": pf.final_value(),
             }
         except Exception as exc:  # noqa: BLE001
-            print(f"[screening] 跳过 {symbol}: {exc}")
+            failed_symbols.append(symbol)
+            log_fields = {
+                "symbol": symbol,
+                "signal": getattr(signal_func, "__name__", str(signal_func)),
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            }
+            log_fields.update(log_context or {})
+            log_event(
+                logger,
+                "SCREENING_SYMBOL_SKIP",
+                level=logging.WARNING,
+                **log_fields,
+            )
 
     if details:
         rankings = pd.DataFrame(details).T
@@ -66,4 +87,18 @@ def run_screening(
     else:
         rankings = pd.DataFrame()
 
+    log_fields = {
+        "stage": "engine",
+        "signal": getattr(signal_func, "__name__", str(signal_func)),
+        "signal_params": params,
+        "cash": cash,
+        "freq": freq,
+        "symbols_count": len(data),
+        "total_screened": len(details),
+        "skipped_count": len(failed_symbols),
+        "ranked_count": len(rankings),
+        "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+    }
+    log_fields.update(log_context or {})
+    log_event(logger, "SCREENING_RUN", **log_fields)
     return ScreeningResult(rankings=rankings, details=details)

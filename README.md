@@ -208,6 +208,24 @@ core/screening.py -> vectorbt
 - `backtesting.py` 负责单股精细回测
 - `vectorbt` 负责批量扫描，不承担单股交易明细输出
 
+## 结构化日志
+
+运行时会输出统一前缀的结构化日志：
+
+```text
+[quant_balance][EVENT] {...JSON fields...}
+```
+
+核心事件与字段约定：
+
+- `CACHE_HIT` / `CACHE_MISS`：`symbol`、`start_date`、`end_date`、`adjust`、`data_provider`、`dataset`、`rows_count`
+- `BACKTEST_RUN`：`symbol`、`start_date`、`end_date`、`strategy`、`cash`、`commission`、`bars_count`、`data_provider`
+- `BACKTEST_OPTIMIZE`：`symbol`、`start_date`、`end_date`、`strategy`、`maximize`、`param_ranges`、`best_params`、`data_provider`
+- `SCREENING_RUN`：`pool_date`、`start_date`、`end_date`、`signal`、`top_n`、`total_screened`、`data_provider`
+- `API_ERROR`：`endpoint`、`status_code`、`detail`，以及对应请求的 `symbol` / `strategy` / `signal` / `pool_date`
+
+默认日志级别为 `INFO`，可通过环境变量 `QUANT_BALANCE_LOG_LEVEL` 调整。
+
 ## 测试
 
 运行测试：

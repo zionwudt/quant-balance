@@ -10,6 +10,7 @@ from typing import Literal
 import pandas as pd
 
 from quant_balance.data.common import CACHE_DB_PATH, DataLoadError, load_tushare_token
+from quant_balance.logging_utils import get_logger, log_event
 
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS daily_bars (
@@ -32,6 +33,8 @@ CREATE TABLE IF NOT EXISTS daily_adj_factors (
     PRIMARY KEY (ts_code, trade_date)
 );
 """
+
+logger = get_logger(__name__)
 
 def _get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     """获取 SQLite 连接，首次时自动建表。"""
@@ -196,8 +199,29 @@ def load_dataframe(
     try:
         cached_prices = _query_cache(conn, ts_code, start, end)
         if cached_prices:
+            log_event(
+                logger,
+                "CACHE_HIT",
+                data_provider="tushare",
+                dataset="daily_bars",
+                symbol=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+                adjust=adjust,
+                rows_count=len(cached_prices),
+            )
             price_rows = cached_prices
         else:
+            log_event(
+                logger,
+                "CACHE_MISS",
+                data_provider="tushare",
+                dataset="daily_bars",
+                symbol=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+                adjust=adjust,
+            )
             price_rows = _fetch_from_tushare(ts_code, start, end)
             if price_rows:
                 _save_to_cache(conn, price_rows)
@@ -205,7 +229,31 @@ def load_dataframe(
         factor_rows: list[tuple] = []
         if adjust == "qfq" and price_rows:
             factor_rows = _query_adj_factor_cache(conn, ts_code, start, end)
-            if len(factor_rows) < len(price_rows):
+            if len(factor_rows) >= len(price_rows):
+                log_event(
+                    logger,
+                    "CACHE_HIT",
+                    data_provider="tushare",
+                    dataset="daily_adj_factors",
+                    symbol=ts_code,
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust=adjust,
+                    rows_count=len(factor_rows),
+                )
+            else:
+                log_event(
+                    logger,
+                    "CACHE_MISS",
+                    data_provider="tushare",
+                    dataset="daily_adj_factors",
+                    symbol=ts_code,
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust=adjust,
+                    rows_count=len(factor_rows),
+                    required_rows_count=len(price_rows),
+                )
                 fresh = _fetch_adj_factors_from_tushare(ts_code, start, end)
                 if fresh:
                     _save_adj_factors_to_cache(conn, fresh)

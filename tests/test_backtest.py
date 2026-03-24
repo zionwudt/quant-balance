@@ -1,6 +1,9 @@
 """测试 backtesting.py 回测引擎封装。"""
 
+import logging
+
 import pandas as pd
+import pytest
 
 from quant_balance.core.backtest import BacktestResult, run_backtest
 from quant_balance.core.strategies import BuyAndHold, SmaCross
@@ -47,3 +50,31 @@ def test_normalize_bt_stats_handles_keys():
     assert "final_equity" in report
     assert "max_drawdown_pct" in report
     assert "trades_count" in report
+
+
+def test_run_backtest_emits_structured_log(caplog: pytest.LogCaptureFixture):
+    df = _make_sample_df()
+    caplog.set_level(logging.INFO, logger="quant_balance")
+
+    run_backtest(
+        df,
+        BuyAndHold,
+        log_context={
+            "symbol": "AAA",
+            "start_date": "2024-01-01",
+            "end_date": "2024-05-31",
+            "strategy": "buy_and_hold",
+            "data_provider": "tushare",
+        },
+    )
+
+    records = [
+        record for record in caplog.records
+        if getattr(record, "qb_event", None) == "BACKTEST_RUN"
+    ]
+    assert len(records) == 1
+    payload = records[0].qb_payload
+    assert payload["stage"] == "engine"
+    assert payload["strategy"] == "buy_and_hold"
+    assert payload["symbol"] == "AAA"
+    assert payload["bars_count"] == len(df)

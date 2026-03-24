@@ -144,6 +144,24 @@ API LAYER
 - `OptimizeRequest`
 - `ScreeningRunRequest`
 
+## 可观测性
+
+当前主干统一使用 `logging` 标准库输出结构化日志，日志前缀为：
+
+```text
+[quant_balance][EVENT] {...JSON fields...}
+```
+
+核心事件：
+
+- `CACHE_HIT` / `CACHE_MISS`：数据层缓存命中与未命中，字段使用 `symbol`、`start_date`、`end_date`、`adjust`、`data_provider`、`dataset`
+- `BACKTEST_RUN`：单股精细回测，字段使用 `symbol`、`start_date`、`end_date`、`strategy`、`bars_count`、`data_provider`
+- `BACKTEST_OPTIMIZE`：参数优化，字段使用 `symbol`、`start_date`、`end_date`、`strategy`、`maximize`、`param_ranges`、`best_params`
+- `SCREENING_RUN`：批量筛选，字段使用 `pool_date`、`start_date`、`end_date`、`signal`、`top_n`、`total_screened`、`data_provider`
+- `API_ERROR`：API 400/500 错误路径，字段使用 `endpoint`、`status_code`、`detail` 和请求上下文
+
+事件会分别在数据层、引擎层、服务层与 API 层输出，但字段命名保持一致，避免跨层检索时术语漂移。
+
 ## 核心工作流
 
 ### 1. 批量筛选

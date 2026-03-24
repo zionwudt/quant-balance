@@ -14,6 +14,7 @@ from quant_balance.data.baostock_loader import fetch_daily_bar_rows as fetch_bao
 from quant_balance.data.common import DataLoadError, resolve_daily_provider_order
 from quant_balance.data.market_cache import get_connection, query_daily_bars, save_daily_bars
 from quant_balance.data.tushare_loader import load_dataframe as load_tushare_dataframe
+from quant_balance.logging_utils import get_logger, log_event
 
 MarketRow = tuple[str, str, float, float, float, float, float]
 MarketFetcher = Callable[[str, str, str, Literal["none", "qfq"]], list[MarketRow]]
@@ -22,6 +23,8 @@ _PROVIDER_FETCHERS: dict[str, MarketFetcher] = {
     "akshare": fetch_akshare_daily_bar_rows,
     "baostock": fetch_baostock_daily_bar_rows,
 }
+
+logger = get_logger(__name__)
 
 
 def _to_yyyymmdd(iso_date: str) -> str:
@@ -89,8 +92,29 @@ def load_dataframe(
                 adjust=adjust,
             )
             if cached_rows:
+                log_event(
+                    logger,
+                    "CACHE_HIT",
+                    data_provider=provider_name,
+                    dataset="daily_bars",
+                    symbol=ts_code,
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust=adjust,
+                    rows_count=len(cached_rows),
+                )
                 return _rows_to_dataframe(cached_rows, provider=provider_name)
 
+            log_event(
+                logger,
+                "CACHE_MISS",
+                data_provider=provider_name,
+                dataset="daily_bars",
+                symbol=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+                adjust=adjust,
+            )
             fetcher = _PROVIDER_FETCHERS[provider_name]
             fresh_rows = fetcher(ts_code, start, end, adjust)
             if not fresh_rows:
@@ -115,4 +139,3 @@ def load_dataframe(
     if errors:
         raise DataLoadError(f"{base_message} 已尝试: {' | '.join(errors)}")
     raise DataLoadError(base_message)
-

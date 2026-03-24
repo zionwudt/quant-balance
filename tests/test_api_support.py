@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -100,7 +101,8 @@ def test_backtest_run_delegates_to_service():
     )
 
 
-def test_backtest_run_maps_value_error_to_http_400():
+def test_backtest_run_maps_value_error_to_http_400(caplog: pytest.LogCaptureFixture):
+    caplog.set_level(logging.WARNING, logger="quant_balance")
     with patch("quant_balance.services.backtest_service.run_single_backtest", side_effect=ValueError("未知策略")):
         app = create_api_app()
         endpoint = _get_route_endpoint(app, "/api/backtest/run", "POST")
@@ -116,6 +118,15 @@ def test_backtest_run_maps_value_error_to_http_400():
 
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "未知策略"
+    records = [
+        record for record in caplog.records
+        if getattr(record, "qb_event", None) == "API_ERROR"
+    ]
+    assert len(records) == 1
+    payload = records[0].qb_payload
+    assert payload["endpoint"] == "/api/backtest/run"
+    assert payload["status_code"] == 400
+    assert payload["symbol"] == "600519.SH"
 
 
 def test_screening_run_maps_value_error_to_http_400():
@@ -134,3 +145,31 @@ def test_screening_run_maps_value_error_to_http_400():
 
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "未知信号"
+
+
+def test_backtest_run_maps_unexpected_error_to_http_500(caplog: pytest.LogCaptureFixture):
+    caplog.set_level(logging.ERROR, logger="quant_balance")
+    with patch("quant_balance.services.backtest_service.run_single_backtest", side_effect=RuntimeError("boom")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/run", "POST")
+        request = BacktestRunRequest(
+            symbol="600519.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            strategy="sma_cross",
+        )
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint(request)
+
+    assert excinfo.value.status_code == 500
+    assert excinfo.value.detail == "内部服务器错误"
+    records = [
+        record for record in caplog.records
+        if getattr(record, "qb_event", None) == "API_ERROR"
+    ]
+    assert len(records) == 1
+    payload = records[0].qb_payload
+    assert payload["endpoint"] == "/api/backtest/run"
+    assert payload["status_code"] == 500
+    assert payload["error_type"] == "RuntimeError"

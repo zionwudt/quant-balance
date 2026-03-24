@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from time import perf_counter
+
 from quant_balance.core.data_adapter import load_multi_dataframes
 from quant_balance.core.screening import run_screening
 from quant_balance.core.strategies import SIGNAL_REGISTRY
 from quant_balance.data.stock_pool import get_pool_at_date
+from quant_balance.logging_utils import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 def run_stock_screening(
@@ -32,15 +37,17 @@ def run_stock_screening(
     if signal_func is None:
         raise ValueError(f"未知信号: {signal}，可用: {list(SIGNAL_REGISTRY)}")
 
+    started_at = perf_counter()
     if symbols is None:
         symbols = get_pool_at_date(pool_date)
+    requested_symbols_count = len(symbols)
 
     load_kwargs = {}
     if data_provider is not None:
         load_kwargs["data_provider"] = data_provider
     data = load_multi_dataframes(symbols, start_date, end_date, **load_kwargs)
     if not data:
-        return {
+        payload = {
             "rankings": [],
             "total_screened": 0,
             "run_context": {
@@ -48,13 +55,40 @@ def run_stock_screening(
                 "start_date": start_date,
                 "end_date": end_date,
                 "signal": signal,
+                "signal_params": signal_params or {},
+                "top_n": top_n,
+                "data_provider": data_provider,
             },
         }
+        log_event(
+            logger,
+            "SCREENING_RUN",
+            stage="service",
+            pool_date=pool_date,
+            start_date=start_date,
+            end_date=end_date,
+            signal=signal,
+            signal_params=signal_params or {},
+            top_n=top_n,
+            requested_symbols_count=requested_symbols_count,
+            loaded_symbols_count=0,
+            total_screened=0,
+            data_provider=data_provider,
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+        return payload
 
     result = run_screening(
         data, signal_func,
         cash=cash,
         signal_params=signal_params,
+        log_context={
+            "pool_date": pool_date,
+            "start_date": start_date,
+            "end_date": end_date,
+            "signal": signal,
+            "data_provider": data_provider,
+        },
     )
 
     rankings_list = []
@@ -66,7 +100,7 @@ def run_stock_screening(
                 **{k: _safe_value(v) for k, v in row.to_dict().items()},
             })
 
-    return {
+    payload = {
         "rankings": rankings_list,
         "total_screened": len(data),
         "run_context": {
@@ -79,6 +113,24 @@ def run_stock_screening(
             "data_provider": data_provider,
         },
     }
+    log_event(
+        logger,
+        "SCREENING_RUN",
+        stage="service",
+        pool_date=pool_date,
+        start_date=start_date,
+        end_date=end_date,
+        signal=signal,
+        signal_params=signal_params or {},
+        top_n=top_n,
+        requested_symbols_count=requested_symbols_count,
+        loaded_symbols_count=len(data),
+        total_screened=len(data),
+        ranked_count=len(rankings_list),
+        data_provider=data_provider,
+        duration_ms=round((perf_counter() - started_at) * 1000, 2),
+    )
+    return payload
 
 
 def _safe_value(v: object) -> object:

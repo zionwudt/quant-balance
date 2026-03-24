@@ -1,5 +1,7 @@
 """测试 vectorbt 批量筛选引擎。"""
 
+import logging
+
 import pandas as pd
 import pytest
 
@@ -39,3 +41,32 @@ def test_run_screening_empty_data():
     assert isinstance(result, ScreeningResult)
     assert result.rankings.empty
     assert len(result.details) == 0
+
+
+def test_run_screening_emits_structured_log(caplog: pytest.LogCaptureFixture):
+    data = {
+        "AAA": _make_sample_df(100, 10.0),
+        "BBB": _make_sample_df(100, 20.0),
+    }
+    caplog.set_level(logging.INFO, logger="quant_balance")
+
+    run_screening(
+        data,
+        sma_cross_signals,
+        log_context={
+            "pool_date": "2024-01-01",
+            "start_date": "2024-01-01",
+            "end_date": "2024-06-30",
+            "signal": "sma_cross",
+        },
+    )
+
+    records = [
+        record for record in caplog.records
+        if getattr(record, "qb_event", None) == "SCREENING_RUN"
+    ]
+    assert len(records) == 1
+    payload = records[0].qb_payload
+    assert payload["stage"] == "engine"
+    assert payload["signal"] == "sma_cross"
+    assert payload["total_screened"] == 2
