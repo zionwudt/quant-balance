@@ -12,19 +12,7 @@ import pandas as pd
 from backtesting import Strategy
 from backtesting.lib import crossover
 
-
-# ---------------------------------------------------------------------------
-# 辅助指标函数（供 self.I() 使用）
-# ---------------------------------------------------------------------------
-
-def SMA(values: pd.Series, n: int) -> pd.Series:
-    """简单移动平均线。"""
-    return pd.Series(values).rolling(n).mean()
-
-
-def EMA(values: pd.Series, n: int) -> pd.Series:
-    """指数移动平均线。"""
-    return pd.Series(values).ewm(span=n, adjust=False).mean()
+from quant_balance.core.indicators import ema, sma
 
 
 # ---------------------------------------------------------------------------
@@ -39,8 +27,8 @@ class SmaCross(Strategy):
 
     def init(self):
         price = self.data.Close
-        self.fast_ma = self.I(SMA, price, self.fast_period)
-        self.slow_ma = self.I(SMA, price, self.slow_period)
+        self.fast_ma = self.I(sma, price, self.fast_period)
+        self.slow_ma = self.I(sma, price, self.slow_period)
 
     def next(self):
         if crossover(self.fast_ma, self.slow_ma):
@@ -57,8 +45,8 @@ class EmaCross(Strategy):
 
     def init(self):
         price = self.data.Close
-        self.fast_ma = self.I(EMA, price, self.fast_period)
-        self.slow_ma = self.I(EMA, price, self.slow_period)
+        self.fast_ma = self.I(ema, price, self.fast_period)
+        self.slow_ma = self.I(ema, price, self.slow_period)
 
     def next(self):
         if crossover(self.fast_ma, self.slow_ma):
@@ -86,8 +74,8 @@ def sma_cross_signals(
     df: pd.DataFrame, fast: int = 5, slow: int = 20,
 ) -> tuple[pd.Series, pd.Series]:
     """SMA 交叉信号 → (entries, exits)。"""
-    fast_ma = df["Close"].rolling(fast).mean()
-    slow_ma = df["Close"].rolling(slow).mean()
+    fast_ma = sma(df["Close"], fast)
+    slow_ma = sma(df["Close"], slow)
     entries = (fast_ma > slow_ma) & (fast_ma.shift(1) <= slow_ma.shift(1))
     exits = (fast_ma < slow_ma) & (fast_ma.shift(1) >= slow_ma.shift(1))
     return entries.fillna(False), exits.fillna(False)
@@ -97,8 +85,8 @@ def ema_cross_signals(
     df: pd.DataFrame, fast: int = 12, slow: int = 26,
 ) -> tuple[pd.Series, pd.Series]:
     """EMA 交叉信号 → (entries, exits)。"""
-    fast_ma = df["Close"].ewm(span=fast, adjust=False).mean()
-    slow_ma = df["Close"].ewm(span=slow, adjust=False).mean()
+    fast_ma = ema(df["Close"], fast)
+    slow_ma = ema(df["Close"], slow)
     entries = (fast_ma > slow_ma) & (fast_ma.shift(1) <= slow_ma.shift(1))
     exits = (fast_ma < slow_ma) & (fast_ma.shift(1) >= slow_ma.shift(1))
     return entries.fillna(False), exits.fillna(False)
