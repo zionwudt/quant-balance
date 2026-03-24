@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from quant_balance.api.app import create_api_app
 from quant_balance.api.schemas import (
     BacktestRunRequest,
+    FactorsRankRequest,
     PortfolioRunRequest,
     ScreeningRunRequest,
     StockPoolFilterRequest,
@@ -35,6 +36,7 @@ def test_create_api_app_registers_expected_routes():
         ("/api/config/status", "GET"),
         ("/api/config/tushare-token", "POST"),
         ("/api/strategies", "GET"),
+        ("/api/factors/rank", "POST"),
         ("/api/stock-pool/filter", "POST"),
         ("/api/backtest/run", "POST"),
         ("/api/backtest/optimize", "POST"),
@@ -66,8 +68,10 @@ def test_meta_endpoint_includes_defaults():
 
     assert result["server_mode"] == "api"
     assert result["defaults"]["backtest"]["strategy"] == "sma_cross"
+    assert result["defaults"]["factors_rank"]["factors"][0]["name"] == "roe"
     assert result["defaults"]["stock_pool"]["filters"]["exclude_st"] is False
     assert result["defaults"]["portfolio"]["allocation"] == "equal"
+    assert any(item["name"] == "roe" for item in result["factors"])
     assert "sma_cross" in result["strategies"]
     assert "macd" in result["strategies"]
     assert "dca" in result["strategies"]
@@ -76,6 +80,7 @@ def test_meta_endpoint_includes_defaults():
 def test_post_routes_expose_request_body_in_openapi():
     schema = create_api_app().openapi()
 
+    assert "requestBody" in schema["paths"]["/api/factors/rank"]["post"]
     assert "requestBody" in schema["paths"]["/api/stock-pool/filter"]["post"]
     assert "requestBody" in schema["paths"]["/api/backtest/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/backtest/optimize"]["post"]
@@ -242,6 +247,50 @@ def test_screening_run_maps_value_error_to_http_400():
 
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "未知信号"
+
+
+def test_factors_rank_delegates_to_service():
+    payload = {"symbols": ["AAA"], "rankings": []}
+    with patch("quant_balance.services.factor_service.run_factor_ranking", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/factors/rank", "POST")
+        request = FactorsRankRequest(
+            pool_date="2024-01-01",
+            factors=[
+                {"name": "roe", "weight": 0.6},
+                {"name": "pe", "weight": 0.4},
+            ],
+            pool_filters={"industries": ["银行"]},
+            top_n=10,
+            symbols=["AAA", "BBB"],
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        pool_date="2024-01-01",
+        factors=[
+            {"name": "roe", "weight": 0.6},
+            {"name": "pe", "weight": 0.4},
+        ],
+        pool_filters={"industries": ["银行"]},
+        top_n=10,
+        symbols=["AAA", "BBB"],
+    )
+
+
+def test_factors_rank_maps_value_error_to_http_400():
+    with patch("quant_balance.services.factor_service.run_factor_ranking", side_effect=ValueError("未知因子")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/factors/rank", "POST")
+        request = FactorsRankRequest(pool_date="2024-01-01", factors=[{"name": "roe"}])
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint(request)
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "未知因子"
 
 
 def test_screening_run_delegates_pool_filters_to_service():

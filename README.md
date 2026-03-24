@@ -14,6 +14,7 @@
 - 单股精细回测：`sma_cross`、`ema_cross`、`buy_and_hold`、`macd`、`rsi`、`bollinger`、`grid`、`dca`、`ma_rsi_filter`
 - 参数优化：基于 `backtesting.py Backtest.optimize()`
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
+- 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
 - 历史股票池：`get_pool_at_date()` + 行业 / 市值 / PE / ST / 次新过滤，避免幸存者偏差
 - 财务快照：`load_financial_at()` 聚合 `daily_basic / income / balancesheet / cashflow / fina_indicator`，按公告日对齐，避免未来函数
@@ -97,6 +98,7 @@ quant-balance
 - `GET /api/meta`
 - `GET /api/config/status`
 - `GET /api/strategies`
+- `POST /api/factors/rank`
 - `POST /api/stock-pool/filter`
 - `POST /api/config/tushare-token`
 - `POST /api/backtest/run`
@@ -104,7 +106,7 @@ quant-balance
 - `POST /api/portfolio/run`
 - `POST /api/screening/run`
 
-四个研究类 `POST` 接口都支持可选字段 `data_provider`，可显式指定 `akshare`、`baostock` 或 `tushare`。
+四个行情研究类 `POST` 接口都支持可选字段 `data_provider`，可显式指定 `akshare`、`baostock` 或 `tushare`。
 
 ## 内置策略
 
@@ -197,6 +199,25 @@ quant-balance
 }
 ```
 
+### `POST /api/factors/rank`
+
+```json
+{
+  "pool_date": "2024-01-01",
+  "factors": [
+    { "name": "roe", "weight": 0.4 },
+    { "name": "pe", "weight": 0.25 },
+    { "name": "pb", "weight": 0.2 },
+    { "name": "dv_ratio", "weight": 0.15 }
+  ],
+  "pool_filters": {
+    "industries": ["白酒"],
+    "exclude_st": true
+  },
+  "top_n": 20
+}
+```
+
 ### `POST /api/screening/run`
 
 ```json
@@ -244,6 +265,7 @@ src/quant_balance/
 │   └── schemas.py          # Pydantic 请求模型
 ├── core/
 │   ├── backtest.py         # backtesting.py 封装
+│   ├── factors.py          # 多因子标准化与加权排名
 │   ├── portfolio.py        # vectorbt 组合回测
 │   ├── screening.py        # vectorbt 批量筛选
 │   ├── strategies.py       # 策略类 + 信号函数
@@ -260,6 +282,7 @@ src/quant_balance/
 │   └── fundamental_loader.py
 ├── services/
 │   ├── backtest_service.py
+│   ├── factor_service.py
 │   ├── portfolio_service.py
 │   ├── screening_service.py
 │   └── stock_pool_service.py
@@ -279,6 +302,7 @@ data/*.py / services/*.py
       │
       ▼
 core/backtest.py  -> backtesting.py
+core/factors.py   -> factor ranking
 core/portfolio.py -> vectorbt (portfolio)
 core/screening.py -> vectorbt
             │
@@ -293,6 +317,7 @@ core/screening.py -> vectorbt
 - 组合回测通过目标权重矩阵做再平衡，不重新引入旧的自研多标的撮合内核
 - `load_financial_at()` 会把估值与财报字段聚合成稳定快照，其中财报类字段严格按 `ann_date` 过滤
 - 股票池过滤始终建立在 `get_pool_at_date()` 的历史池之上，可叠加行业 / 市值 / PE / ST / 次新条件
+- 多因子打分基于横截面标准化和加权总分，不再依赖旧的 `PortfolioStrategy` 设计
 - `get_pool_at_date()` 基于历史上市状态构建股票池
 - `backtesting.py` 负责单股精细回测
 - `vectorbt` 负责批量扫描与组合研究，不承担单股交易明细输出
@@ -310,6 +335,7 @@ core/screening.py -> vectorbt
 - `CACHE_HIT` / `CACHE_MISS`：`symbol`、`start_date`、`end_date`、`adjust`、`data_provider`、`dataset`、`rows_count`
 - `BACKTEST_RUN`：`symbol`、`start_date`、`end_date`、`strategy`、`cash`、`commission`、`bars_count`、`data_provider`
 - `BACKTEST_OPTIMIZE`：`symbol`、`start_date`、`end_date`、`strategy`、`maximize`、`param_ranges`、`best_params`、`data_provider`
+- `FACTORS_RANK`：`pool_date`、`factors`、`candidate_count`、`scored_count`、`top_n`
 - `SCREENING_RUN`：`pool_date`、`start_date`、`end_date`、`signal`、`top_n`、`total_screened`、`data_provider`
 - `API_ERROR`：`endpoint`、`status_code`、`detail`，以及对应请求的 `symbol` / `strategy` / `signal` / `pool_date`
 

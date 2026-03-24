@@ -27,6 +27,35 @@ class StockPoolFilterRequest(BaseModel):
     symbols: list[str] | None = Field(None, description="可选候选股票列表；传入时会与历史股票池取交集")
 
 
+class FactorSpecRequest(BaseModel):
+    """因子配置。"""
+
+    name: str = Field(..., description="因子名称，如 roe / pe / pb / market_cap")
+    weight: float = Field(1.0, gt=0, description="因子权重")
+    direction: Literal["higher_better", "lower_better"] | None = Field(
+        None,
+        description="可选方向；不传则使用内置默认方向",
+    )
+
+
+class FactorsRankRequest(BaseModel):
+    """多因子打分请求。"""
+
+    pool_date: str = Field(..., description="股票池基准日期 YYYY-MM-DD")
+    factors: list[FactorSpecRequest] = Field(
+        default_factory=lambda: [
+            FactorSpecRequest(name="roe", weight=0.4),
+            FactorSpecRequest(name="pe", weight=0.25),
+            FactorSpecRequest(name="pb", weight=0.2),
+            FactorSpecRequest(name="dv_ratio", weight=0.15),
+        ],
+        description="因子配置列表",
+    )
+    pool_filters: StockPoolFiltersRequest = Field(default_factory=StockPoolFiltersRequest, description="股票池过滤条件")
+    top_n: int = Field(50, gt=0, description="返回前 N 名")
+    symbols: list[str] | None = Field(None, description="可选候选股票列表；传入时会与历史股票池取交集")
+
+
 class BacktestRunRequest(BaseModel):
     """单股精细回测请求。"""
 

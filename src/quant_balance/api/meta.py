@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from quant_balance.core.factors import list_factor_definitions
 from quant_balance.core.strategies import SIGNAL_REGISTRY, STRATEGY_REGISTRY
 
 
@@ -10,6 +11,7 @@ def build_api_meta() -> dict:
     return {
         "strategies": list(STRATEGY_REGISTRY.keys()),
         "signals": list(SIGNAL_REGISTRY.keys()),
+        "factors": list_factor_definitions(),
         "defaults": {
             "backtest": {
                 "strategy": "sma_cross",
@@ -50,6 +52,24 @@ def build_api_meta() -> dict:
                     "max_pe": None,
                 },
             },
+            "factors_rank": {
+                "factors": [
+                    {"name": "roe", "weight": 0.4},
+                    {"name": "pe", "weight": 0.25},
+                    {"name": "pb", "weight": 0.2},
+                    {"name": "dv_ratio", "weight": 0.15},
+                ],
+                "pool_filters": {
+                    "industries": [],
+                    "exclude_st": False,
+                    "min_listing_days": None,
+                    "min_market_cap": None,
+                    "max_market_cap": None,
+                    "min_pe": None,
+                    "max_pe": None,
+                },
+                "top_n": 50,
+            },
             "portfolio": {
                 "allocation": "equal",
                 "rebalance_frequency": "monthly",
@@ -62,6 +82,7 @@ def build_api_meta() -> dict:
             "回测引擎基于 backtesting.py，支持精细化单股回测和参数优化。",
             "批量筛选引擎基于 vectorbt，支持向量化快速扫描多只股票。",
             "历史股票池支持行业、市值、PE、ST、次新等前置过滤，并继续以 get_pool_at_date() 为底座。",
+            "多因子打分引擎支持因子标准化、加权总分与排名，可直接用于筛选研究与组合候选池构建。",
             "组合回测基于 vectorbt 目标权重矩阵，适合做多标的轮动与再平衡研究。",
             "数据默认使用前复权价格（qfq）。",
             "行情数据默认按 akshare -> baostock -> tushare 顺序回退，也可在请求中显式指定。",

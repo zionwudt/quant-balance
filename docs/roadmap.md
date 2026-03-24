@@ -25,7 +25,7 @@
 | 维度 | 当前能力 | 当前空缺 |
 | ------ | ------ | ------ |
 | 回测 | 单股精细回测 + `vectorbt` 组合再平衡研究 | 组合级撮合与持仓管理 |
-| 筛选 | 历史股票池 + 行业/市值/PE/ST/次新过滤 + 信号批量排名 | 多因子打分、条件筛选器 |
+| 筛选 | 历史股票池 + 行业/市值/PE/ST/次新过滤 + 信号批量排名 + 多因子打分 | 更强的条件筛选器与因子库 |
 | 策略 | `sma_cross` / `ema_cross` / `buy_and_hold` / `macd` / `rsi` / `bollinger` / `grid` / `dca` / `ma_rsi_filter` | 组合级策略、更多因子过滤器 |
 | 数据 | Tushare 日线、复权因子、多表基本面快照 | 分钟线、更丰富的另类数据 |
 | 报告 | 收益、回撤、Sharpe、交易列表、权益曲线 | 基准对比、月度热力图、分年统计 |
@@ -45,12 +45,14 @@
 
 - `core/strategies.py` 统一管理策略类与信号函数
 - `core/backtest.py` 薄包装 `backtesting.py`
+- `core/factors.py` 提供因子标准化与加权排名
 - `core/screening.py` 薄包装 `vectorbt`
 - `core/report.py` 统一统计口径与 JSON 转换
 
 ### 服务 + API
 
 - `backtest_service.py`
+- `factor_service.py`
 - `portfolio_service.py`
 - `screening_service.py`
 - `stock_pool_service.py`
@@ -132,6 +134,18 @@
 - `pool_filters`
 - `top_n`
 - `cash`
+- `symbols`（可选）
+
+### `POST /api/factors/rank`
+
+多因子打分。
+
+请求字段：
+
+- `pool_date`
+- `factors`
+- `pool_filters`
+- `top_n`
 - `symbols`（可选）
 
 ### `POST /api/stock-pool/filter`

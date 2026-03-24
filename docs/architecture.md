@@ -34,6 +34,7 @@ DATA LAYER
         ▼
 ENGINE LAYER
   backtest.py     -> backtesting.py
+  factors.py      -> cross-sectional scoring
   portfolio.py    -> vectorbt (portfolio)
   screening.py    -> vectorbt
   strategies.py   -> Strategy 类 + signal 函数
@@ -42,6 +43,7 @@ ENGINE LAYER
         ▼
 SERVICE LAYER
   backtest_service.py
+  factor_service.py
   portfolio_service.py
   screening_service.py
   stock_pool_service.py
@@ -118,6 +120,12 @@ API LAYER
 - 可将 `signal_params.stop_loss_pct` / `take_profit_pct` 映射到 `vectorbt` 风险退出
 - 输出排名表与明细结果
 
+`src/quant_balance/core/factors.py`
+
+- 提供内置因子定义、方向约定与因子注册表
+- 支持横截面标准化、权重归一化与加权总分
+- 输出可直接消费的多因子排名结果
+
 `src/quant_balance/core/portfolio.py`
 
 - 组合回测基于 `vectorbt.Portfolio.from_orders`
@@ -152,6 +160,11 @@ API LAYER
 - 编排 `filter_pool_at_date()`
 - 返回 API 友好的 `symbols / items / total_count / run_context`
 
+`src/quant_balance/services/factor_service.py`
+
+- 编排 `filter_pool_at_date() -> load_financial_at() -> rank_factor_items()`
+- 返回总分、分因子得分、排序与权重信息
+
 `src/quant_balance/services/portfolio_service.py`
 
 - 编排 `load_multi_dataframes() -> run_portfolio_backtest()`
@@ -169,6 +182,7 @@ API LAYER
 - `GET /api/config/status`
 - `GET /api/strategies`
 - `POST /api/config/tushare-token`
+- `POST /api/factors/rank`
 - `POST /api/stock-pool/filter`
 - `POST /api/backtest/run`
 - `POST /api/backtest/optimize`
@@ -178,6 +192,7 @@ API LAYER
 `src/quant_balance/api/schemas.py`
 
 - `BacktestRunRequest`
+- `FactorsRankRequest`
 - `OptimizeRequest`
 - `PortfolioRunRequest`
 - `ScreeningRunRequest`
@@ -203,6 +218,7 @@ API LAYER
 - `BACKTEST_RUN`：单股精细回测，字段使用 `symbol`、`start_date`、`end_date`、`strategy`、`bars_count`、`data_provider`
 - `BACKTEST_OPTIMIZE`：参数优化，字段使用 `symbol`、`start_date`、`end_date`、`strategy`、`maximize`、`param_ranges`、`best_params`
 - `STOCK_POOL_FILTER`：历史股票池过滤，字段使用 `pool_date`、`filters`、`requested_symbols_count`、`total_count`
+- `FACTORS_RANK`：多因子排名，字段使用 `pool_date`、`factors`、`candidate_count`、`scored_count`、`top_n`
 - `PORTFOLIO_RUN`：组合回测，字段使用 `symbols`、`start_date`、`end_date`、`allocation`、`rebalance_frequency`、`data_provider`
 - `SCREENING_RUN`：批量筛选，字段使用 `pool_date`、`start_date`、`end_date`、`signal`、`top_n`、`total_screened`、`data_provider`
 - `API_ERROR`：API 400/500 错误路径，字段使用 `endpoint`、`status_code`、`detail` 和请求上下文

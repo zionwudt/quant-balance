@@ -9,6 +9,7 @@ from typing import Any
 from quant_balance import __version__
 from quant_balance.api.schemas import (
     BacktestRunRequest,
+    FactorsRankRequest,
     OptimizeRequest,
     PortfolioRunRequest,
     ScreeningRunRequest,
@@ -63,6 +64,7 @@ def create_api_app() -> Any:
         validate_tushare_token,
     )
     from quant_balance.services.backtest_service import run_optimize, run_single_backtest
+    from quant_balance.services.factor_service import run_factor_ranking
     from quant_balance.services.portfolio_service import run_portfolio_research
     from quant_balance.services.screening_service import run_stock_screening
     from quant_balance.services.stock_pool_service import run_stock_pool_filter
@@ -155,6 +157,46 @@ def create_api_app() -> Any:
                 for name, func in SIGNAL_REGISTRY.items()
             ],
         }
+
+    @app.post("/api/factors/rank")
+    def factors_rank(req: FactorsRankRequest) -> dict:
+        """多因子打分与排名。"""
+        factors = [
+            factor.model_dump(exclude_none=True)
+            for factor in req.factors
+        ]
+        pool_filters = req.pool_filters.model_dump(exclude_none=True, exclude_defaults=True)
+        context = {
+            "pool_date": req.pool_date,
+            "factors": factors,
+            "pool_filters": pool_filters,
+            "top_n": req.top_n,
+            "symbols_count": len(req.symbols) if req.symbols is not None else None,
+        }
+        try:
+            return run_factor_ranking(
+                pool_date=req.pool_date,
+                factors=factors,
+                pool_filters=pool_filters,
+                top_n=req.top_n,
+                symbols=req.symbols,
+            )
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/factors/rank",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/factors/rank",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
 
     @app.post("/api/stock-pool/filter")
     def stock_pool_filter(req: StockPoolFilterRequest) -> dict:

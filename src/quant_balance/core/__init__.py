@@ -1,6 +1,17 @@
 """回测核心子包。"""
 
 from quant_balance.core.backtest import BacktestResult, optimize, run_backtest
+from quant_balance.core.factors import (
+    DEFAULT_FACTOR_SPECS,
+    FACTOR_REGISTRY,
+    FactorRankingResult,
+    FactorSpec,
+    build_factor_matrix,
+    list_factor_definitions,
+    rank_factor_items,
+    resolve_factor_specs,
+    standardize_factor_series,
+)
 from quant_balance.core.portfolio import PortfolioBacktestResult, run_portfolio_backtest
 from quant_balance.core.report import (
     bt_trades_to_dicts,
@@ -33,6 +44,10 @@ from quant_balance.core.strategies import (
 
 __all__ = [
     "BacktestResult",
+    "DEFAULT_FACTOR_SPECS",
+    "FACTOR_REGISTRY",
+    "FactorRankingResult",
+    "FactorSpec",
     "PortfolioBacktestResult",
     "BollingerBreakout",
     "BuyAndHold",
@@ -47,19 +62,24 @@ __all__ = [
     "ScreeningResult",
     "SmaCross",
     "bollinger_signals",
+    "build_factor_matrix",
     "bt_trades_to_dicts",
     "dca_signals",
     "ema_cross_signals",
     "equity_curve_to_dicts",
     "grid_signals",
+    "list_factor_definitions",
     "macd_signals",
     "ma_rsi_filter_signals",
     "normalize_bt_stats",
     "normalize_vbt_stats",
     "optimize",
+    "rank_factor_items",
+    "resolve_factor_specs",
     "run_portfolio_backtest",
     "rsi_signals",
     "run_backtest",
     "run_screening",
     "sma_cross_signals",
+    "standardize_factor_series",
 ]

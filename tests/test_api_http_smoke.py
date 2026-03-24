@@ -116,6 +116,58 @@ def test_api_http_smoke_end_to_end():
                 "run_context": {"pool_date": "2024-01-01", "filters": {"industries": ["银行"]}},
             },
         ),
+        patch(
+            "quant_balance.services.factor_service.run_factor_ranking",
+            return_value={
+                "symbols": ["AAA", "BBB"],
+                "weights": {"roe": 0.6, "pe": 0.4},
+                "rankings": [
+                    {
+                        "symbol": "AAA",
+                        "name": "测试股A",
+                        "industry": "银行",
+                        "market": "主板",
+                        "listing_days": 5000,
+                        "ann_date": "20240110",
+                        "end_date": "20231231",
+                        "total_score": 88.0,
+                        "rank": 1,
+                        "factors": {
+                            "roe": {"raw_value": 20.0, "score": 100.0, "weight": 0.6, "direction": "higher_better"},
+                            "pe": {"raw_value": 10.0, "score": 70.0, "weight": 0.4, "direction": "lower_better"},
+                        },
+                    },
+                    {
+                        "symbol": "BBB",
+                        "name": "测试股B",
+                        "industry": "银行",
+                        "market": "主板",
+                        "listing_days": 4000,
+                        "ann_date": "20240110",
+                        "end_date": "20231231",
+                        "total_score": 72.0,
+                        "rank": 2,
+                        "factors": {
+                            "roe": {"raw_value": 15.0, "score": 70.0, "weight": 0.6, "direction": "higher_better"},
+                            "pe": {"raw_value": 8.0, "score": 75.0, "weight": 0.4, "direction": "lower_better"},
+                        },
+                    },
+                ],
+                "run_context": {
+                    "pool_date": "2024-01-01",
+                    "pool_filters": {"industries": ["银行"]},
+                    "candidate_count": 2,
+                    "scored_count": 2,
+                    "top_n": 2,
+                    "skipped_symbols_no_financial": [],
+                    "skipped_symbols_missing_factors": [],
+                    "factors": [
+                        {"name": "roe", "weight": 0.6, "direction": "higher_better"},
+                        {"name": "pe", "weight": 0.4, "direction": "lower_better"},
+                    ],
+                },
+            },
+        ),
         patch("quant_balance.services.portfolio_service.load_multi_dataframes", side_effect=fake_load_multi_dataframes),
         patch("quant_balance.services.screening_service.load_multi_dataframes", side_effect=fake_load_multi_dataframes),
         patch("quant_balance.services.screening_service.get_pool_at_date", return_value=["AAA", "BBB"]),
@@ -132,6 +184,8 @@ def test_api_http_smoke_end_to_end():
         assert "sma_cross" in meta_payload["strategies"]
         assert "macd" in meta_payload["strategies"]
         assert "dca" in meta_payload["signals"]
+        assert any(item["name"] == "roe" for item in meta_payload["factors"])
+        assert meta_payload["defaults"]["factors_rank"]["factors"][0]["name"] == "roe"
         assert meta_payload["defaults"]["stock_pool"]["filters"]["exclude_st"] is False
         assert meta_payload["defaults"]["portfolio"]["allocation"] == "equal"
 
@@ -230,6 +284,25 @@ def test_api_http_smoke_end_to_end():
         assert stock_pool_status == 200
         assert stock_pool_payload["total_count"] == 1
         assert stock_pool_payload["symbols"] == ["AAA"]
+
+        factors_status, _, factors_payload = _request(
+            app,
+            "POST",
+            "/api/factors/rank",
+            {
+                "pool_date": "2024-01-01",
+                "factors": [
+                    {"name": "roe", "weight": 0.6},
+                    {"name": "pe", "weight": 0.4},
+                ],
+                "pool_filters": {"industries": ["银行"]},
+                "top_n": 2,
+            },
+        )
+        assert factors_status == 200
+        assert factors_payload["symbols"] == ["AAA", "BBB"]
+        assert factors_payload["weights"]["roe"] == 0.6
+        assert factors_payload["rankings"][0]["rank"] == 1
 
         screening_status, _, screening_payload = _request(
             app,

@@ -50,6 +50,13 @@ export const api = {
     return request('/api/strategies');
   },
 
+  runFactorRanking(params) {
+    return request('/api/factors/rank', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
+
   filterStockPool(params) {
     return request('/api/stock-pool/filter', {
       method: 'POST',
