@@ -9,6 +9,7 @@ import pytest
 
 from quant_balance.core.screening import ScreeningResult
 from quant_balance.services.screening_service import run_stock_screening
+from quant_balance.data.stock_pool import StockPoolRecord
 
 
 def test_run_stock_screening_rejects_unknown_signal():
@@ -91,3 +92,39 @@ def test_run_stock_screening_passes_data_provider():
         "2024-06-30",
         data_provider="baostock",
     )
+
+
+def test_run_stock_screening_applies_pool_filters_before_loading_data():
+    dummy_df = pd.DataFrame({"Close": [1, 2, 3]})
+    filtered_records = [
+        StockPoolRecord(
+            ts_code="BBB",
+            name="测试股",
+            list_date="20100101",
+            delist_date=None,
+            industry="银行",
+            market="主板",
+            listing_days=5000,
+            is_st=False,
+        ),
+    ]
+    with (
+        patch("quant_balance.services.screening_service.filter_pool_at_date", return_value=filtered_records) as mock_filter,
+        patch("quant_balance.services.screening_service.load_multi_dataframes", return_value={"BBB": dummy_df}) as mock_load,
+        patch("quant_balance.services.screening_service.run_screening", return_value=ScreeningResult(rankings=pd.DataFrame(), details={})),
+    ):
+        result = run_stock_screening(
+            pool_date="2024-01-01",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            pool_filters={"industries": ["银行"], "exclude_st": True},
+            symbols=["AAA", "BBB"],
+        )
+
+    assert result["run_context"]["pool_filters"] == {"industries": ["银行"], "exclude_st": True}
+    mock_filter.assert_called_once_with(
+        "2024-01-01",
+        filters={"industries": ["银行"], "exclude_st": True},
+        symbols=["AAA", "BBB"],
+    )
+    mock_load.assert_called_once_with(["BBB"], "2024-01-01", "2024-06-30")

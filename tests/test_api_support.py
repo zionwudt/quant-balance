@@ -10,7 +10,13 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from quant_balance.api.app import create_api_app
-from quant_balance.api.schemas import BacktestRunRequest, PortfolioRunRequest, ScreeningRunRequest, TushareTokenRequest
+from quant_balance.api.schemas import (
+    BacktestRunRequest,
+    PortfolioRunRequest,
+    ScreeningRunRequest,
+    StockPoolFilterRequest,
+    TushareTokenRequest,
+)
 
 
 def _get_route_endpoint(app, path: str, method: str):
@@ -29,6 +35,7 @@ def test_create_api_app_registers_expected_routes():
         ("/api/config/status", "GET"),
         ("/api/config/tushare-token", "POST"),
         ("/api/strategies", "GET"),
+        ("/api/stock-pool/filter", "POST"),
         ("/api/backtest/run", "POST"),
         ("/api/backtest/optimize", "POST"),
         ("/api/portfolio/run", "POST"),
@@ -59,6 +66,7 @@ def test_meta_endpoint_includes_defaults():
 
     assert result["server_mode"] == "api"
     assert result["defaults"]["backtest"]["strategy"] == "sma_cross"
+    assert result["defaults"]["stock_pool"]["filters"]["exclude_st"] is False
     assert result["defaults"]["portfolio"]["allocation"] == "equal"
     assert "sma_cross" in result["strategies"]
     assert "macd" in result["strategies"]
@@ -68,6 +76,7 @@ def test_meta_endpoint_includes_defaults():
 def test_post_routes_expose_request_body_in_openapi():
     schema = create_api_app().openapi()
 
+    assert "requestBody" in schema["paths"]["/api/stock-pool/filter"]["post"]
     assert "requestBody" in schema["paths"]["/api/backtest/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/backtest/optimize"]["post"]
     assert "requestBody" in schema["paths"]["/api/portfolio/run"]["post"]
@@ -233,6 +242,57 @@ def test_screening_run_maps_value_error_to_http_400():
 
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "未知信号"
+
+
+def test_screening_run_delegates_pool_filters_to_service():
+    payload = {"rankings": [], "total_screened": 0}
+    with patch("quant_balance.services.screening_service.run_stock_screening", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/screening/run", "POST")
+        request = ScreeningRunRequest(
+            pool_date="2024-01-01",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            signal="sma_cross",
+            pool_filters={"industries": ["银行"], "exclude_st": True},
+            symbols=["AAA", "BBB"],
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        pool_date="2024-01-01",
+        start_date="2024-01-01",
+        end_date="2024-06-30",
+        signal="sma_cross",
+        signal_params={},
+        pool_filters={"industries": ["银行"], "exclude_st": True},
+        top_n=20,
+        cash=100_000.0,
+        symbols=["AAA", "BBB"],
+    )
+
+
+def test_stock_pool_filter_delegates_to_service():
+    payload = {"symbols": ["600519.SH"], "total_count": 1}
+    with patch("quant_balance.services.stock_pool_service.run_stock_pool_filter", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/stock-pool/filter", "POST")
+        request = StockPoolFilterRequest(
+            pool_date="2024-01-01",
+            filters={"industries": ["白酒"], "exclude_st": True},
+            symbols=["600519.SH"],
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        pool_date="2024-01-01",
+        filters={"industries": ["白酒"], "exclude_st": True},
+        symbols=["600519.SH"],
+    )
 
 
 def test_portfolio_run_delegates_to_service():

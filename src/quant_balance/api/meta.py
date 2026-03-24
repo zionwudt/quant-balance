@@ -26,9 +26,29 @@ def build_api_meta() -> dict:
             },
             "screening": {
                 "signal": "sma_cross",
+                "pool_filters": {
+                    "industries": [],
+                    "exclude_st": False,
+                    "min_listing_days": None,
+                    "min_market_cap": None,
+                    "max_market_cap": None,
+                    "min_pe": None,
+                    "max_pe": None,
+                },
                 "top_n": 20,
                 "cash": 100_000.0,
                 "data_provider": None,
+            },
+            "stock_pool": {
+                "filters": {
+                    "industries": [],
+                    "exclude_st": False,
+                    "min_listing_days": None,
+                    "min_market_cap": None,
+                    "max_market_cap": None,
+                    "min_pe": None,
+                    "max_pe": None,
+                },
             },
             "portfolio": {
                 "allocation": "equal",
@@ -41,6 +61,7 @@ def build_api_meta() -> dict:
         "notes": [
             "回测引擎基于 backtesting.py，支持精细化单股回测和参数优化。",
             "批量筛选引擎基于 vectorbt，支持向量化快速扫描多只股票。",
+            "历史股票池支持行业、市值、PE、ST、次新等前置过滤，并继续以 get_pool_at_date() 为底座。",
             "组合回测基于 vectorbt 目标权重矩阵，适合做多标的轮动与再平衡研究。",
             "数据默认使用前复权价格（qfq）。",
             "行情数据默认按 akshare -> baostock -> tushare 顺序回退，也可在请求中显式指定。",

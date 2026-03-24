@@ -15,7 +15,7 @@
 - 参数优化：基于 `backtesting.py Backtest.optimize()`
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
-- 历史股票池：`get_pool_at_date()` 避免幸存者偏差
+- 历史股票池：`get_pool_at_date()` + 行业 / 市值 / PE / ST / 次新过滤，避免幸存者偏差
 - 财务快照：`load_financial_at()` 聚合 `daily_basic / income / balancesheet / cashflow / fina_indicator`，按公告日对齐，避免未来函数
 - 数据缓存：SQLite 本地缓存日线、复权因子和多表基本面数据
 - Web API：返回 JSON，便于前端或脚本消费
@@ -97,13 +97,14 @@ quant-balance
 - `GET /api/meta`
 - `GET /api/config/status`
 - `GET /api/strategies`
+- `POST /api/stock-pool/filter`
 - `POST /api/config/tushare-token`
 - `POST /api/backtest/run`
 - `POST /api/backtest/optimize`
 - `POST /api/portfolio/run`
 - `POST /api/screening/run`
 
-三个 `POST` 接口都支持可选字段 `data_provider`，可显式指定 `akshare`、`baostock` 或 `tushare`。
+四个研究类 `POST` 接口都支持可选字段 `data_provider`，可显式指定 `akshare`、`baostock` 或 `tushare`。
 
 ## 内置策略
 
@@ -181,6 +182,21 @@ quant-balance
 }
 ```
 
+### `POST /api/stock-pool/filter`
+
+```json
+{
+  "pool_date": "2024-01-01",
+  "filters": {
+    "industries": ["白酒"],
+    "exclude_st": true,
+    "min_listing_days": 180,
+    "min_market_cap": 500000,
+    "max_pe": 30
+  }
+}
+```
+
 ### `POST /api/screening/run`
 
 ```json
@@ -240,12 +256,13 @@ src/quant_balance/
 │   ├── baostock_loader.py  # Baostock 日线
 │   ├── market_cache.py     # 非 Tushare provider 行情缓存
 │   ├── common.py           # data 层公共配置 / 错误 / provider 解析
-│   ├── stock_pool.py       # 历史股票池
+│   ├── stock_pool.py       # 历史股票池 + 过滤器
 │   └── fundamental_loader.py
 ├── services/
 │   ├── backtest_service.py
 │   ├── portfolio_service.py
-│   └── screening_service.py
+│   ├── screening_service.py
+│   └── stock_pool_service.py
 └── main.py                 # CLI 入口
 ```
 
@@ -275,6 +292,7 @@ core/screening.py -> vectorbt
 - `load_dataframe()` 支持 `provider=` 显式指定，或按 `[data].daily_providers` 自动回退
 - 组合回测通过目标权重矩阵做再平衡，不重新引入旧的自研多标的撮合内核
 - `load_financial_at()` 会把估值与财报字段聚合成稳定快照，其中财报类字段严格按 `ann_date` 过滤
+- 股票池过滤始终建立在 `get_pool_at_date()` 的历史池之上，可叠加行业 / 市值 / PE / ST / 次新条件
 - `get_pool_at_date()` 基于历史上市状态构建股票池
 - `backtesting.py` 负责单股精细回测
 - `vectorbt` 负责批量扫描与组合研究，不承担单股交易明细输出

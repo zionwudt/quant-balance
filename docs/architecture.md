@@ -44,6 +44,7 @@ SERVICE LAYER
   backtest_service.py
   portfolio_service.py
   screening_service.py
+  stock_pool_service.py
         │
         ▼
 API LAYER
@@ -75,7 +76,10 @@ API LAYER
 `src/quant_balance/data/stock_pool.py`
 
 - 提供 `get_pool_at_date(date)`
+- 提供 `filter_pool_at_date(date, filters, symbols=None)`
 - 按历史上市状态构建股票池
+- 过滤条件建立在历史池基础上，可组合行业 / 市值 / PE / ST / 次新条件
+- ST 过滤支持按更名历史回溯
 - 用于规避幸存者偏差
 - 当前仍为 Tushare-first
 
@@ -139,8 +143,14 @@ API LAYER
 `src/quant_balance/services/screening_service.py`
 
 - 编排 `get_pool_at_date() -> load_multi_dataframes() -> run_screening()`
+- 支持把股票池过滤条件作为筛选前置步骤
 - 负责信号校验、Top N 排名与返回结构
 - 支持可选 `data_provider`
+
+`src/quant_balance/services/stock_pool_service.py`
+
+- 编排 `filter_pool_at_date()`
+- 返回 API 友好的 `symbols / items / total_count / run_context`
 
 `src/quant_balance/services/portfolio_service.py`
 
@@ -159,6 +169,7 @@ API LAYER
 - `GET /api/config/status`
 - `GET /api/strategies`
 - `POST /api/config/tushare-token`
+- `POST /api/stock-pool/filter`
 - `POST /api/backtest/run`
 - `POST /api/backtest/optimize`
 - `POST /api/portfolio/run`
@@ -170,6 +181,7 @@ API LAYER
 - `OptimizeRequest`
 - `PortfolioRunRequest`
 - `ScreeningRunRequest`
+- `StockPoolFilterRequest`
 - `TushareTokenRequest`
 
 `src/quant_balance/main.py`
@@ -190,6 +202,7 @@ API LAYER
 - `CACHE_HIT` / `CACHE_MISS`：数据层缓存命中与未命中，字段使用 `symbol`、`start_date`、`end_date`、`adjust`、`data_provider`、`dataset`
 - `BACKTEST_RUN`：单股精细回测，字段使用 `symbol`、`start_date`、`end_date`、`strategy`、`bars_count`、`data_provider`
 - `BACKTEST_OPTIMIZE`：参数优化，字段使用 `symbol`、`start_date`、`end_date`、`strategy`、`maximize`、`param_ranges`、`best_params`
+- `STOCK_POOL_FILTER`：历史股票池过滤，字段使用 `pool_date`、`filters`、`requested_symbols_count`、`total_count`
 - `PORTFOLIO_RUN`：组合回测，字段使用 `symbols`、`start_date`、`end_date`、`allocation`、`rebalance_frequency`、`data_provider`
 - `SCREENING_RUN`：批量筛选，字段使用 `pool_date`、`start_date`、`end_date`、`signal`、`top_n`、`total_screened`、`data_provider`
 - `API_ERROR`：API 400/500 错误路径，字段使用 `endpoint`、`status_code`、`detail` 和请求上下文

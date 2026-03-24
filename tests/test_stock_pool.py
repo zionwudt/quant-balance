@@ -1,4 +1,4 @@
-"""get_pool_at_date 单元测试 —— 幸存者偏差防护。"""
+"""stock_pool 单元测试 —— 历史池与过滤器。"""
 
 from __future__ import annotations
 
@@ -7,21 +7,45 @@ from pathlib import Path
 
 import pytest
 
+import quant_balance.data.stock_pool as stock_pool
+from quant_balance.data.fundamental_loader import FinancialSnapshot
 from quant_balance.data.stock_pool import (
+    StockPoolRecord,
     _CREATE_STOCK_LIST_SQL,
+    _CREATE_NAME_CHANGE_FETCH_LOG_SQL,
+    _CREATE_NAME_CHANGE_SQL,
+    filter_pool_at_date,
     get_pool_at_date,
 )
 
 
-def _seed_db(db_path: Path, rows: list[tuple]) -> None:
-    """向测试数据库插入 stock_list 数据。"""
+def _seed_db(
+    db_path: Path,
+    rows: list[tuple],
+    *,
+    name_changes: list[tuple] | None = None,
+    fetched_name_change_symbols: list[str] | None = None,
+) -> None:
+    """向测试数据库插入股票池与更名缓存。"""
     conn = sqlite3.connect(str(db_path))
     conn.execute(_CREATE_STOCK_LIST_SQL)
+    conn.execute(_CREATE_NAME_CHANGE_SQL)
+    conn.execute(_CREATE_NAME_CHANGE_FETCH_LOG_SQL)
     conn.executemany(
         "INSERT INTO stock_list (ts_code, name, list_date, delist_date, industry, market) "
         "VALUES (?, ?, ?, ?, ?, ?)",
         rows,
     )
+    if name_changes:
+        conn.executemany(
+            "INSERT INTO stock_name_changes (ts_code, name, start_date, end_date) VALUES (?, ?, ?, ?)",
+            name_changes,
+        )
+    if fetched_name_change_symbols:
+        conn.executemany(
+            "INSERT INTO stock_name_change_fetch_log (ts_code) VALUES (?)",
+            [(symbol,) for symbol in fetched_name_change_symbols],
+        )
     conn.commit()
     conn.close()
 
@@ -33,16 +57,25 @@ STOCKS = [
     ("000001.SZ", "平安银行", "19910403", None, "银行", "主板"),
     ("600519.SH", "贵州茅台", "20010827", None, "白酒", "主板"),
     ("300999.SZ", "金龙鱼",   "20201015", None, "食品", "创业板"),  # 2020 年上市
-    ("000033.SZ", "退市新都", "19970618", "20170712", "房地产", "主板"),  # 已退市
+    ("000033.SZ", "退市新都", "19970618", "20170712", "房地产", "主板"),  # 曾是 ST
     ("600432.SH", "退市吉恩", "20040120", "20180711", "有色金属", "主板"),  # 已退市
     ("688001.SH", "华兴源创", "20190722", None, "电子", "科创板"),  # 2019 年上市
+]
+
+NAME_CHANGES = [
+    ("000033.SZ", "*ST新都", "20160509", "20170712"),
 ]
 
 
 @pytest.fixture()
 def db_path(tmp_path: Path) -> Path:
     p = tmp_path / "test_cache.db"
-    _seed_db(p, STOCKS)
+    _seed_db(
+        p,
+        STOCKS,
+        name_changes=NAME_CHANGES,
+        fetched_name_change_symbols=["000033.SZ"],
+    )
     return p
 
 
@@ -100,3 +133,87 @@ class TestGetPoolAtDate:
         pool = get_pool_at_date("2015-01-01", db_path=db_path)
         assert isinstance(pool, list)
         assert all(isinstance(code, str) for code in pool)
+
+
+class TestFilterPoolAtDate:
+    def test_industry_filter(self, db_path: Path) -> None:
+        records = filter_pool_at_date(
+            "2015-01-01",
+            filters={"industries": ["银行", "白酒"]},
+            db_path=db_path,
+        )
+
+        assert [record.ts_code for record in records] == ["000001.SZ", "600519.SH"]
+        assert all(isinstance(record, StockPoolRecord) for record in records)
+
+    def test_exclude_new_listing_by_min_listing_days(self, db_path: Path) -> None:
+        records = filter_pool_at_date(
+            "2020-12-31",
+            filters={"min_listing_days": 180},
+            db_path=db_path,
+        )
+
+        assert "300999.SZ" not in [record.ts_code for record in records]
+
+    def test_exclude_st_uses_name_change_history(self, db_path: Path) -> None:
+        records = filter_pool_at_date(
+            "2017-07-11",
+            filters={"exclude_st": True},
+            db_path=db_path,
+        )
+
+        assert "000033.SZ" not in [record.ts_code for record in records]
+
+    def test_market_cap_and_pe_filters_use_financial_snapshot(
+        self,
+        db_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        snapshots = {
+            "000001.SZ": FinancialSnapshot("000001.SZ", "20240101", "20231231", pe=5.0, total_mv=1_500_000.0),
+            "600519.SH": FinancialSnapshot("600519.SH", "20240101", "20231231", pe=28.0, total_mv=2_600_000.0),
+            "300999.SZ": FinancialSnapshot("300999.SZ", "20240101", "20231231", pe=35.0, total_mv=800_000.0),
+            "688001.SH": FinancialSnapshot("688001.SH", "20240101", "20231231", pe=None, total_mv=None),
+            "000033.SZ": FinancialSnapshot("000033.SZ", "20240101", "20231231", pe=12.0, total_mv=300_000.0),
+            "600432.SH": FinancialSnapshot("600432.SH", "20240101", "20231231", pe=18.0, total_mv=400_000.0),
+        }
+
+        def fake_load_financial_at(symbol: str, as_of_date: str, *, db_path=None):
+            return snapshots.get(symbol)
+
+        monkeypatch.setattr(
+            "quant_balance.data.fundamental_loader.load_financial_at",
+            fake_load_financial_at,
+        )
+
+        records = filter_pool_at_date(
+            "2024-01-15",
+            filters={
+                "min_market_cap": 1_000_000.0,
+                "max_market_cap": 3_000_000.0,
+                "min_pe": 10.0,
+                "max_pe": 30.0,
+            },
+            db_path=db_path,
+        )
+
+        assert [record.ts_code for record in records] == ["600519.SH"]
+        assert records[0].pe == 28.0
+        assert records[0].total_mv == 2_600_000.0
+
+    def test_filter_can_intersect_user_symbols_with_historical_pool(self, db_path: Path) -> None:
+        records = filter_pool_at_date(
+            "2015-01-01",
+            symbols=["300999.SZ", "600519.SH"],
+            db_path=db_path,
+        )
+
+        assert [record.ts_code for record in records] == ["600519.SH"]
+
+    def test_invalid_filter_range_raises_value_error(self, db_path: Path) -> None:
+        with pytest.raises(ValueError, match="min_pe 不能大于 max_pe"):
+            filter_pool_at_date(
+                "2024-01-15",
+                filters={"min_pe": 20.0, "max_pe": 10.0},
+                db_path=db_path,
+            )

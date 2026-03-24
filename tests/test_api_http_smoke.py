@@ -94,6 +94,28 @@ def test_api_http_smoke_end_to_end():
             "quant_balance.services.backtest_service.optimize",
             return_value=(optimize_stats, {"fast_period": pd.Index([4])[0], "slow_period": pd.Index([18])[0]}),
         ),
+        patch(
+            "quant_balance.services.stock_pool_service.run_stock_pool_filter",
+            return_value={
+                "symbols": ["AAA"],
+                "items": [
+                    {
+                        "ts_code": "AAA",
+                        "name": "测试股",
+                        "list_date": "20100101",
+                        "delist_date": None,
+                        "industry": "银行",
+                        "market": "主板",
+                        "listing_days": 5000,
+                        "is_st": False,
+                        "pe": 10.0,
+                        "total_mv": 1_000_000.0,
+                    }
+                ],
+                "total_count": 1,
+                "run_context": {"pool_date": "2024-01-01", "filters": {"industries": ["银行"]}},
+            },
+        ),
         patch("quant_balance.services.portfolio_service.load_multi_dataframes", side_effect=fake_load_multi_dataframes),
         patch("quant_balance.services.screening_service.load_multi_dataframes", side_effect=fake_load_multi_dataframes),
         patch("quant_balance.services.screening_service.get_pool_at_date", return_value=["AAA", "BBB"]),
@@ -110,6 +132,7 @@ def test_api_http_smoke_end_to_end():
         assert "sma_cross" in meta_payload["strategies"]
         assert "macd" in meta_payload["strategies"]
         assert "dca" in meta_payload["signals"]
+        assert meta_payload["defaults"]["stock_pool"]["filters"]["exclude_st"] is False
         assert meta_payload["defaults"]["portfolio"]["allocation"] == "equal"
 
         strategies_status, _, strategies_payload = _request(app, "GET", "/api/strategies")
@@ -190,6 +213,23 @@ def test_api_http_smoke_end_to_end():
         assert len(portfolio_payload["equity_curve"]) > 0
         assert len(portfolio_payload["weights"]) > 0
         assert len(portfolio_payload["rebalances"]) > 0
+
+        stock_pool_status, _, stock_pool_payload = _request(
+            app,
+            "POST",
+            "/api/stock-pool/filter",
+            {
+                "pool_date": "2024-01-01",
+                "filters": {
+                    "industries": ["银行"],
+                    "exclude_st": True,
+                },
+                "symbols": ["AAA", "BBB"],
+            },
+        )
+        assert stock_pool_status == 200
+        assert stock_pool_payload["total_count"] == 1
+        assert stock_pool_payload["symbols"] == ["AAA"]
 
         screening_status, _, screening_payload = _request(
             app,

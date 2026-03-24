@@ -12,6 +12,7 @@ from quant_balance.api.schemas import (
     OptimizeRequest,
     PortfolioRunRequest,
     ScreeningRunRequest,
+    StockPoolFilterRequest,
     TushareTokenRequest,
 )
 from quant_balance.core.strategies import SIGNAL_REGISTRY, STRATEGY_REGISTRY
@@ -64,6 +65,7 @@ def create_api_app() -> Any:
     from quant_balance.services.backtest_service import run_optimize, run_single_backtest
     from quant_balance.services.portfolio_service import run_portfolio_research
     from quant_balance.services.screening_service import run_stock_screening
+    from quant_balance.services.stock_pool_service import run_stock_pool_filter
 
     app = FastAPI(
         title="QuantBalance API",
@@ -153,6 +155,38 @@ def create_api_app() -> Any:
                 for name, func in SIGNAL_REGISTRY.items()
             ],
         }
+
+    @app.post("/api/stock-pool/filter")
+    def stock_pool_filter(req: StockPoolFilterRequest) -> dict:
+        """历史股票池过滤。"""
+        filters = req.filters.model_dump(exclude_none=True, exclude_defaults=True)
+        context = {
+            "pool_date": req.pool_date,
+            "filters": filters,
+            "symbols_count": len(req.symbols) if req.symbols is not None else None,
+        }
+        try:
+            return run_stock_pool_filter(
+                pool_date=req.pool_date,
+                filters=filters,
+                symbols=req.symbols,
+            )
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/stock-pool/filter",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/stock-pool/filter",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
 
     @app.post("/api/backtest/run")
     def backtest_run(req: BacktestRunRequest) -> dict:
@@ -248,6 +282,7 @@ def create_api_app() -> Any:
             "start_date": req.start_date,
             "end_date": req.end_date,
             "signal": req.signal,
+            "pool_filters": req.pool_filters.model_dump(exclude_none=True, exclude_defaults=True),
             "top_n": req.top_n,
             "cash": req.cash,
             "symbols_count": len(req.symbols) if req.symbols is not None else None,
@@ -260,6 +295,7 @@ def create_api_app() -> Any:
                 "end_date": req.end_date,
                 "signal": req.signal,
                 "signal_params": req.signal_params,
+                "pool_filters": req.pool_filters.model_dump(exclude_none=True, exclude_defaults=True),
                 "top_n": req.top_n,
                 "cash": req.cash,
                 "symbols": req.symbols,

@@ -25,7 +25,7 @@
 | 维度 | 当前能力 | 当前空缺 |
 | ------ | ------ | ------ |
 | 回测 | 单股精细回测 + `vectorbt` 组合再平衡研究 | 组合级撮合与持仓管理 |
-| 筛选 | 历史股票池 + 信号批量排名 | 多因子打分、条件筛选器 |
+| 筛选 | 历史股票池 + 行业/市值/PE/ST/次新过滤 + 信号批量排名 | 多因子打分、条件筛选器 |
 | 策略 | `sma_cross` / `ema_cross` / `buy_and_hold` / `macd` / `rsi` / `bollinger` / `grid` / `dca` / `ma_rsi_filter` | 组合级策略、更多因子过滤器 |
 | 数据 | Tushare 日线、复权因子、多表基本面快照 | 分钟线、更丰富的另类数据 |
 | 报告 | 收益、回撤、Sharpe、交易列表、权益曲线 | 基准对比、月度热力图、分年统计 |
@@ -38,7 +38,7 @@
 
 - `tushare_loader.py` 支持 `load_dataframe()`
 - `data_adapter.py` 支持批量加载 `dict[str, DataFrame]`
-- `stock_pool.py` 提供历史时点股票池
+- `stock_pool.py` 提供历史时点股票池与可组合过滤器
 - `fundamental_loader.py` 提供按公告日对齐的多表基本面快照与增量缓存
 
 ### 引擎层
@@ -53,6 +53,7 @@
 - `backtest_service.py`
 - `portfolio_service.py`
 - `screening_service.py`
+- `stock_pool_service.py`
 - `api/schemas.py`
 - `api/app.py`
 - `api/meta.py`
@@ -128,8 +129,19 @@
 - `end_date`
 - `signal`
 - `signal_params`
+- `pool_filters`
 - `top_n`
 - `cash`
+- `symbols`（可选）
+
+### `POST /api/stock-pool/filter`
+
+历史股票池过滤。
+
+请求字段：
+
+- `pool_date`
+- `filters`
 - `symbols`（可选）
 
 ### `POST /api/portfolio/run`
@@ -152,6 +164,8 @@
 ### 1. 幸存者偏差
 
 股票池必须使用 `get_pool_at_date(date)` 构建，不能直接用当前上市列表。
+
+过滤条件也必须建立在历史股票池之上，不能绕开该底座直接对当前全市场列表做筛选。
 
 ### 2. 未来函数
 

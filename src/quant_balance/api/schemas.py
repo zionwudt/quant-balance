@@ -7,6 +7,26 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class StockPoolFiltersRequest(BaseModel):
+    """股票池过滤条件。"""
+
+    industries: list[str] = Field(default_factory=list, description="行业白名单，如 ['银行', '白酒']")
+    min_market_cap: float | None = Field(None, ge=0, description="最小总市值（沿用 Tushare daily_basic.total_mv 口径）")
+    max_market_cap: float | None = Field(None, ge=0, description="最大总市值（沿用 Tushare daily_basic.total_mv 口径）")
+    min_pe: float | None = Field(None, description="最小 PE")
+    max_pe: float | None = Field(None, description="最大 PE")
+    exclude_st: bool = Field(False, description="是否排除 ST / *ST")
+    min_listing_days: int | None = Field(None, ge=0, description="最小上市天数；用于过滤次新股")
+
+
+class StockPoolFilterRequest(BaseModel):
+    """股票池过滤请求。"""
+
+    pool_date: str = Field(..., description="股票池基准日期 YYYY-MM-DD")
+    filters: StockPoolFiltersRequest = Field(default_factory=StockPoolFiltersRequest)
+    symbols: list[str] | None = Field(None, description="可选候选股票列表；传入时会与历史股票池取交集")
+
+
 class BacktestRunRequest(BaseModel):
     """单股精细回测请求。"""
 
@@ -48,9 +68,10 @@ class ScreeningRunRequest(BaseModel):
     end_date: str = Field(..., description="回测结束日期 YYYY-MM-DD")
     signal: str = Field("sma_cross", description="信号函数名称")
     signal_params: dict = Field(default_factory=dict, description="信号参数")
+    pool_filters: StockPoolFiltersRequest = Field(default_factory=StockPoolFiltersRequest, description="股票池过滤条件")
     top_n: int = Field(20, gt=0, description="返回前 N 名")
     cash: float = Field(100_000.0, gt=0, description="初始资金")
-    symbols: list[str] | None = Field(None, description="自定义股票列表（传入则忽略 pool_date）")
+    symbols: list[str] | None = Field(None, description="自定义候选股票列表（传入时会与历史股票池取交集）")
     data_provider: str | None = Field(
         None,
         description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",

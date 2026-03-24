@@ -50,6 +50,13 @@ export const api = {
     return request('/api/strategies');
   },
 
+  filterStockPool(params) {
+    return request('/api/stock-pool/filter', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
+
   runBacktest(params) {
     return request('/api/backtest/run', {
       method: 'POST',
