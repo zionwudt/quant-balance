@@ -75,6 +75,8 @@ Tushare token 获取地址：[tushare.pro/register](https://tushare.pro/register
 - 即使 `tushare` 放在兜底位，股票池和财务快照当前仍然是 Tushare-first
 - 如果请求体显式传入 `data_provider`，会覆盖默认回退链
 
+首次使用时，如果 `config/config.toml` 不存在或 `[tushare].token` 为空，CLI 会打印引导信息并退出，不再等到请求行情时才抛出错误。
+
 ## 启动
 
 ```bash
@@ -92,12 +94,37 @@ quant-balance
 
 - `GET /health`
 - `GET /api/meta`
+- `GET /api/config/status`
 - `GET /api/strategies`
+- `POST /api/config/tushare-token`
 - `POST /api/backtest/run`
 - `POST /api/backtest/optimize`
 - `POST /api/screening/run`
 
 三个 `POST` 接口都支持可选字段 `data_provider`，可显式指定 `akshare`、`baostock` 或 `tushare`。
+
+### `GET /api/config/status`
+
+返回当前配置状态，包括：
+
+- `config_exists`
+- `token_configured`
+- `connection_ok`
+- `message`
+
+适合前端首次使用引导页轮询或初始化时调用。
+
+### `POST /api/config/tushare-token`
+
+```json
+{
+  "token": "your-token",
+  "validate_only": false
+}
+```
+
+- `validate_only=true` 时只测试连接，不保存到磁盘
+- `validate_only=false` 时验证成功后写入 `config/config.toml`
 
 ### `POST /api/backtest/run`
 

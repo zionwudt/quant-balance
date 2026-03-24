@@ -133,7 +133,9 @@ API LAYER
 
 - `GET /health`
 - `GET /api/meta`
+- `GET /api/config/status`
 - `GET /api/strategies`
+- `POST /api/config/tushare-token`
 - `POST /api/backtest/run`
 - `POST /api/backtest/optimize`
 - `POST /api/screening/run`
@@ -143,6 +145,12 @@ API LAYER
 - `BacktestRunRequest`
 - `OptimizeRequest`
 - `ScreeningRunRequest`
+- `TushareTokenRequest`
+
+`src/quant_balance/main.py`
+
+- CLI 启动前先检查 `config/config.toml`
+- 当 Tushare token 缺失时打印首次使用引导，而不是继续启动后在数据请求路径报错
 
 ## 可观测性
 

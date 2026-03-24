@@ -53,3 +53,13 @@ class ScreeningRunRequest(BaseModel):
         None,
         description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",
     )
+
+
+class TushareTokenRequest(BaseModel):
+    """Tushare token 保存/验证请求。"""
+
+    token: str = Field(..., min_length=1, description="待验证或保存的 Tushare token")
+    validate_only: bool = Field(
+        False,
+        description="仅测试连接，不落盘保存",
+    )

@@ -6,7 +6,12 @@ import logging
 from typing import Any
 
 from quant_balance import __version__
-from quant_balance.api.schemas import BacktestRunRequest, OptimizeRequest, ScreeningRunRequest
+from quant_balance.api.schemas import (
+    BacktestRunRequest,
+    OptimizeRequest,
+    ScreeningRunRequest,
+    TushareTokenRequest,
+)
 from quant_balance.core.strategies import SIGNAL_REGISTRY, STRATEGY_REGISTRY
 from quant_balance.logging_utils import get_logger, log_event
 
@@ -45,6 +50,11 @@ def create_api_app() -> Any:
 
     from quant_balance.api.meta import build_api_meta
     from quant_balance.data import DataLoadError
+    from quant_balance.data.common import (
+        get_tushare_config_status,
+        save_tushare_token,
+        validate_tushare_token,
+    )
     from quant_balance.services.backtest_service import run_optimize, run_single_backtest
     from quant_balance.services.screening_service import run_stock_screening
 
@@ -62,6 +72,53 @@ def create_api_app() -> Any:
     def api_meta() -> dict[str, object]:
         """返回前端初始化所需的元信息。"""
         return build_api_meta()
+
+    @app.get("/api/config/status")
+    def config_status() -> dict[str, object]:
+        """返回首次使用配置状态。"""
+
+        return get_tushare_config_status(check_connection=True)
+
+    @app.post("/api/config/tushare-token")
+    def save_tushare_config(req: TushareTokenRequest) -> dict[str, object]:
+        """验证并保存 Tushare token。"""
+
+        context = {"validate_only": req.validate_only}
+        try:
+            connection_ok, message = validate_tushare_token(req.token)
+            if not connection_ok:
+                raise ValueError(message)
+
+            if not req.validate_only:
+                save_tushare_token(req.token)
+
+            status = get_tushare_config_status(check_connection=False)
+            status["connection_checked"] = True
+            status["connection_ok"] = True
+            status["saved"] = not req.validate_only
+            status["validate_only"] = req.validate_only
+            status["message"] = (
+                "Tushare token 验证成功。"
+                if req.validate_only
+                else "Tushare token 已保存。"
+            )
+            return status
+        except ValueError as exc:
+            _log_api_error(
+                endpoint="/api/config/tushare-token",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/config/tushare-token",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
 
     @app.get("/api/strategies")
     def list_strategies() -> dict[str, object]:

@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from quant_balance.api.app import create_api_app
-from quant_balance.api.schemas import BacktestRunRequest, ScreeningRunRequest
+from quant_balance.api.schemas import BacktestRunRequest, ScreeningRunRequest, TushareTokenRequest
 
 
 def _get_route_endpoint(app, path: str, method: str):
@@ -26,6 +26,8 @@ def test_create_api_app_registers_expected_routes():
     expected_routes = {
         ("/health", "GET"),
         ("/api/meta", "GET"),
+        ("/api/config/status", "GET"),
+        ("/api/config/tushare-token", "POST"),
         ("/api/strategies", "GET"),
         ("/api/backtest/run", "POST"),
         ("/api/backtest/optimize", "POST"),
@@ -65,11 +67,92 @@ def test_post_routes_expose_request_body_in_openapi():
     assert "requestBody" in schema["paths"]["/api/backtest/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/backtest/optimize"]["post"]
     assert "requestBody" in schema["paths"]["/api/screening/run"]["post"]
+    assert "requestBody" in schema["paths"]["/api/config/tushare-token"]["post"]
 
 
 def test_backtest_schema_requires_core_fields():
     with pytest.raises(ValidationError):
         BacktestRunRequest.model_validate({})
+
+
+def test_config_status_endpoint_returns_status():
+    expected = {
+        "config_exists": True,
+        "config_path": "/tmp/config.toml",
+        "token_configured": True,
+        "token_placeholder": False,
+        "connection_checked": True,
+        "connection_ok": True,
+        "register_url": "https://tushare.pro/register",
+        "message": "Tushare token 验证成功。",
+    }
+    with patch("quant_balance.data.common.get_tushare_config_status", return_value=expected):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/config/status", "GET")
+
+        result = endpoint()
+
+    assert result == expected
+
+
+def test_tushare_token_endpoint_validates_and_saves():
+    base_status = {
+        "config_exists": True,
+        "config_path": "/tmp/config.toml",
+        "token_configured": True,
+        "token_placeholder": False,
+        "connection_checked": False,
+        "connection_ok": None,
+        "register_url": "https://tushare.pro/register",
+        "message": "Tushare token 已配置，尚未验证连接。",
+    }
+    with (
+        patch("quant_balance.data.common.validate_tushare_token", return_value=(True, "ok")) as mock_validate,
+        patch("quant_balance.data.common.save_tushare_token") as mock_save,
+        patch("quant_balance.data.common.get_tushare_config_status", return_value=base_status.copy()) as mock_status,
+    ):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/config/tushare-token", "POST")
+        request = TushareTokenRequest(token="abc123")
+
+        result = endpoint(request)
+
+    assert result["saved"] is True
+    assert result["connection_ok"] is True
+    assert result["validate_only"] is False
+    assert result["message"] == "Tushare token 已保存。"
+    mock_validate.assert_called_once_with("abc123")
+    mock_save.assert_called_once_with("abc123")
+    mock_status.assert_called_once_with(check_connection=False)
+
+
+def test_tushare_token_endpoint_supports_validate_only():
+    base_status = {
+        "config_exists": False,
+        "config_path": "/tmp/config.toml",
+        "token_configured": False,
+        "token_placeholder": False,
+        "connection_checked": False,
+        "connection_ok": None,
+        "register_url": "https://tushare.pro/register",
+        "message": "未找到 config/config.toml。",
+    }
+    with (
+        patch("quant_balance.data.common.validate_tushare_token", return_value=(True, "ok")) as mock_validate,
+        patch("quant_balance.data.common.save_tushare_token") as mock_save,
+        patch("quant_balance.data.common.get_tushare_config_status", return_value=base_status.copy()),
+    ):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/config/tushare-token", "POST")
+        request = TushareTokenRequest(token="abc123", validate_only=True)
+
+        result = endpoint(request)
+
+    assert result["saved"] is False
+    assert result["validate_only"] is True
+    assert result["message"] == "Tushare token 验证成功。"
+    mock_validate.assert_called_once_with("abc123")
+    mock_save.assert_not_called()
 
 
 def test_backtest_run_delegates_to_service():
@@ -145,6 +228,28 @@ def test_screening_run_maps_value_error_to_http_400():
 
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "未知信号"
+
+
+def test_tushare_token_endpoint_maps_invalid_token_to_http_400(caplog: pytest.LogCaptureFixture):
+    caplog.set_level(logging.WARNING, logger="quant_balance")
+    with patch("quant_balance.data.common.validate_tushare_token", return_value=(False, "bad token")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/config/tushare-token", "POST")
+        request = TushareTokenRequest(token="invalid")
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint(request)
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "bad token"
+    records = [
+        record for record in caplog.records
+        if getattr(record, "qb_event", None) == "API_ERROR"
+    ]
+    assert len(records) == 1
+    payload = records[0].qb_payload
+    assert payload["endpoint"] == "/api/config/tushare-token"
+    assert payload["status_code"] == 400
 
 
 def test_backtest_run_maps_unexpected_error_to_http_500(caplog: pytest.LogCaptureFixture):
