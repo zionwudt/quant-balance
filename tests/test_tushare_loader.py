@@ -8,8 +8,7 @@ import pytest
 from quant_balance.data.tushare_loader import (
     _CREATE_ADJ_FACTOR_SQL,
     _CREATE_TABLE_SQL,
-    load_bar_views,
-    load_bars,
+    load_dataframe,
 )
 
 
@@ -35,20 +34,21 @@ def _seed_cache(db_path: Path) -> None:
     conn.close()
 
 
-def test_load_bar_views_returns_raw_and_forward_adjusted_series(tmp_path: Path) -> None:
+def test_load_dataframe_returns_forward_adjusted_prices(tmp_path: Path) -> None:
     db_path = tmp_path / "cache.db"
     _seed_cache(db_path)
 
-    bar_views = load_bar_views("AAA", "2026-01-05", "2026-01-06", db_path=db_path)
+    df = load_dataframe("AAA", "2026-01-05", "2026-01-06", db_path=db_path)
 
-    assert [bar.close for bar in bar_views.trade_bars] == [10.0, 9.5]
-    assert [bar.close for bar in bar_views.indicator_bars] == pytest.approx([9.5, 9.5])
+    assert list(df.columns) == ["Open", "High", "Low", "Close", "Volume"]
+    assert df.index[0].strftime("%Y-%m-%d") == "2026-01-05"
+    assert list(df["Close"]) == pytest.approx([9.5, 9.5])
 
 
-def test_load_bars_keeps_backward_compatible_raw_prices(tmp_path: Path) -> None:
+def test_load_dataframe_can_return_raw_prices(tmp_path: Path) -> None:
     db_path = tmp_path / "cache.db"
     _seed_cache(db_path)
 
-    bars = load_bars("AAA", "2026-01-05", "2026-01-06", db_path=db_path)
+    df = load_dataframe("AAA", "2026-01-05", "2026-01-06", adjust="none", db_path=db_path)
 
-    assert [bar.close for bar in bars] == [10.0, 9.5]
+    assert list(df["Close"]) == [10.0, 9.5]

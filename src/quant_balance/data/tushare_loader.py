@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import sqlite3
 import tomllib
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
-from quant_balance.core.models import MarketBar
+import pandas as pd
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "config.toml"
@@ -35,19 +35,6 @@ CREATE TABLE IF NOT EXISTS daily_adj_factors (
     PRIMARY KEY (ts_code, trade_date)
 );
 """
-
-
-@dataclass(slots=True)
-class LoadedBarViews:
-    """同一时间窗口下的双轨价格视图。
-
-    `trade_bars` 保留不复权价格，用于撮合、持仓成本和盈亏计算；
-    `indicator_bars` 则锚定到本次回测窗口末尾，供技术指标与策略信号使用。
-    """
-
-    trade_bars: list[MarketBar]
-    indicator_bars: list[MarketBar]
-
 
 class DataLoadError(ValueError):
     """数据加载异常。"""
@@ -209,74 +196,24 @@ def _to_yyyymmdd(iso_date: str) -> str:
     return iso_date.replace("-", "")
 
 
-def _rows_to_bars(rows: list[tuple], symbol: str) -> list[MarketBar]:
-    """把数据库行转换为 MarketBar 列表（按日期升序）。"""
-    bars: list[MarketBar] = []
-    for row in sorted(rows, key=lambda r: r[1]):
-        trade_date = datetime.strptime(row[1], "%Y%m%d").date()
-        bars.append(
-            MarketBar(
-                symbol=symbol,
-                date=trade_date,
-                open=row[2],
-                high=row[3],
-                low=row[4],
-                close=row[5],
-                volume=row[6],
-            )
-        )
-    return bars
-
-
-def _rows_to_forward_adjusted_bars(
-    price_rows: list[tuple],
-    factor_rows: list[tuple],
-    symbol: str,
-) -> list[MarketBar]:
-    """把不复权行情和复权因子转换为锚定窗口末尾的前复权序列。"""
-
-    if not price_rows:
-        return []
-
-    factor_by_date = {row[1]: row[2] for row in factor_rows}
-    sorted_rows = sorted(price_rows, key=lambda row: row[1])
-    latest_trade_date = sorted_rows[-1][1]
-    latest_factor = factor_by_date.get(latest_trade_date)
-    if latest_factor is None or latest_factor <= 0:
-        raise DataLoadError(f"{symbol} 在 {latest_trade_date} 缺少有效复权因子，无法生成前复权价格。")
-
-    bars: list[MarketBar] = []
-    for row in sorted_rows:
-        trade_date = row[1]
-        adj_factor = factor_by_date.get(trade_date)
-        if adj_factor is None or adj_factor <= 0:
-            raise DataLoadError(f"{symbol} 在 {trade_date} 缺少有效复权因子，无法生成前复权价格。")
-
-        scale = adj_factor / latest_factor
-        bar_date = datetime.strptime(trade_date, "%Y%m%d").date()
-        bars.append(
-            MarketBar(
-                symbol=symbol,
-                date=bar_date,
-                open=row[2] * scale,
-                high=row[3] * scale,
-                low=row[4] * scale,
-                close=row[5] * scale,
-                volume=row[6],
-            )
-        )
-    return bars
-
-
-def load_bar_views(
+def load_dataframe(
     ts_code: str,
     start_date: str,
     end_date: str,
     *,
+    adjust: Literal["none", "qfq"] = "qfq",
     db_path: Path | None = None,
-) -> LoadedBarViews:
-    """加载回测所需双轨价格视图。"""
+) -> pd.DataFrame:
+    """加载日线行情，返回 backtesting.py / vectorbt 通用的 DataFrame 格式。
 
+    返回列: Open, High, Low, Close, Volume
+    索引: DatetimeIndex（按日期升序）
+
+    参数:
+    - ts_code: Tushare 股票代码，如 "600519.SH"
+    - start_date / end_date: YYYY-MM-DD 格式
+    - adjust: "qfq" 前复权（默认），"none" 不复权
+    """
     start = _to_yyyymmdd(start_date)
     end = _to_yyyymmdd(end_date)
 
@@ -290,46 +227,58 @@ def load_bar_views(
             if price_rows:
                 _save_to_cache(conn, price_rows)
 
-        factor_rows = _query_adj_factor_cache(conn, ts_code, start, end)
-        if price_rows and len(factor_rows) < len(price_rows):
-            fresh_factor_rows = _fetch_adj_factors_from_tushare(ts_code, start, end)
-            if fresh_factor_rows:
-                _save_adj_factors_to_cache(conn, fresh_factor_rows)
-                factor_rows = _query_adj_factor_cache(conn, ts_code, start, end)
+        factor_rows: list[tuple] = []
+        if adjust == "qfq" and price_rows:
+            factor_rows = _query_adj_factor_cache(conn, ts_code, start, end)
+            if len(factor_rows) < len(price_rows):
+                fresh = _fetch_adj_factors_from_tushare(ts_code, start, end)
+                if fresh:
+                    _save_adj_factors_to_cache(conn, fresh)
+                    factor_rows = _query_adj_factor_cache(conn, ts_code, start, end)
     finally:
         conn.close()
 
-    trade_bars = _rows_to_bars(price_rows, ts_code)
-    if not trade_bars:
+    if not price_rows:
         raise DataLoadError(
             f"在 {start_date} ~ {end_date} 期间未找到 {ts_code} 的行情数据，"
             "请检查股票代码和日期范围是否正确。"
         )
 
-    indicator_bars = trade_bars
-    if factor_rows:
-        indicator_bars = _rows_to_forward_adjusted_bars(price_rows, factor_rows, ts_code)
+    sorted_rows = sorted(price_rows, key=lambda r: r[1])
 
-    return LoadedBarViews(trade_bars=trade_bars, indicator_bars=indicator_bars)
+    if adjust == "qfq" and factor_rows:
+        factor_by_date = {row[1]: row[2] for row in factor_rows}
+        latest_date = sorted_rows[-1][1]
+        latest_factor = factor_by_date.get(latest_date)
+        if latest_factor is None or latest_factor <= 0:
+            raise DataLoadError(f"{ts_code} 在 {latest_date} 缺少有效复权因子。")
 
+        records = []
+        for row in sorted_rows:
+            adj = factor_by_date.get(row[1])
+            if adj is None or adj <= 0:
+                raise DataLoadError(f"{ts_code} 在 {row[1]} 缺少有效复权因子。")
+            scale = adj / latest_factor
+            records.append({
+                "Date": datetime.strptime(row[1], "%Y%m%d"),
+                "Open": row[2] * scale,
+                "High": row[3] * scale,
+                "Low": row[4] * scale,
+                "Close": row[5] * scale,
+                "Volume": row[6],
+            })
+    else:
+        records = []
+        for row in sorted_rows:
+            records.append({
+                "Date": datetime.strptime(row[1], "%Y%m%d"),
+                "Open": row[2],
+                "High": row[3],
+                "Low": row[4],
+                "Close": row[5],
+                "Volume": row[6],
+            })
 
-def load_bars(
-    ts_code: str,
-    start_date: str,
-    end_date: str,
-    *,
-    db_path: Path | None = None,
-) -> list[MarketBar]:
-    """加载日线行情：先查 SQLite 缓存，未命中则从 Tushare 拉取后写入缓存。
-
-    参数均为原始值，不依赖任何请求对象：
-    - ts_code: Tushare 股票代码，如 "600519.SH"
-    - start_date: 起始日期，YYYY-MM-DD 格式
-    - end_date: 结束日期，YYYY-MM-DD 格式
-    """
-    return load_bar_views(
-        ts_code,
-        start_date,
-        end_date,
-        db_path=db_path,
-    ).trade_bars
+    df = pd.DataFrame(records)
+    df.set_index("Date", inplace=True)
+    return df

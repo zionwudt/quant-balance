@@ -1,73 +1,108 @@
-"""共享回测服务。
-
-这层负责把"输入参数 -> 回测执行 -> 可展示结果片段"串起来，
-供 API 层和其他调用入口共同复用。
-"""
+"""回测服务 — 编排数据加载与引擎执行。"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterable
 
-from quant_balance.data import DataLoadError, load_bar_views
-from quant_balance.core.backtest import BacktestEngine
-from quant_balance.core.models import AccountConfig
-from quant_balance.core.report import BacktestReport
-from quant_balance.core.strategy import MovingAverageCrossStrategy
-from quant_balance.services.backtest_inputs import BacktestInputError, BacktestRequest
+from quant_balance.core.backtest import optimize, run_backtest
+from quant_balance.core.report import bt_trades_to_dicts, equity_curve_to_dicts, normalize_bt_stats
+from quant_balance.core.strategies import STRATEGY_REGISTRY
+from quant_balance.data.tushare_loader import load_dataframe
 
 
-@dataclass(slots=True)
-class BacktestRunArtifacts:
-    """一次回测执行后产出的标准结果片段。"""
+def run_single_backtest(
+    *,
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    strategy: str = "sma_cross",
+    cash: float = 100_000.0,
+    commission: float = 0.001,
+    params: dict | None = None,
+) -> dict:
+    """执行单股精细回测，返回 API 可直接消费的结果字典。"""
+    strategy_cls = STRATEGY_REGISTRY.get(strategy)
+    if strategy_cls is None:
+        raise ValueError(f"未知策略: {strategy}，可用: {list(STRATEGY_REGISTRY)}")
 
-    report: BacktestReport
-    run_context: dict[str, object]
-    equity_curve_points: list[dict[str, object]]
+    df = load_dataframe(symbol, start_date, end_date, adjust="qfq")
 
-
-def run_moving_average_backtest(
-    request: BacktestRequest,
-) -> BacktestRunArtifacts:
-    """执行一次均线回测，并返回 API 可直接消费的标准结果。"""
-
-    request.validate()
-
-    try:
-        bar_views = load_bar_views(request.symbol, request.start_date, request.end_date)
-    except DataLoadError as exc:
-        raise BacktestInputError(str(exc)) from exc
-    bars = bar_views.trade_bars
-
-    strategy = MovingAverageCrossStrategy(short_window=request.short_window, long_window=request.long_window)
-
-    config = AccountConfig(
-        initial_cash=request.initial_cash,
-        max_position_ratio=1.0,
-        max_positions=1,
-        max_drawdown_ratio=1.0,
+    result = run_backtest(
+        df, strategy_cls,
+        cash=cash, commission=commission,
+        strategy_params=params,
     )
-    engine = BacktestEngine(config=config, strategy=strategy)
-    result = engine.run(bars, indicator_bars=bar_views.indicator_bars)
-    if result.report is None:
-        raise RuntimeError("回测未生成 report")
 
-    run_context = {
-        "symbol": request.symbol,
-        "start_date": request.start_date,
-        "end_date": request.end_date,
-        "initial_cash": request.initial_cash,
-        "short_window": request.short_window,
-        "long_window": request.long_window,
-        "bars_count": len(bars),
-        "date_range_start": bars[0].date.isoformat() if bars else None,
-        "date_range_end": bars[-1].date.isoformat() if bars else None,
+    return {
+        "summary": result.report,
+        "trades": bt_trades_to_dicts(result.trades),
+        "equity_curve": equity_curve_to_dicts(result.equity_curve),
+        "run_context": {
+            "symbol": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+            "strategy": strategy,
+            "cash": cash,
+            "commission": commission,
+            "params": params or {},
+            "bars_count": len(df),
+        },
     }
-    equity_curve_points = [
-        {"date": equity_date.isoformat(), "equity": equity}
-        for equity_date, equity in zip(result.equity_dates, result.equity_curve)
-    ]
-    return BacktestRunArtifacts(
-        report=result.report,
-        run_context=run_context,
-        equity_curve_points=equity_curve_points,
+
+
+def run_optimize(
+    *,
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    strategy: str = "sma_cross",
+    cash: float = 100_000.0,
+    commission: float = 0.001,
+    maximize: str = "Sharpe Ratio",
+    param_ranges: dict | None = None,
+) -> dict:
+    """执行参数优化，返回最优参数和统计。"""
+    strategy_cls = STRATEGY_REGISTRY.get(strategy)
+    if strategy_cls is None:
+        raise ValueError(f"未知策略: {strategy}，可用: {list(STRATEGY_REGISTRY)}")
+
+    if not param_ranges:
+        raise ValueError("param_ranges 不能为空")
+
+    df = load_dataframe(symbol, start_date, end_date, adjust="qfq")
+
+    stats, best_params = optimize(
+        df, strategy_cls,
+        cash=cash, commission=commission,
+        maximize=maximize,
+        **param_ranges,
     )
+
+    return {
+        "best_params": _jsonable_value(best_params),
+        "best_stats": normalize_bt_stats(stats),
+        "run_context": {
+            "symbol": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+            "strategy": strategy,
+            "maximize": maximize,
+            "param_ranges": _jsonable_value(param_ranges),
+        },
+    }
+
+
+def _jsonable_value(value: object) -> object:
+    """递归清理 numpy/pandas 标量与可迭代对象，确保可 JSON 序列化。"""
+    if isinstance(value, dict):
+        return {key: _jsonable_value(item) for key, item in value.items()}
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+        return [_jsonable_value(item) for item in value]
+
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return item()
+        except (TypeError, ValueError):
+            return value
+    return value

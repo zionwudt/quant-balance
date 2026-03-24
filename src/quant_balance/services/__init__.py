@@ -1,6 +1,10 @@
-"""服务层。
+"""服务层 — 编排数据加载与引擎执行。"""
 
-这里放与展示形式无关、可被多个入口复用的业务编排逻辑。
-"""
+from quant_balance.services.backtest_service import run_optimize, run_single_backtest
+from quant_balance.services.screening_service import run_stock_screening
 
-__all__ = ["backtest_inputs", "backtest_service"]
+__all__ = [
+    "run_optimize",
+    "run_single_backtest",
+    "run_stock_screening",
+]

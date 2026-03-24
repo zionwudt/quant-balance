@@ -1,39 +1,49 @@
-from datetime import date, timedelta
+"""测试 backtesting.py 回测引擎封装。"""
 
-from quant_balance.core.backtest import BacktestEngine
-from quant_balance.core.models import AccountConfig, MarketBar
-from quant_balance.core.strategy import BuyAndHoldStrategy
+import pandas as pd
+
+from quant_balance.core.backtest import BacktestResult, run_backtest
+from quant_balance.core.strategies import BuyAndHold, SmaCross
 
 
-def test_backtest_runs_for_a_share_lot_size() -> None:
-    config = AccountConfig(
-        initial_cash=100_000,
-        max_position_ratio=1.0,
-        max_positions=5,
-        commission_rate=0.0,
-        transfer_fee_rate=0.0,
-        stamp_duty_rate=0.0,
-    )
-    strategy = BuyAndHoldStrategy()
-    engine = BacktestEngine(config=config, strategy=strategy)
+def _make_sample_df(days: int = 100) -> pd.DataFrame:
+    """生成测试用 OHLCV DataFrame。"""
+    dates = pd.date_range("2024-01-01", periods=days, freq="B")
+    close = [10.0 + index * 0.1 for index in range(days)]
+    return pd.DataFrame({
+        "Open": [value - 0.05 for value in close],
+        "High": [value + 0.1 for value in close],
+        "Low": [value - 0.1 for value in close],
+        "Close": close,
+        "Volume": [1_000_000] * days,
+    }, index=dates)
 
-    start = date(2026, 1, 1)
-    bars = [
-        MarketBar(
-            symbol="600519.SH",
-            date=start + timedelta(days=index),
-            open=10.0 + index,
-            high=10.5 + index,
-            low=9.5 + index,
-            close=10.0 + index,
-            volume=1_000_000,
-        )
-        for index in range(5)
-    ]
 
-    result = engine.run(bars)
+def test_run_backtest_returns_result():
+    df = _make_sample_df()
+    result = run_backtest(df, BuyAndHold, cash=100_000.0)
 
-    assert result.halted is False
-    assert len(result.fills) == 1
-    assert result.fills[0].quantity % 100 == 0
-    assert result.equity_curve[-1] > 0
+    assert isinstance(result, BacktestResult)
+    assert result.report["final_equity"] > 0
+    assert result.report["trades_count"] >= 1
+    assert not result.equity_curve.empty
+
+
+def test_run_backtest_sma_cross():
+    df = _make_sample_df(200)
+    result = run_backtest(df, SmaCross, cash=100_000.0, strategy_params={"fast_period": 5, "slow_period": 20})
+
+    assert isinstance(result, BacktestResult)
+    assert "total_return_pct" in result.report
+    assert "sharpe_ratio" in result.report
+
+
+def test_normalize_bt_stats_handles_keys():
+    df = _make_sample_df()
+    result = run_backtest(df, BuyAndHold)
+    report = result.report
+
+    assert "initial_equity" in report
+    assert "final_equity" in report
+    assert "max_drawdown_pct" in report
+    assert "trades_count" in report
