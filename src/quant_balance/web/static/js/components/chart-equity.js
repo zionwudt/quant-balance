@@ -9,6 +9,10 @@ export function renderEquityChart(container, equityCurve, initialEquity) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📈</div><p>运行回测后，权益曲线将在这里展示</p></div>';
     return;
   }
+  if (typeof echarts === 'undefined') {
+    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠</div><p>ECharts 未加载，无法渲染图表</p></div>';
+    return;
+  }
 
   if (chartInstance) {
     chartInstance.dispose();
@@ -18,10 +22,14 @@ export function renderEquityChart(container, equityCurve, initialEquity) {
 
   const dates = equityCurve.map(d => d.date.split(' ')[0]);
   const equities = equityCurve.map(d => d.equity);
+  const hasBenchmark = equityCurve.some(d => Number.isFinite(Number(d.benchmark_equity)));
 
   // 计算净值（归一化到1）
   const base = initialEquity || equities[0] || 1;
   const netValues = equities.map(e => +(e / base).toFixed(4));
+  const benchmarkNetValues = hasBenchmark
+    ? equityCurve.map(d => +(Number(d.benchmark_equity) / base).toFixed(4))
+    : [];
 
   // 计算回撤
   let peak = netValues[0];
@@ -43,6 +51,8 @@ export function renderEquityChart(container, equityCurve, initialEquity) {
         params.forEach(p => {
           if (p.seriesName === '策略净值') {
             html += `<div>净值: ${p.value.toFixed(4)}</div>`;
+          } else if (p.seriesName === '基准净值') {
+            html += `<div style="color:#94a3b8">基准: ${p.value.toFixed(4)}</div>`;
           } else if (p.seriesName === '回撤') {
             html += `<div style="color:#ef4444">回撤: ${p.value.toFixed(2)}%</div>`;
           }
@@ -51,7 +61,7 @@ export function renderEquityChart(container, equityCurve, initialEquity) {
       },
     },
     legend: {
-      data: ['策略净值', '回撤'],
+      data: hasBenchmark ? ['策略净值', '基准净值', '回撤'] : ['策略净值', '回撤'],
       textStyle: { color: '#8888a0', fontSize: 12 },
       top: 0,
       right: 0,
@@ -92,12 +102,30 @@ export function renderEquityChart(container, equityCurve, initialEquity) {
         axisLabel: { color: '#8888a0', fontSize: 11, formatter: '{value}%' },
       },
     ],
-    dataZoom: [{
-      type: 'inside',
-      xAxisIndex: [0, 1],
-      start: 0,
-      end: 100,
-    }],
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: [0, 1],
+        start: 0,
+        end: 100,
+      },
+      {
+        type: 'slider',
+        xAxisIndex: [0, 1],
+        bottom: 0,
+        height: 18,
+        borderColor: '#1e1e2e',
+        fillerColor: 'rgba(99, 102, 241, 0.18)',
+        backgroundColor: '#0f0f18',
+        handleStyle: {
+          color: '#6366f1',
+          borderColor: '#818cf8',
+        },
+        moveHandleStyle: {
+          color: '#6366f1',
+        },
+      },
+    ],
     series: [
       {
         name: '策略净值',
@@ -110,6 +138,17 @@ export function renderEquityChart(container, equityCurve, initialEquity) {
         showSymbol: false,
         smooth: false,
       },
+      ...(hasBenchmark ? [{
+        name: '基准净值',
+        type: 'line',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        data: benchmarkNetValues,
+        lineStyle: { color: '#94a3b8', width: 1.5, type: 'dashed' },
+        itemStyle: { color: '#94a3b8' },
+        showSymbol: false,
+        smooth: false,
+      }] : []),
       {
         name: '回撤',
         type: 'line',

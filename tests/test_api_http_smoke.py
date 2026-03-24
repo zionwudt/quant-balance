@@ -71,7 +71,13 @@ async def _asgi_request(app, method: str, path: str, payload: dict | None = None
             response_body.extend(message.get("body", b""))
 
     await app(scope, receive, send)
-    parsed = json.loads(response_body.decode("utf-8")) if response_body else None
+    content_type = response_headers.get("content-type", "")
+    if not response_body:
+        parsed = None
+    elif "application/json" in content_type:
+        parsed = json.loads(response_body.decode("utf-8"))
+    else:
+        parsed = response_body.decode("utf-8")
     return response_status, response_headers, parsed
 
 
@@ -217,6 +223,17 @@ def test_api_http_smoke_end_to_end():
         patch("quant_balance.services.screening_service.get_pool_at_date", return_value=["AAA", "BBB"]),
     ):
         app = create_api_app()
+
+        root_status, root_headers, root_payload = _request(app, "GET", "/")
+        assert root_status == 200
+        assert "text/html" in root_headers.get("content-type", "")
+        assert "/static/vendor/echarts.min.js" in root_payload
+        assert "cdn.jsdelivr.net" not in root_payload
+
+        favicon_status, favicon_headers, favicon_payload = _request(app, "GET", "/favicon.svg")
+        assert favicon_status == 200
+        assert "image/svg+xml" in favicon_headers.get("content-type", "")
+        assert "<svg" in favicon_payload
 
         health_status, _, health_payload = _request(app, "GET", "/health")
         assert health_status == 200

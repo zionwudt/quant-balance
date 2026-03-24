@@ -34,6 +34,8 @@ def test_create_api_app_registers_expected_routes():
     app = create_api_app()
 
     expected_routes = {
+        ("/", "GET"),
+        ("/favicon.svg", "GET"),
         ("/health", "GET"),
         ("/api/meta", "GET"),
         ("/api/config/status", "GET"),

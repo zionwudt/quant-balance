@@ -88,6 +88,14 @@ def create_api_app() -> Any:
             return FileResponse(str(index_path))
         return {"message": "QuantBalance API is running. Visit /docs for API documentation."}
 
+    @app.get("/favicon.svg")
+    def favicon():
+        """返回 Web 前端 favicon。"""
+        favicon_path = WEB_DIR / "favicon.svg"
+        if favicon_path.is_file():
+            return FileResponse(str(favicon_path), media_type="image/svg+xml")
+        raise HTTPException(status_code=404, detail="favicon not found")
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}

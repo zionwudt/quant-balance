@@ -8,6 +8,8 @@ import { renderEquityChart } from '../components/chart-equity.js';
 import { renderTradesTable } from '../components/data-table.js';
 
 let strategies = [];
+let hotkeysBound = false;
+let lastBacktestResult = null;
 
 export async function initBacktestPage(container) {
   // 加载策略列表
@@ -50,6 +52,11 @@ function buildHTML() {
           <div class="form-group" style="margin-bottom: var(--space-3)">
             <label class="form-label">股票代码</label>
             <input class="input" id="bt-symbol" placeholder="如 600519.SH" value="600519.SH">
+          </div>
+
+          <div class="form-group" style="margin-bottom: var(--space-3)">
+            <label class="form-label">基准代码（可选）</label>
+            <input class="input" id="bt-benchmark-symbol" placeholder="如 000300.SH">
           </div>
 
           <div class="form-group" style="margin-bottom: var(--space-3)">
@@ -102,13 +109,20 @@ function bindEvents(container) {
   const runBtn = container.querySelector('#bt-run');
   runBtn.onclick = () => runBacktest(container);
 
-  // Ctrl+Enter 快捷键
-  document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      runBacktest(container);
-    }
-  });
+  if (!hotkeysBound) {
+    // Ctrl+Enter 快捷键
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        const currentContainer = document.querySelector('.main-content');
+        if (!currentContainer?.querySelector('#bt-run')) {
+          return;
+        }
+        e.preventDefault();
+        runBacktest(currentContainer);
+      }
+    });
+    hotkeysBound = true;
+  }
 
   // 快捷日期按钮
   container.querySelectorAll('[data-range]').forEach(btn => {
@@ -209,6 +223,7 @@ async function runBacktest(container) {
   const resultsEl = container.querySelector('#bt-results');
 
   const symbol = container.querySelector('#bt-symbol').value.trim();
+  const benchmarkSymbol = container.querySelector('#bt-benchmark-symbol').value.trim();
   const startDate = container.querySelector('#bt-start').value;
   const endDate = container.querySelector('#bt-end').value;
   const strategy = container.querySelector('#bt-strategy').value;
@@ -254,6 +269,7 @@ async function runBacktest(container) {
       strategy,
       cash,
       params,
+      benchmark_symbol: benchmarkSymbol || undefined,
     });
 
     // 完成动画
@@ -264,17 +280,22 @@ async function runBacktest(container) {
       runBtn.style.background = '';
     }, 1500);
 
+    lastBacktestResult = result;
     renderResults(resultsEl, result);
   } catch (err) {
     const msg = err instanceof ApiError ? err.message : '回测失败，请检查参数';
     toast.error(msg);
-    resultsEl.innerHTML = `
-      <div class="empty-state" style="min-height:400px">
-        <div class="empty-state-icon">⚠</div>
-        <p>${msg}</p>
-        <button class="btn btn-ghost" onclick="this.closest('.backtest-results').innerHTML=''">清除</button>
-      </div>
-    `;
+    if (lastBacktestResult) {
+      renderResults(resultsEl, lastBacktestResult);
+    } else {
+      resultsEl.innerHTML = `
+        <div class="empty-state" style="min-height:400px">
+          <div class="empty-state-icon">⚠</div>
+          <p>${msg}</p>
+          <p class="text-muted" style="font-size:var(--text-xs)">修正参数后可直接重试，已填写表单不会被清空</p>
+        </div>
+      `;
+    }
   } finally {
     runBtn.disabled = false;
     runBtn.classList.remove('btn-loading');
@@ -299,7 +320,7 @@ function renderResults(container, result) {
     </div>
   `;
 
-  renderMetrics(container.querySelector('#bt-metrics'), summary);
+  renderMetrics(container.querySelector('#bt-metrics'), summary, equityCurve);
   renderEquityChart(
     container.querySelector('#bt-equity-chart'),
     equityCurve,
@@ -308,14 +329,15 @@ function renderResults(container, result) {
   renderTradesTable(container.querySelector('#bt-trades-table'), trades);
 }
 
-function renderMetrics(container, s) {
+function renderMetrics(container, s, equityCurve) {
+  const annualizedVolatilityPct = computeAnnualizedVolatilityPct(equityCurve);
   const metrics = [
     { label: '总收益', value: formatPct(s.total_return_pct), color: pctColor(s.total_return_pct) },
-    { label: '年化收益', value: formatPct(s.annualized_return_pct), color: pctColor(s.annualized_return_pct) },
     { label: '最大回撤', value: `-${formatPctAbs(s.max_drawdown_pct)}`, color: 'var(--loss)' },
     { label: 'Sharpe', value: formatNum(s.sharpe_ratio), color: sharpeColor(s.sharpe_ratio) },
     { label: '胜率', value: formatPctAbs(s.win_rate_pct), color: winRateColor(s.win_rate_pct) },
     { label: '交易次数', value: s.trades_count ?? '-', color: 'var(--text-primary)' },
+    { label: '年化波动', value: formatPctAbs(annualizedVolatilityPct), color: volatilityColor(annualizedVolatilityPct) },
   ];
 
   container.innerHTML = metrics.map(m => `
@@ -369,4 +391,30 @@ function sharpeColor(n) {
 function winRateColor(n) {
   if (n == null) return 'var(--text-primary)';
   return n >= 50 ? 'var(--profit)' : 'var(--loss)';
+}
+
+function volatilityColor(n) {
+  if (n == null) return 'var(--text-primary)';
+  if (n >= 35) return 'var(--loss)';
+  if (n >= 20) return 'var(--warning)';
+  return 'var(--profit)';
+}
+
+function computeAnnualizedVolatilityPct(equityCurve) {
+  if (!equityCurve || equityCurve.length < 3) return null;
+
+  const returns = [];
+  for (let i = 1; i < equityCurve.length; i += 1) {
+    const prev = Number(equityCurve[i - 1].equity);
+    const current = Number(equityCurve[i].equity);
+    if (!Number.isFinite(prev) || !Number.isFinite(current) || prev <= 0) {
+      continue;
+    }
+    returns.push(current / prev - 1);
+  }
+
+  if (returns.length < 2) return null;
+  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+  const variance = returns.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / returns.length;
+  return Math.sqrt(variance) * Math.sqrt(252) * 100;
 }
