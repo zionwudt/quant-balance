@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import perf_counter
 
 import pandas as pd
 from backtesting import Backtest, Strategy
 
-from quant_balance.logging_utils import get_logger, log_event
 from quant_balance.core.report import normalize_bt_stats
+from quant_balance.logging_utils import get_logger, log_event
 
 logger = get_logger(__name__)
 
@@ -23,6 +23,16 @@ class BacktestResult:
     trades: pd.DataFrame
     equity_curve: pd.DataFrame
     report: dict
+
+
+@dataclass(slots=True)
+class OptimizeResult:
+    """参数优化结果。"""
+
+    best_stats: pd.Series
+    best_params: dict[str, object]
+    top_results: list[dict[str, object]] = field(default_factory=list)
+    candidate_count: int = 0
 
 
 def run_backtest(
@@ -79,10 +89,14 @@ def optimize(
     exclusive_orders: bool | None = None,
     maximize: str = "Sharpe Ratio",
     constraint: Callable[[object], bool] | None = None,
+    top_n: int = 5,
     log_context: dict[str, object] | None = None,
     **param_ranges,
-) -> tuple[pd.Series, dict]:
-    """参数优化，返回 (best_stats, best_params)。"""
+) -> OptimizeResult:
+    """参数优化，返回最优组合与排名结果。"""
+    if top_n < 1:
+        raise ValueError("top_n 必须 >= 1")
+
     resolved_exclusive_orders = _resolve_exclusive_orders(strategy_cls, exclusive_orders)
     bt = Backtest(
         df,
@@ -92,15 +106,20 @@ def optimize(
         exclusive_orders=resolved_exclusive_orders,
         finalize_trades=True,
     )
-    kwargs: dict = {**param_ranges, "maximize": maximize}
+    kwargs: dict = {
+        **param_ranges,
+        "maximize": maximize,
+        "return_heatmap": True,
+    }
     if constraint is not None:
         kwargs["constraint"] = constraint
     started_at = perf_counter()
-    stats = bt.optimize(**kwargs)
+    stats, heatmap = bt.optimize(**kwargs)
     best_params = {
         key: getattr(stats["_strategy"], key, None)
         for key in param_ranges
     }
+    top_results = _rank_optimization_candidates(bt, heatmap, top_n)
     log_fields = {
         "stage": "engine",
         "strategy": getattr(strategy_cls, "__name__", str(strategy_cls)),
@@ -111,11 +130,18 @@ def optimize(
         "maximize": maximize,
         "param_ranges": param_ranges,
         "best_params": best_params,
+        "top_n": top_n,
+        "candidate_count": len(heatmap),
         "duration_ms": round((perf_counter() - started_at) * 1000, 2),
     }
     log_fields.update(log_context or {})
     log_event(logger, "BACKTEST_OPTIMIZE", **log_fields)
-    return stats, best_params
+    return OptimizeResult(
+        best_stats=stats,
+        best_params=best_params,
+        top_results=top_results,
+        candidate_count=len(heatmap),
+    )
 
 
 def _resolve_exclusive_orders(
@@ -125,3 +151,27 @@ def _resolve_exclusive_orders(
     if override is not None:
         return override
     return bool(getattr(strategy_cls, "qb_exclusive_orders", True))
+
+
+def _rank_optimization_candidates(
+    bt: Backtest,
+    heatmap: pd.Series,
+    top_n: int,
+) -> list[dict[str, object]]:
+    ranked = heatmap.dropna().sort_values(ascending=False).head(top_n)
+    if ranked.empty:
+        return []
+
+    top_results: list[dict[str, object]] = []
+    index_names = list(heatmap.index.names)
+    for rank, (key, score) in enumerate(ranked.items(), start=1):
+        values = key if isinstance(key, tuple) else (key,)
+        params = dict(zip(index_names, values, strict=False))
+        candidate_stats = bt.run(**params)
+        top_results.append({
+            "rank": rank,
+            "score": float(score),
+            "params": params,
+            "stats": normalize_bt_stats(candidate_stats, risk_params=params),
+        })
+    return top_results

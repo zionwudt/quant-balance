@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class StockPoolFiltersRequest(BaseModel):
@@ -72,6 +72,32 @@ class BacktestRunRequest(BaseModel):
     )
 
 
+class OptimizeConstraintRequest(BaseModel):
+    """优化约束。"""
+
+    left: str = Field(..., description="左侧参数名")
+    operator: Literal["<", "<=", ">", ">=", "==", "!="] = Field(..., description="约束操作符")
+    right_param: str | None = Field(None, description="右侧参数名；与 right_value 二选一")
+    right_value: int | float | bool | str | None = Field(None, description="右侧常量；与 right_param 二选一")
+
+    @model_validator(mode="after")
+    def validate_right_operand(self) -> "OptimizeConstraintRequest":
+        has_right_param = self.right_param is not None
+        has_right_value = self.right_value is not None
+        if has_right_param == has_right_value:
+            raise ValueError("right_param 与 right_value 必须且只能传一个")
+        return self
+
+
+class WalkForwardRequest(BaseModel):
+    """Walk-Forward 验证配置。"""
+
+    train_bars: int = Field(..., ge=20, description="训练窗口 K 线数量")
+    test_bars: int = Field(..., ge=5, description="验证窗口 K 线数量")
+    step_bars: int | None = Field(None, ge=1, description="窗口滑动步长；默认等于 test_bars")
+    anchored: bool = Field(False, description="是否使用锚定训练窗口")
+
+
 class OptimizeRequest(BaseModel):
     """参数优化请求。"""
 
@@ -83,6 +109,9 @@ class OptimizeRequest(BaseModel):
     commission: float = Field(0.001, ge=0)
     maximize: str = Field("Sharpe Ratio", description="优化目标")
     param_ranges: dict = Field(..., description="参数搜索范围，如 {fast_period: [5,10,15]}")
+    top_n: int = Field(5, gt=0, le=20, description="返回前 N 个候选参数组合")
+    constraints: list[OptimizeConstraintRequest] = Field(default_factory=list, description="可选参数约束")
+    walk_forward: WalkForwardRequest | None = Field(None, description="可选 Walk-Forward 验证配置")
     data_provider: str | None = Field(
         None,
         description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",

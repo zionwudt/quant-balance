@@ -5,7 +5,7 @@ import logging
 import pandas as pd
 import pytest
 
-from quant_balance.core.backtest import BacktestResult, run_backtest
+from quant_balance.core.backtest import BacktestResult, OptimizeResult, optimize, run_backtest
 from quant_balance.core.strategies import BuyAndHold, DcaStrategy, SmaCross
 
 
@@ -112,3 +112,57 @@ def test_run_backtest_emits_structured_log(caplog: pytest.LogCaptureFixture):
     assert payload["strategy"] == "buy_and_hold"
     assert payload["symbol"] == "AAA"
     assert payload["bars_count"] == len(df)
+
+
+def test_optimize_returns_ranked_candidates(monkeypatch: pytest.MonkeyPatch):
+    class FakeStrategyState:
+        fast_period = 5
+        slow_period = 20
+
+    class FakeBacktest:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def optimize(self, **kwargs):
+            heatmap = pd.Series(
+                [1.8, 1.5],
+                index=pd.MultiIndex.from_tuples(
+                    [(5, 20), (6, 20)],
+                    names=["fast_period", "slow_period"],
+                ),
+                name="Sharpe Ratio",
+            )
+            stats = pd.Series({
+                "Return [%]": 12.5,
+                "Sharpe Ratio": 1.8,
+                "# Trades": 6,
+                "_strategy": FakeStrategyState(),
+            })
+            return stats, heatmap
+
+        def run(self, **params):
+            score = 1.8 if params["fast_period"] == 5 else 1.5
+            total_return = 12.5 if params["fast_period"] == 5 else 9.0
+            return pd.Series({
+                "Return [%]": total_return,
+                "Sharpe Ratio": score,
+                "# Trades": 6,
+            })
+
+    monkeypatch.setattr("quant_balance.core.backtest.Backtest", FakeBacktest)
+
+    result = optimize(
+        _make_sample_df(),
+        SmaCross,
+        maximize="Sharpe Ratio",
+        top_n=2,
+        fast_period=[5, 6],
+        slow_period=[20],
+    )
+
+    assert isinstance(result, OptimizeResult)
+    assert result.best_params == {"fast_period": 5, "slow_period": 20}
+    assert result.candidate_count == 2
+    assert result.top_results[0]["rank"] == 1
+    assert result.top_results[0]["params"] == {"fast_period": 5, "slow_period": 20}
+    assert result.top_results[1]["score"] == 1.5

@@ -13,10 +13,13 @@ from quant_balance.api.app import create_api_app
 from quant_balance.api.schemas import (
     BacktestRunRequest,
     FactorsRankRequest,
+    OptimizeConstraintRequest,
+    OptimizeRequest,
     PortfolioRunRequest,
     ScreeningRunRequest,
     StockPoolFilterRequest,
     TushareTokenRequest,
+    WalkForwardRequest,
 )
 
 
@@ -92,6 +95,14 @@ def test_post_routes_expose_request_body_in_openapi():
 def test_backtest_schema_requires_core_fields():
     with pytest.raises(ValidationError):
         BacktestRunRequest.model_validate({})
+
+
+def test_optimize_constraint_schema_requires_single_right_operand():
+    with pytest.raises(ValidationError):
+        OptimizeConstraintRequest.model_validate({
+            "left": "fast_period",
+            "operator": "<",
+        })
 
 
 def test_config_status_endpoint_returns_status():
@@ -229,6 +240,43 @@ def test_backtest_run_maps_value_error_to_http_400(caplog: pytest.LogCaptureFixt
     assert payload["endpoint"] == "/api/backtest/run"
     assert payload["status_code"] == 400
     assert payload["symbol"] == "600519.SH"
+
+
+def test_backtest_optimize_delegates_enhanced_fields_to_service():
+    payload = {"best_params": {"fast_period": 5, "slow_period": 20}}
+    with patch("quant_balance.services.backtest_service.run_optimize", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/optimize", "POST")
+        request = OptimizeRequest(
+            symbol="600519.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            strategy="sma_cross",
+            cash=100_000.0,
+            commission=0.001,
+            maximize="Sharpe Ratio",
+            param_ranges={"fast_period": [5, 6], "slow_period": [20, 30]},
+            top_n=3,
+            constraints=[OptimizeConstraintRequest(left="fast_period", operator="<", right_param="slow_period")],
+            walk_forward=WalkForwardRequest(train_bars=60, test_bars=20, step_bars=20),
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        symbol="600519.SH",
+        start_date="2024-01-01",
+        end_date="2024-06-30",
+        strategy="sma_cross",
+        cash=100_000.0,
+        commission=0.001,
+        maximize="Sharpe Ratio",
+        param_ranges={"fast_period": [5, 6], "slow_period": [20, 30]},
+        top_n=3,
+        constraints=[{"left": "fast_period", "operator": "<", "right_param": "slow_period"}],
+        walk_forward={"train_bars": 60, "test_bars": 20, "step_bars": 20, "anchored": False},
+    )
 
 
 def test_screening_run_maps_value_error_to_http_400():

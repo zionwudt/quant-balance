@@ -12,7 +12,7 @@
 ## 当前能力
 
 - 单股精细回测：`sma_cross`、`ema_cross`、`buy_and_hold`、`macd`、`rsi`、`bollinger`、`grid`、`dca`、`ma_rsi_filter`
-- 参数优化：基于 `backtesting.py Backtest.optimize()`
+- 参数优化：基于 `backtesting.py Backtest.optimize()`，支持 top-N 排名、参数约束与 Walk-Forward 验证
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
 - 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
@@ -177,12 +177,31 @@ quant-balance
   "cash": 100000,
   "commission": 0.001,
   "maximize": "Sharpe Ratio",
+  "top_n": 3,
   "param_ranges": {
     "fast_period": [4, 5, 6],
     "slow_period": [18, 20, 22]
+  },
+  "constraints": [
+    {
+      "left": "fast_period",
+      "operator": "<",
+      "right_param": "slow_period"
+    }
+  ],
+  "walk_forward": {
+    "train_bars": 120,
+    "test_bars": 40,
+    "step_bars": 40
   }
 }
 ```
+
+说明：
+
+- 响应会返回 `best_params`、`best_stats` 以及 `top_results`
+- 传入 `walk_forward` 后，响应会额外包含每个窗口的样本内 / 样本外表现
+- 当前 optimize 端点保持同步执行；当 `execution.async_recommended = true` 时，表示参数空间较大，建议后续切到异步任务队列或缩小搜索范围
 
 ### `POST /api/stock-pool/filter`
 

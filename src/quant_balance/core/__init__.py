@@ -1,6 +1,6 @@
 """回测核心子包。"""
 
-from quant_balance.core.backtest import BacktestResult, optimize, run_backtest
+from quant_balance.core.backtest import BacktestResult, OptimizeResult, optimize, run_backtest
 from quant_balance.core.factors import (
     DEFAULT_FACTOR_SPECS,
     FACTOR_REGISTRY,
@@ -48,6 +48,7 @@ __all__ = [
     "FACTOR_REGISTRY",
     "FactorRankingResult",
     "FactorSpec",
+    "OptimizeResult",
     "PortfolioBacktestResult",
     "BollingerBreakout",
     "BuyAndHold",

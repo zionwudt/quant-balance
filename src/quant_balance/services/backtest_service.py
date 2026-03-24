@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from math import isfinite
+from operator import eq, ge, gt, le, lt, ne
 from time import perf_counter
+
+import pandas as pd
 
 from quant_balance.core.backtest import optimize, run_backtest
 from quant_balance.core.report import bt_trades_to_dicts, equity_curve_to_dicts, normalize_bt_stats
@@ -12,6 +16,16 @@ from quant_balance.data import load_dataframe
 from quant_balance.logging_utils import get_logger, log_event
 
 logger = get_logger(__name__)
+
+LONG_TASK_RUN_THRESHOLD = 300
+CONSTRAINT_OPERATORS: dict[str, Callable[[object, object], bool]] = {
+    "<": lt,
+    "<=": le,
+    ">": gt,
+    ">=": ge,
+    "==": eq,
+    "!=": ne,
+}
 
 
 def run_single_backtest(
@@ -94,9 +108,12 @@ def run_optimize(
     commission: float = 0.001,
     maximize: str = "Sharpe Ratio",
     param_ranges: dict | None = None,
+    top_n: int = 5,
+    constraints: list[dict] | None = None,
+    walk_forward: dict | None = None,
     data_provider: str | None = None,
 ) -> dict:
-    """执行参数优化，返回最优参数和统计。"""
+    """执行参数优化，返回最优参数、排名结果和 Walk-Forward 输出。"""
     strategy_cls = STRATEGY_REGISTRY.get(strategy)
     if strategy_cls is None:
         raise ValueError(f"未知策略: {strategy}，可用: {list(STRATEGY_REGISTRY)}")
@@ -104,16 +121,26 @@ def run_optimize(
     if not param_ranges:
         raise ValueError("param_ranges 不能为空")
 
+    normalized_param_ranges, strategy_params = _normalize_param_ranges(strategy_cls, param_ranges)
+    normalized_constraints = _normalize_constraints(constraints or [], strategy_params)
+    constraint_fn = _build_constraint(normalized_constraints)
+    walk_forward_config = _normalize_walk_forward_config(walk_forward)
+
     started_at = perf_counter()
     load_kwargs = {"adjust": "qfq"}
     if data_provider is not None:
         load_kwargs["provider"] = data_provider
     df = load_dataframe(symbol, start_date, end_date, **load_kwargs)
+    walk_forward_windows = _count_walk_forward_windows(len(df), walk_forward_config)
 
-    stats, best_params = optimize(
-        df, strategy_cls,
-        cash=cash, commission=commission,
+    optimize_result = optimize(
+        df,
+        strategy_cls,
+        cash=cash,
+        commission=commission,
         maximize=maximize,
+        constraint=constraint_fn,
+        top_n=top_n,
         log_context={
             "symbol": symbol,
             "start_date": start_date,
@@ -121,22 +148,47 @@ def run_optimize(
             "strategy": strategy,
             "data_provider": df.attrs.get("data_provider", data_provider),
         },
-        **param_ranges,
+        **normalized_param_ranges,
     )
+    execution = _build_execution_payload(optimize_result.candidate_count, walk_forward_windows)
 
     payload = {
-        "best_params": _jsonable_value(best_params),
-        "best_stats": normalize_bt_stats(stats),
+        "best_params": _jsonable_value(optimize_result.best_params),
+        "best_stats": normalize_bt_stats(optimize_result.best_stats, risk_params=optimize_result.best_params),
+        "top_results": _jsonable_value(optimize_result.top_results),
+        "execution": execution,
         "run_context": {
             "symbol": symbol,
             "start_date": start_date,
             "end_date": end_date,
             "strategy": strategy,
             "maximize": maximize,
-            "param_ranges": _jsonable_value(param_ranges),
+            "param_ranges": _jsonable_value(normalized_param_ranges),
+            "top_n": top_n,
+            "constraints": _jsonable_value(normalized_constraints),
+            "walk_forward": _jsonable_value(walk_forward_config),
+            "bars_count": len(df),
             "data_provider": df.attrs.get("data_provider", data_provider),
         },
     }
+    if walk_forward_config is not None:
+        payload["walk_forward"] = _run_walk_forward(
+            df=df,
+            strategy_cls=strategy_cls,
+            cash=cash,
+            commission=commission,
+            maximize=maximize,
+            param_ranges=normalized_param_ranges,
+            constraint=constraint_fn,
+            walk_forward_config=walk_forward_config,
+            log_context={
+                "symbol": symbol,
+                "start_date": start_date,
+                "end_date": end_date,
+                "strategy": strategy,
+                "data_provider": df.attrs.get("data_provider", data_provider),
+            },
+        )
     log_event(
         logger,
         "BACKTEST_OPTIMIZE",
@@ -146,12 +198,302 @@ def run_optimize(
         end_date=end_date,
         strategy=strategy,
         maximize=maximize,
-        param_ranges=_jsonable_value(param_ranges),
-        best_params=_jsonable_value(best_params),
+        param_ranges=_jsonable_value(normalized_param_ranges),
+        top_n=top_n,
+        constraints=_jsonable_value(normalized_constraints),
+        best_params=_jsonable_value(optimize_result.best_params),
+        candidate_count=optimize_result.candidate_count,
+        walk_forward_windows=walk_forward_windows,
+        async_recommended=execution["async_recommended"],
+        estimated_total_runs=execution["estimated_total_runs"],
         data_provider=df.attrs.get("data_provider", data_provider),
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )
     return payload
+
+
+def _normalize_param_ranges(
+    strategy_cls: type,
+    param_ranges: dict,
+) -> tuple[dict[str, list[object]], dict[str, object]]:
+    strategy_params = _strategy_param_defaults(strategy_cls)
+    unknown_params = sorted(set(param_ranges) - set(strategy_params))
+    if unknown_params:
+        raise ValueError(
+            f"param_ranges 包含未知参数: {unknown_params}，可用参数: {sorted(strategy_params)}"
+        )
+
+    normalized: dict[str, list[object]] = {}
+    for name, raw_values in param_ranges.items():
+        if isinstance(raw_values, (str, bytes)) or not isinstance(raw_values, Iterable):
+            raise ValueError(f"参数 {name} 的候选值必须是非字符串可迭代对象")
+
+        values = list(raw_values)
+        if not values:
+            raise ValueError(f"参数 {name} 的候选值不能为空")
+        for value in values:
+            _validate_candidate_value(name, value, strategy_params[name])
+        normalized[name] = values
+    return normalized, strategy_params
+
+
+def _strategy_param_defaults(strategy_cls: type) -> dict[str, object]:
+    params: dict[str, object] = {}
+    for base in reversed(strategy_cls.mro()):
+        if base.__name__ in {"object", "Strategy"}:
+            continue
+        for key, value in vars(base).items():
+            if key.startswith("_") or key == "qb_exclusive_orders" or callable(value):
+                continue
+            if isinstance(value, (classmethod, staticmethod, property)):
+                continue
+            if isinstance(value, (bool, int, float, str)):
+                params[key] = value
+    return params
+
+
+def _validate_candidate_value(param_name: str, value: object, default: object) -> None:
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+        raise ValueError(f"参数 {param_name} 的候选值必须是标量")
+
+    if isinstance(default, bool):
+        if not isinstance(value, bool):
+            raise ValueError(f"参数 {param_name} 的候选值必须是布尔类型")
+        return
+
+    if isinstance(default, int):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"参数 {param_name} 的候选值必须是整数类型")
+        return
+
+    if isinstance(default, float):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"参数 {param_name} 的候选值必须是数值类型")
+        if not isfinite(float(value)):
+            raise ValueError(f"参数 {param_name} 的候选值必须是有限数值")
+        return
+
+    if isinstance(default, str) and not isinstance(value, str):
+        raise ValueError(f"参数 {param_name} 的候选值必须是字符串类型")
+
+
+def _normalize_constraints(
+    constraints: list[dict],
+    strategy_params: dict[str, object],
+) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    for item in constraints:
+        left = str(item["left"])
+        if left not in strategy_params:
+            raise ValueError(f"constraints 引用了未知参数: {left}")
+
+        operator_symbol = str(item["operator"])
+        if operator_symbol not in CONSTRAINT_OPERATORS:
+            raise ValueError(f"不支持的约束操作符: {operator_symbol}")
+
+        if "right_param" in item:
+            right_param = str(item["right_param"])
+            if right_param not in strategy_params:
+                raise ValueError(f"constraints 引用了未知参数: {right_param}")
+            normalized.append({
+                "left": left,
+                "operator": operator_symbol,
+                "right_param": right_param,
+            })
+            continue
+
+        right_value = item["right_value"]
+        _validate_candidate_value(left, right_value, strategy_params[left])
+        normalized.append({
+            "left": left,
+            "operator": operator_symbol,
+            "right_value": right_value,
+        })
+    return normalized
+
+
+def _build_constraint(
+    constraints: list[dict[str, object]],
+) -> Callable[[object], bool] | None:
+    if not constraints:
+        return None
+
+    def constraint(params: object) -> bool:
+        for item in constraints:
+            left_value = getattr(params, str(item["left"]))
+            if "right_param" in item:
+                right_value = getattr(params, str(item["right_param"]))
+            else:
+                right_value = item["right_value"]
+            if not CONSTRAINT_OPERATORS[str(item["operator"])](left_value, right_value):
+                return False
+        return True
+
+    return constraint
+
+
+def _normalize_walk_forward_config(
+    walk_forward: dict | None,
+) -> dict[str, object] | None:
+    if walk_forward is None:
+        return None
+
+    config = dict(walk_forward)
+    config["step_bars"] = int(config.get("step_bars") or config["test_bars"])
+    if config["step_bars"] < 1:
+        raise ValueError("walk_forward.step_bars 必须 >= 1")
+    return config
+
+
+def _count_walk_forward_windows(
+    total_bars: int,
+    walk_forward_config: dict[str, object] | None,
+) -> int:
+    if walk_forward_config is None:
+        return 0
+    return len(_iter_walk_forward_slices(total_bars, walk_forward_config))
+
+
+def _iter_walk_forward_slices(
+    total_bars: int,
+    walk_forward_config: dict[str, object],
+) -> list[tuple[int, int, int, int]]:
+    train_bars = int(walk_forward_config["train_bars"])
+    test_bars = int(walk_forward_config["test_bars"])
+    step_bars = int(walk_forward_config["step_bars"])
+    anchored = bool(walk_forward_config.get("anchored", False))
+
+    if total_bars < train_bars + test_bars:
+        raise ValueError(
+            f"Walk-Forward 至少需要 {train_bars + test_bars} 根K线，当前仅有 {total_bars} 根"
+        )
+
+    windows: list[tuple[int, int, int, int]] = []
+    offset = 0
+    while True:
+        if anchored:
+            train_start = 0
+            train_end = train_bars + offset
+        else:
+            train_start = offset
+            train_end = offset + train_bars
+
+        test_start = train_end
+        test_end = test_start + test_bars
+        if test_end > total_bars:
+            break
+        windows.append((train_start, train_end, test_start, test_end))
+        offset += step_bars
+    return windows
+
+
+def _run_walk_forward(
+    *,
+    df: pd.DataFrame,
+    strategy_cls: type,
+    cash: float,
+    commission: float,
+    maximize: str,
+    param_ranges: dict[str, list[object]],
+    constraint: Callable[[object], bool] | None,
+    walk_forward_config: dict[str, object],
+    log_context: dict[str, object],
+) -> dict[str, object]:
+    windows: list[dict[str, object]] = []
+    for index, (train_start, train_end, test_start, test_end) in enumerate(
+        _iter_walk_forward_slices(len(df), walk_forward_config),
+        start=1,
+    ):
+        train_df = df.iloc[train_start:train_end]
+        test_df = df.iloc[test_start:test_end]
+        optimize_result = optimize(
+            train_df,
+            strategy_cls,
+            cash=cash,
+            commission=commission,
+            maximize=maximize,
+            constraint=constraint,
+            top_n=1,
+            log_context={**log_context, "walk_forward_window": index, "sample": "in_sample"},
+            **param_ranges,
+        )
+        out_sample = run_backtest(
+            test_df,
+            strategy_cls,
+            cash=cash,
+            commission=commission,
+            strategy_params=optimize_result.best_params,
+            log_context={**log_context, "walk_forward_window": index, "sample": "out_of_sample"},
+        )
+        windows.append({
+            "window_index": index,
+            "train_period": _frame_period_summary(train_df),
+            "test_period": _frame_period_summary(test_df),
+            "best_params": _jsonable_value(optimize_result.best_params),
+            "in_sample": normalize_bt_stats(optimize_result.best_stats, risk_params=optimize_result.best_params),
+            "out_of_sample": out_sample.report,
+        })
+
+    return {
+        "config": _jsonable_value(walk_forward_config),
+        "windows_count": len(windows),
+        "averages": {
+            "in_sample": _average_numeric_report_fields([item["in_sample"] for item in windows]),
+            "out_of_sample": _average_numeric_report_fields([item["out_of_sample"] for item in windows]),
+        },
+        "windows": windows,
+    }
+
+
+def _frame_period_summary(df: pd.DataFrame) -> dict[str, object]:
+    return {
+        "start_date": pd.Timestamp(df.index[0]).date().isoformat(),
+        "end_date": pd.Timestamp(df.index[-1]).date().isoformat(),
+        "bars_count": len(df),
+    }
+
+
+def _average_numeric_report_fields(reports: list[dict[str, object]]) -> dict[str, object]:
+    averages: dict[str, object] = {"windows_count": len(reports)}
+    numeric_keys = sorted({
+        key
+        for report in reports
+        for key, value in report.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    })
+    for key in numeric_keys:
+        values = [
+            float(report[key])
+            for report in reports
+            if isinstance(report.get(key), (int, float)) and not isinstance(report.get(key), bool)
+        ]
+        if values:
+            averages[key] = round(sum(values) / len(values), 6)
+    return averages
+
+
+def _build_execution_payload(
+    candidate_count: int,
+    walk_forward_windows: int,
+) -> dict[str, object]:
+    estimated_total_runs = candidate_count * (1 + walk_forward_windows)
+    async_recommended = estimated_total_runs >= LONG_TASK_RUN_THRESHOLD
+    message = (
+        f"当前 optimize 端点保持同步执行；预计触发 {estimated_total_runs} 次优化评估。"
+    )
+    if async_recommended:
+        message += " 参数空间较大，建议后续接入异步任务队列或缩小搜索范围。"
+
+    return {
+        "mode": "sync",
+        "async_supported": False,
+        "async_recommended": async_recommended,
+        "candidate_count": candidate_count,
+        "walk_forward_windows": walk_forward_windows,
+        "estimated_total_runs": estimated_total_runs,
+        "long_task_threshold": LONG_TASK_RUN_THRESHOLD,
+        "message": message,
+    }
 
 
 def _jsonable_value(value: object) -> object:

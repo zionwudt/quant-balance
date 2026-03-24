@@ -119,6 +119,16 @@
 - `commission`
 - `maximize`
 - `param_ranges`
+- `top_n`
+- `constraints`（可选）
+- `walk_forward`（可选）
+
+返回增强：
+
+- `best_params` + `best_stats`
+- `top_results`（前 N 名参数组合）
+- `walk_forward`（样本内 / 样本外窗口结果）
+- `execution`（同步执行元信息与长任务提示）
 
 ### `POST /api/screening/run`
 

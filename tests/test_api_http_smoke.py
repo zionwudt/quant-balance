@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from quant_balance.api.app import create_api_app
+from quant_balance.core.backtest import OptimizeResult
 
 
 def _make_sample_df(days: int = 240) -> pd.DataFrame:
@@ -80,7 +81,19 @@ def _request(app, method: str, path: str, payload: dict | None = None) -> tuple[
 
 def test_api_http_smoke_end_to_end():
     sample_df = _make_sample_df()
-    optimize_stats = pd.Series({"Return [%]": 127.18, "Sharpe Ratio": 3.9, "# Trades": 4})
+    optimize_result = OptimizeResult(
+        best_stats=pd.Series({"Return [%]": 127.18, "Sharpe Ratio": 3.9, "# Trades": 4}),
+        best_params={"fast_period": pd.Index([4])[0], "slow_period": pd.Index([18])[0]},
+        top_results=[
+            {
+                "rank": 1,
+                "score": 3.9,
+                "params": {"fast_period": 4, "slow_period": 18},
+                "stats": {"total_return_pct": 127.18, "sharpe_ratio": 3.9},
+            }
+        ],
+        candidate_count=9,
+    )
 
     def fake_load_dataframe(symbol: str, start_date: str, end_date: str, adjust: str = "qfq", db_path=None):
         return sample_df.copy()
@@ -92,7 +105,7 @@ def test_api_http_smoke_end_to_end():
         patch("quant_balance.services.backtest_service.load_dataframe", side_effect=fake_load_dataframe),
         patch(
             "quant_balance.services.backtest_service.optimize",
-            return_value=(optimize_stats, {"fast_period": pd.Index([4])[0], "slow_period": pd.Index([18])[0]}),
+            return_value=optimize_result,
         ),
         patch(
             "quant_balance.services.stock_pool_service.run_stock_pool_filter",
@@ -244,6 +257,8 @@ def test_api_http_smoke_end_to_end():
         assert optimize_payload["best_params"]["fast_period"] in [4, 5, 6]
         assert optimize_payload["best_params"]["slow_period"] in [18, 20, 22]
         assert optimize_payload["best_stats"]["total_return_pct"] > 0
+        assert optimize_payload["top_results"][0]["rank"] == 1
+        assert optimize_payload["execution"]["candidate_count"] == 9
 
         portfolio_status, _, portfolio_payload = _request(
             app,

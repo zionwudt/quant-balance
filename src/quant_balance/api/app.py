@@ -283,6 +283,9 @@ def create_api_app() -> Any:
             "cash": req.cash,
             "commission": req.commission,
             "maximize": req.maximize,
+            "top_n": req.top_n,
+            "constraints_count": len(req.constraints),
+            "walk_forward": req.walk_forward.model_dump(exclude_none=True) if req.walk_forward is not None else None,
             "data_provider": req.data_provider,
         }
         try:
@@ -295,7 +298,11 @@ def create_api_app() -> Any:
                 "commission": req.commission,
                 "maximize": req.maximize,
                 "param_ranges": req.param_ranges,
+                "top_n": req.top_n,
+                "constraints": [item.model_dump(exclude_none=True) for item in req.constraints],
             }
+            if req.walk_forward is not None:
+                kwargs["walk_forward"] = req.walk_forward.model_dump(exclude_none=True)
             if req.data_provider is not None:
                 kwargs["data_provider"] = req.data_provider
             return run_optimize(**kwargs)
