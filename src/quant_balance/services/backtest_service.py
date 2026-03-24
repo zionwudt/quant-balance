@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from quant_balance.data import DataLoadError, load_bars
+from quant_balance.data import DataLoadError, load_bar_views
 from quant_balance.core.backtest import BacktestEngine
 from quant_balance.core.models import AccountConfig
 from quant_balance.core.report import BacktestReport
@@ -33,9 +33,10 @@ def run_moving_average_backtest(
     request.validate()
 
     try:
-        bars = load_bars(request.symbol, request.start_date, request.end_date)
+        bar_views = load_bar_views(request.symbol, request.start_date, request.end_date)
     except DataLoadError as exc:
         raise BacktestInputError(str(exc)) from exc
+    bars = bar_views.trade_bars
 
     strategy = MovingAverageCrossStrategy(short_window=request.short_window, long_window=request.long_window)
 
@@ -46,7 +47,7 @@ def run_moving_average_backtest(
         max_drawdown_ratio=1.0,
     )
     engine = BacktestEngine(config=config, strategy=strategy)
-    result = engine.run(bars)
+    result = engine.run(bars, indicator_bars=bar_views.indicator_bars)
     if result.report is None:
         raise RuntimeError("回测未生成 report")
 

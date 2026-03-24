@@ -40,6 +40,12 @@ class CorporateActionBook:
             action.validate()
             self._actions_by_key[(action.symbol, action.ex_date)].append(action)
 
+    @property
+    def has_actions(self) -> bool:
+        """当前是否存在任何公司行为事件。"""
+
+        return bool(self._actions_by_key)
+
     def actions_for(self, symbol: str, ex_date: date) -> Sequence[CorporateAction]:
         """返回某只股票在某个除权除息日上的全部事件。"""
 

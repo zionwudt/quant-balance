@@ -10,7 +10,7 @@ from typing import Literal
 Side = Literal["BUY", "SELL"]
 # 滑点目前只支持“关闭”或“按比例偏移”两种简化模式。
 SlippageMode = Literal["none", "pct"]
-# 价格视角可选原始价格或前复权价格。
+# 价格视角可选纯原始价格，或“策略前复权 + 交易原始价”的双轨模式。
 PriceAdjustmentMode = Literal["none", "forward"]
 
 
@@ -93,7 +93,7 @@ class AccountConfig:
     slippage_mode: SlippageMode = "none"
     slippage_rate: float = 0.0
     max_volume_participation: float = 1.0
-    price_adjustment_mode: PriceAdjustmentMode = "none"
+    price_adjustment_mode: PriceAdjustmentMode = "forward"
 
 
 @dataclass(slots=True)

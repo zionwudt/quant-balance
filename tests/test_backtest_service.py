@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import patch
 
+from quant_balance.data.tushare_loader import LoadedBarViews
 from quant_balance.services.backtest_inputs import BacktestRequest
 from quant_balance.core.models import MarketBar
 from quant_balance.services.backtest_service import run_moving_average_backtest
@@ -15,7 +16,10 @@ MOCK_BARS = [
 ]
 
 
-@patch("quant_balance.services.backtest_service.load_bars", return_value=MOCK_BARS)
+@patch(
+    "quant_balance.services.backtest_service.load_bar_views",
+    return_value=LoadedBarViews(trade_bars=MOCK_BARS, indicator_bars=MOCK_BARS),
+)
 def test_run_moving_average_backtest_returns_context_and_equity_curve(mock_load: object) -> None:
     result = run_moving_average_backtest(
         BacktestRequest(

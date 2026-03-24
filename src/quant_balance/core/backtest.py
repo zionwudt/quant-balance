@@ -37,7 +37,12 @@ class BacktestEngine:
         self.risk_manager = RiskManager(config)
         self.market_rules = AShareMarketRules(config)
 
-    def run(self, bars: Sequence[MarketBar], corporate_actions: Sequence[CorporateAction] | None = None) -> BacktestResult:
+    def run(
+        self,
+        bars: Sequence[MarketBar],
+        corporate_actions: Sequence[CorporateAction] | None = None,
+        indicator_bars: Sequence[MarketBar] | None = None,
+    ) -> BacktestResult:
         """对给定行情序列执行一次完整回测。"""
 
         # 每次运行前都重置策略和账户状态，保证多次回测彼此隔离。
@@ -46,31 +51,33 @@ class BacktestEngine:
         result = BacktestResult()
         action_book = CorporateActionBook(corporate_actions)
 
-        processed_bars = list(bars)
-        # 若启用前复权，先统一把价格视角切到“公司行为调整后”的序列。
-        if self.config.price_adjustment_mode == "forward":
-            processed_bars = action_book.apply_forward_adjustments(processed_bars)
+        trade_bars = list(bars)
+        signal_bars = self._resolve_signal_bars(
+            trade_bars=trade_bars,
+            indicator_bars=indicator_bars,
+            action_book=action_book,
+        )
 
         history: list[MarketBar] = []
         latest_prices: dict[str, float] = {}
         latest_bars: dict[str, MarketBar] = {}
-        for bar in processed_bars:
+        for trade_bar, signal_bar in zip(trade_bars, signal_bars):
             # 除权除息先作用到持仓，再让策略看到当天 K 线，顺序上更接近真实账户状态。
-            action_book.apply_to_portfolio(symbol=bar.symbol, ex_date=bar.date, portfolio=portfolio)
-            history.append(bar)
-            previous_bar = latest_bars.get(bar.symbol)
-            latest_prices[bar.symbol] = bar.close
-            latest_bars[bar.symbol] = bar
+            action_book.apply_to_portfolio(symbol=trade_bar.symbol, ex_date=trade_bar.date, portfolio=portfolio)
+            history.append(signal_bar)
+            previous_bar = latest_bars.get(trade_bar.symbol)
+            latest_prices[trade_bar.symbol] = trade_bar.close
+            latest_bars[trade_bar.symbol] = trade_bar
 
             # 策略拿到的是截至当前 K 线的历史数据和最新组合状态。
             orders = self.strategy.generate_orders(history, portfolio)
-            self._apply_orders(orders, bar, previous_bar, portfolio, result)
+            self._apply_orders(orders, trade_bar, previous_bar, portfolio, result)
 
             # 成交完成后再记权益，确保曲线反映的是“当日收盘后”的账户状态。
             equity = portfolio.total_equity(latest_prices)
             portfolio.peak_equity = max(portfolio.peak_equity, equity)
             result.equity_curve.append(equity)
-            result.equity_dates.append(bar.date)
+            result.equity_dates.append(trade_bar.date)
 
             # 一旦回撤超过阈值，就中止后续交易日处理。
             if self.risk_manager.drawdown_exceeded(equity, portfolio.peak_equity):
@@ -85,6 +92,43 @@ class BacktestEngine:
             fills=result.fills,
         )
         return result
+
+    def _resolve_signal_bars(
+        self,
+        *,
+        trade_bars: Sequence[MarketBar],
+        indicator_bars: Sequence[MarketBar] | None,
+        action_book: CorporateActionBook,
+    ) -> list[MarketBar]:
+        """决定策略应该看到哪套价格序列。"""
+
+        trade_bar_list = list(trade_bars)
+        if self.config.price_adjustment_mode == "none":
+            return trade_bar_list
+
+        if indicator_bars is not None:
+            resolved = list(indicator_bars)
+            self._validate_bar_alignment(trade_bar_list, resolved)
+            return resolved
+
+        if action_book.has_actions and trade_bar_list:
+            return action_book.apply_forward_adjustments(trade_bar_list)
+
+        return trade_bar_list
+
+    def _validate_bar_alignment(
+        self,
+        trade_bars: Sequence[MarketBar],
+        indicator_bars: Sequence[MarketBar],
+    ) -> None:
+        """确保两套 bar 的时序完全对齐，避免把错误价格错配到别的交易日。"""
+
+        if len(trade_bars) != len(indicator_bars):
+            raise ValueError("indicator_bars 与 bars 的长度不一致，无法进行双轨回测。")
+
+        for trade_bar, indicator_bar in zip(trade_bars, indicator_bars):
+            if trade_bar.symbol != indicator_bar.symbol or trade_bar.date != indicator_bar.date:
+                raise ValueError("indicator_bars 与 bars 的 symbol/date 不一致，无法进行双轨回测。")
 
     def _apply_orders(
         self,
