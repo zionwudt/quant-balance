@@ -46,6 +46,7 @@ def test_create_api_app_registers_expected_routes():
         ("/api/signals/recent", "GET"),
         ("/api/signals/today", "GET"),
         ("/api/signals/history", "GET"),
+        ("/api/signals/export", "GET"),
         ("/api/config/tushare-token", "POST"),
         ("/api/notify/test", "POST"),
         ("/api/scheduler/run", "POST"),
@@ -250,6 +251,30 @@ def test_signals_history_endpoint_delegates_to_store():
 
     assert result == payload
     mock_list.assert_called_once_with(days=30, page=2, page_size=10)
+
+
+def test_signals_export_endpoint_returns_download_response():
+    class FakeArtifact:
+        filename = "signals-2024-12-23.csv"
+        media_type = "text/csv; charset=gbk"
+        content = "代码,方向\r\n".encode("gbk")
+        format = "csv"
+        trade_date = "2024-12-23"
+        total = 1
+
+    with patch("quant_balance.execution.signal_export.export_signals_for_date", return_value=FakeArtifact()) as mock_export:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/signals/export", "GET")
+
+        result = endpoint("csv", "2024-12-23")
+
+    assert result.headers["content-disposition"] == 'attachment; filename="signals-2024-12-23.csv"'
+    assert result.headers["x-export-format"] == "csv"
+    assert result.headers["x-export-date"] == "2024-12-23"
+    assert result.headers["x-export-count"] == "1"
+    assert result.media_type == "text/csv; charset=gbk"
+    assert result.body == "代码,方向\r\n".encode("gbk")
+    mock_export.assert_called_once_with(format="csv", date="2024-12-23")
 
 
 def test_signal_update_endpoint_delegates_to_store():
@@ -889,6 +914,18 @@ def test_notify_test_maps_value_error_to_http_400():
 
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "bad notify"
+
+
+def test_signals_export_maps_value_error_to_http_400():
+    with patch("quant_balance.execution.signal_export.export_signals_for_date", side_effect=ValueError("bad format")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/signals/export", "GET")
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint("xml", "2024-12-23")
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "bad format"
 
 
 def test_backtest_history_detail_maps_lookup_error_to_http_404():

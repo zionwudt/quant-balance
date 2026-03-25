@@ -2,9 +2,10 @@
  * 知衡 QuantBalance — 信号中心页面
  */
 
+import { api, ApiError } from '../api.js';
 import { toast } from '../components/toast.js';
 import { addSignalToPaperTrading, getSignalCenterSnapshot, subscribePaperState } from '../data/paper-store.js';
-import { downloadCsv } from '../utils/download.js';
+import { downloadBlob, downloadCsv } from '../utils/download.js';
 
 let currentSnapshot = null;
 
@@ -19,7 +20,7 @@ export async function initSignalsPage(container, routeContext = {}) {
 
   return {
     exportCurrent() {
-      exportSignals();
+      void downloadSignalsExport(container, 'csv');
     },
     focusPrimary() {
       container.querySelector('[data-action="view-kline"]')?.focus();
@@ -40,7 +41,10 @@ function buildHTML() {
         </div>
         <div class="results-tags">
           <span class="result-tag" id="signals-generated-tag">--</span>
-          <button class="btn btn-primary btn-sm" id="signals-export-all">导出全部 CSV</button>
+          <input class="input mono input-sm" id="signals-export-date" type="date" value="${todayDateText()}">
+          <button class="btn btn-secondary btn-sm" data-export-format="csv">导出 CSV</button>
+          <button class="btn btn-secondary btn-sm" data-export-format="qmt">导出 QMT</button>
+          <button class="btn btn-primary btn-sm" data-export-format="json">导出 JSON</button>
         </div>
       </div>
 
@@ -80,8 +84,10 @@ function buildHTML() {
 }
 
 function bindEvents(container, navigateTo) {
-  container.querySelector('#signals-export-all')?.addEventListener('click', () => {
-    exportSignals();
+  container.querySelectorAll('[data-export-format]').forEach((button) => {
+    button.addEventListener('click', () => {
+      void downloadSignalsExport(container, button.dataset.exportFormat || 'csv');
+    });
   });
 
   container.addEventListener('click', (event) => {
@@ -239,6 +245,21 @@ function exportSignals(signals = null) {
   toast.success('信号 CSV 已导出');
 }
 
+async function downloadSignalsExport(container, format) {
+  const normalizedFormat = String(format || 'csv').toLowerCase();
+  const exportDate = container.querySelector('#signals-export-date')?.value || todayDateText();
+
+  try {
+    const result = await api.exportSignals(normalizedFormat, exportDate);
+    const suffix = normalizedFormat === 'qmt' ? 'py' : normalizedFormat;
+    downloadBlob(result.filename || `signals-${exportDate}.${suffix}`, result.blob);
+    toast.success(`信号 ${normalizedFormat.toUpperCase()} 已导出`);
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : '信号导出失败';
+    toast.error(message);
+  }
+}
+
 function formatSignedPct(value) {
   const number = Number(value || 0);
   return `${number >= 0 ? '+' : ''}${number.toFixed(2)}%`;
@@ -256,4 +277,12 @@ function formatDateTime(value) {
     minute: '2-digit',
     hour12: false,
   });
+}
+
+function todayDateText() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }

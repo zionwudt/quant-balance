@@ -54,7 +54,7 @@ def create_api_app() -> Any:
 
     try:
         from fastapi import FastAPI, HTTPException
-        from fastapi.responses import FileResponse
+        from fastapi.responses import FileResponse, Response
         from fastapi.staticfiles import StaticFiles
     except ImportError as exc:
         raise RuntimeError(WEB_DEPENDENCY_HINT) from exc
@@ -79,6 +79,7 @@ def create_api_app() -> Any:
         list_today_signals,
         update_signal_status,
     )
+    from quant_balance.execution.signal_export import export_signals_for_date
     from quant_balance.notify import send_configured_notifications
     from quant_balance.scheduler import DailyScanScheduler
     from quant_balance.services.backtest_service import run_optimize, run_single_backtest
@@ -244,6 +245,40 @@ def create_api_app() -> Any:
         except Exception as exc:  # noqa: BLE001
             _log_api_error(
                 endpoint="/api/signals/history",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.get("/api/signals/export")
+    def signals_export(format: str = "csv", date: str | None = None):
+        """导出指定日期的信号文件。"""
+
+        context = {"format": format, "date": date}
+        try:
+            artifact = export_signals_for_date(format=format, date=date)
+            return Response(
+                content=artifact.content,
+                media_type=artifact.media_type,
+                headers={
+                    "Content-Disposition": f'attachment; filename="{artifact.filename}"',
+                    "X-Export-Format": artifact.format,
+                    "X-Export-Date": artifact.trade_date,
+                    "X-Export-Count": str(artifact.total),
+                },
+            )
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/signals/export",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/signals/export",
                 status_code=500,
                 exc=exc,
                 context=context,

@@ -80,7 +80,10 @@ async def _asgi_request(app, method: str, path: str, payload: dict | None = None
     elif "application/json" in content_type:
         parsed = json.loads(response_body.decode("utf-8"))
     else:
-        parsed = response_body.decode("utf-8")
+        charset = "utf-8"
+        if "charset=" in content_type:
+            charset = content_type.split("charset=", 1)[1].split(";", 1)[0].strip()
+        parsed = response_body.decode(charset)
     return response_status, response_headers, parsed
 
 
@@ -276,8 +279,30 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
                 "date": "2024-03-29",
                 "total": 2,
                 "items": [
-                    {"id": 1, "symbol": "AAA", "strategy": "macd", "status": "pending"},
-                    {"id": 2, "symbol": "BBB", "strategy": "rsi", "status": "pending"},
+                    {
+                        "id": 1,
+                        "symbol": "AAA",
+                        "name": "测试A",
+                        "side": "BUY",
+                        "strategy": "macd",
+                        "status": "pending",
+                        "suggested_qty": 100,
+                        "signal_price": 10.5,
+                        "trigger_reason": "DIF上穿DEA",
+                        "trade_date": "2024-03-29",
+                    },
+                    {
+                        "id": 2,
+                        "symbol": "BBB",
+                        "name": "测试B",
+                        "side": "SELL",
+                        "strategy": "rsi",
+                        "status": "pending",
+                        "suggested_qty": 200,
+                        "signal_price": 12.3,
+                        "trigger_reason": "RSI跌破阈值",
+                        "trade_date": "2024-03-29",
+                    },
                 ],
             },
         ),
@@ -380,6 +405,41 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
         assert today_signals_status == 200
         assert today_signals_payload["total"] == 2
         assert today_signals_payload["items"][0]["status"] == "pending"
+
+        export_csv_status, export_csv_headers, export_csv_payload = _request(
+            app,
+            "GET",
+            f"/api/signals/export?{urlencode({'format': 'csv', 'date': '2024-03-29'})}",
+        )
+        assert export_csv_status == 200
+        assert "text/csv" in export_csv_headers.get("content-type", "")
+        assert export_csv_headers["x-export-format"] == "csv"
+        assert export_csv_headers["x-export-date"] == "2024-03-29"
+        assert "signals-2024-03-29.csv" in export_csv_headers["content-disposition"]
+        assert "代码,方向,数量,价格,策略,原因" in export_csv_payload
+        assert "AAA,BUY,100,10.50,MACD,DIF上穿DEA" in export_csv_payload
+
+        export_json_status, export_json_headers, export_json_payload = _request(
+            app,
+            "GET",
+            f"/api/signals/export?{urlencode({'format': 'json', 'date': '2024-03-29'})}",
+        )
+        assert export_json_status == 200
+        assert "application/json" in export_json_headers.get("content-type", "")
+        assert export_json_payload["date"] == "2024-03-29"
+        assert export_json_payload["total"] == 2
+        assert export_json_payload["items"][0]["symbol"] == "AAA"
+
+        export_qmt_status, export_qmt_headers, export_qmt_payload = _request(
+            app,
+            "GET",
+            f"/api/signals/export?{urlencode({'format': 'qmt', 'date': '2024-03-29'})}",
+        )
+        assert export_qmt_status == 200
+        assert "text/x-python" in export_qmt_headers.get("content-type", "")
+        assert "signals-2024-03-29-qmt.py" in export_qmt_headers["content-disposition"]
+        assert "from xtquant import xtconstant, xttrader" in export_qmt_payload
+        assert 'ACCOUNT_ID = "YOUR_ACCOUNT_ID"' in export_qmt_payload
 
         history_signals_status, _, history_signals_payload = _request(
             app,

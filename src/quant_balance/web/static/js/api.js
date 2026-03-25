@@ -41,6 +41,45 @@ async function request(url, options = {}) {
   }
 }
 
+async function requestBinary(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
+
+  try {
+    const resp = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        ...options.headers,
+      },
+    });
+
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      throw new ApiError(body.detail || `请求失败 (${resp.status})`, resp.status);
+    }
+
+    return {
+      blob: await resp.blob(),
+      filename: parseDownloadFilename(resp.headers.get('content-disposition')),
+      contentType: resp.headers.get('content-type') || '',
+    };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new ApiError('请求超时，请重试', 0);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseDownloadFilename(contentDisposition) {
+  const text = String(contentDisposition || '');
+  const match = text.match(/filename="?([^"]+)"?/i);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export const api = {
   getMeta() {
     return request('/api/meta');
@@ -115,6 +154,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  },
+
+  exportSignals(format = 'csv', date = null) {
+    const url = new URL('/api/signals/export', window.location.origin);
+    url.searchParams.set('format', format);
+    if (date) {
+      url.searchParams.set('date', date);
+    }
+    return requestBinary(url.pathname + url.search);
   },
 };
 

@@ -19,6 +19,7 @@
 - 结果持久化：`/api/backtest/run` 会自动保存单股回测结果，支持历史分页查询、详情恢复、删除和 2-3 条结果对比
 - 定时调度：支持每个交易日盘后自动扫描策略、持久化信号、可选通知推送，并支持 API 手动触发
 - 信号管理：统一记录策略信号、状态流转与 1/5/10/20 日后跟踪收益，支持今日/历史查询
+- 信号导出：支持按日期导出 CSV、QMT miniQMT Python 指令脚本和 JSON，对接半自动执行流程
 - 消息推送：企业微信 / 钉钉 / Server酱 / SMTP 邮件 4 种渠道独立发送，支持设置页连通性测试
 - Web Dashboard：已包含 hash 路由侧栏、股票池研究页、多标的标签输入、组合回测月度热力图、信号中心、模拟盘和设置页；回测页支持策略卡切换、动态参数表单、代码搜索下拉、K 线 / 成交量 / 买卖点叠加、成交明细联动高亮，以及浅色 / 深色 / 跟随系统主题和 A 股 / 国际涨跌配色切换
 - 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
@@ -159,6 +160,7 @@ Web Dashboard 当前说明：
 - `GET /api/signals/recent`
 - `GET /api/signals/today`
 - `GET /api/signals/history`
+- `GET /api/signals/export`
 - `GET /api/symbols/search`
 - `POST /api/factors/rank`
 - `POST /api/stock-pool/filter`
@@ -285,6 +287,26 @@ Web Dashboard 当前说明：
 - `page`
 - `page_size`
 - `has_more`
+
+### `GET /api/signals/export`
+
+查询参数：
+
+- `format`：`csv / qmt / json`
+- `date`：自然日，格式 `YYYY-MM-DD`；不传默认今天
+
+示例：
+
+```bash
+curl -OJ "http://127.0.0.1:8765/api/signals/export?format=csv&date=2024-12-23"
+```
+
+说明：
+
+- `csv` 导出为 GBK 编码，兼容多数券商客户端导入
+- `qmt` 导出为 miniQMT Python 脚本，内置 `xtquant` 下单模板与信号列表
+- `json` 导出完整信号字段，适合自定义对接或二次加工
+- Web 端信号中心已提供对应下载按钮
 
 ### `PATCH /api/signals/{signal_id}`
 
