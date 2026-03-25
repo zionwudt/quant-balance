@@ -14,6 +14,7 @@
 - 单股精细回测：`sma_cross`、`ema_cross`、`buy_and_hold`、`macd`、`rsi`、`bollinger`、`grid`、`dca`、`ma_rsi_filter`
 - 参数优化：基于 `backtesting.py Backtest.optimize()`，支持 top-N 排名、参数约束与 Walk-Forward 验证
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
+- 分钟级研究：股票 / 指数支持 `1min / 5min / 15min / 30min / 60min` K 线加载、缓存，并可直接用于单股回测与批量筛选
 - 可转债研究：`asset_type=convertible_bond` 时支持日线加载、单标回测/优化、显式列表筛选，并附带转股价值 / 转股溢价率 / 纯债溢价率 / 推导转股价等字段
 - 报告增强：单股回测 `summary` 内置 Calmar、月度收益、滚动 Sharpe、分年统计，并支持可选 benchmark 对比（基准权益、超额收益、Beta、Alpha）
 - 结果持久化：`/api/backtest/run` 会自动保存单股回测结果，支持历史分页查询、详情恢复、删除和 2-3 条结果对比
@@ -28,16 +29,16 @@
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
 - 历史股票池：`get_pool_at_date()` + 行业 / 市值 / PE / ST / 次新过滤，避免幸存者偏差
 - 财务快照：`load_financial_at()` 聚合 `daily_basic / income / balancesheet / cashflow / fina_indicator`，按公告日对齐，避免未来函数
-- 数据缓存：SQLite 本地缓存日线、复权因子和多表基本面数据
+- 数据缓存：SQLite 本地缓存日线、分钟线、复权因子和多表基本面数据
 - Web API：返回 JSON，便于前端或脚本消费
 
 ## 当前边界
 
 - 市场：A 股 + 可转债
-- 频率：仅日线
+- 频率：日线；股票 / 指数额外支持 Tushare 分钟线
 - 用途：本地研究与原型验证，不作为实盘建议
 - 交易规则：当前统一为 `backtesting.py` 标准佣金模型；可转债暂未单独建模涨跌停、强赎、回售等规则
-- 暂不支持：组合级持仓撮合、分钟级数据、实盘下单、可转债历史全市场池
+- 暂不支持：组合级持仓撮合、实盘下单、可转债历史全市场池
 
 ## 安装
 
@@ -190,7 +191,13 @@ Web Dashboard 当前说明：
 - `asset_type=convertible_bond` 时切换到可转债日线加载；当前仅支持 `tushare`
 - `factors/rank` 与 `stock-pool/filter` 仍保持股票语义
 
-四个行情研究类 `POST` 接口都支持可选字段 `data_provider`，但可转债当前仅接受 `tushare`。
+`/api/backtest/run` 与 `/api/screening/run` 还支持可选字段 `timeframe`：
+
+- `1d`：默认日线，继续使用前复权价格（`qfq`）
+- `1min / 5min / 15min / 30min / 60min`：当前仅支持 `asset_type=stock` 且 `data_provider=tushare`
+- 分钟线当前返回未复权价格
+
+四个行情研究类 `POST` 接口都支持可选字段 `data_provider`，但可转债当前仅接受 `tushare`；分钟线当前也仅接受 `tushare`。
 
 ## 内置策略
 
@@ -410,6 +417,7 @@ curl -OJ "http://127.0.0.1:8765/api/signals/export?format=csv&date=2024-12-23"
   "start_date": "2024-01-01",
   "end_date": "2024-12-31",
   "asset_type": "stock",
+  "timeframe": "1d",
   "strategy": "sma_cross",
   "cash": 100000,
   "commission": 0.001,
@@ -436,6 +444,8 @@ curl -OJ "http://127.0.0.1:8765/api/signals/export?format=csv&date=2024-12-23"
 - `slippage_mode` 支持 `off / spread / commission`；`slippage_rate` 与 `commission` 使用同一比例口径
 - `params.max_position_pct / max_holdings` 用于控制单次建仓比例和允许同时持有的持仓笔数，尤其适合 `dca`
 - `price_bars` 返回 OHLCV，`chart_overlays.line_series / trade_markers` 适合前端直接渲染 K 线、均线和买卖标记
+- 分钟回测可把 `timeframe` 改成 `1min / 5min / 15min / 30min / 60min`，并允许 `start_date / end_date` 传 `YYYY-MM-DD HH:MM:SS`
+- 分钟回测当前仅支持股票 + Tushare，且使用未复权价格
 
 ### `GET /api/backtest/history`
 
@@ -620,6 +630,7 @@ curl "http://127.0.0.1:8765/api/symbols/search?q=茅台&limit=5"
   "start_date": "2024-01-01",
   "end_date": "2024-12-31",
   "asset_type": "stock",
+  "timeframe": "1d",
   "signal": "sma_cross",
   "signal_params": {
     "fast": 5,
@@ -651,6 +662,8 @@ curl "http://127.0.0.1:8765/api/symbols/search?q=茅台&limit=5"
 
 - 可转债筛选当前需要显式传入 `symbols`
 - 可转债筛选暂不支持 `pool_filters`
+- 分钟筛选可把 `timeframe` 改成 `1min / 5min / 15min / 30min / 60min`
+- 分钟筛选当前仅支持股票 + Tushare，且使用未复权价格
 
 ### `POST /api/portfolio/run`
 
@@ -688,8 +701,8 @@ src/quant_balance/
 │   └── data_adapter.py     # 多标的数据加载适配
 ├── data/
 │   ├── cb_loader.py        # 可转债日线 + 研究字段 + 缓存
-│   ├── market_loader.py    # 统一日线入口 + provider fallback
-│   ├── tushare_loader.py   # Tushare 日线 / 复权
+│   ├── market_loader.py    # 统一行情入口 + provider fallback
+│   ├── tushare_loader.py   # Tushare 日线 / 分钟线 / 复权
 │   ├── akshare_loader.py   # AkShare 日线
 │   ├── baostock_loader.py  # Baostock 日线
 │   ├── market_cache.py     # 非 Tushare provider 行情缓存
@@ -728,10 +741,13 @@ core/screening.py -> vectorbt
 
 ## 设计约束
 
-- 回测与筛选统一使用前复权日线（`qfq`）
+- 回测与筛选默认使用前复权日线（`qfq`）
 - `load_dataframe()` 支持 `asset_type=stock|convertible_bond`
+- `load_dataframe()` 支持 `timeframe=1d|1min|5min|15min|30min|60min`
 - 股票 `load_dataframe()` 支持 `provider=` 显式指定，或按 `[data].daily_providers` 自动回退
+- 股票分钟线当前仅支持 `tushare`，并返回未复权价格
 - 可转债日线当前仅支持 `tushare`，会额外输出 `ConversionValue`、`ConversionPremiumRate`、`PureBondPremiumRate`、`ConversionPrice` 等字段
+- `backtest/run` 与 `screening/run` 支持分钟线；`optimize`、`portfolio`、`paper`、`scheduler` 当前仍以日线研究为主
 - 组合回测通过目标权重矩阵做再平衡，不重新引入旧的自研多标的撮合内核
 - `load_financial_at()` 会把估值与财报字段聚合成稳定快照，其中财报类字段严格按 `ann_date` 过滤
 - 股票池过滤始终建立在 `get_pool_at_date()` 的历史池之上，可叠加行业 / 市值 / PE / ST / 次新条件

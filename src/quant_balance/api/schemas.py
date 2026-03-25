@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 AssetType = Literal["stock", "convertible_bond"]
 NotifyChannel = Literal["wecom", "dingtalk", "serverchan", "email"]
+Timeframe = Literal["1d", "1min", "5min", "15min", "30min", "60min"]
 
 
 class StockPoolFiltersRequest(BaseModel):
@@ -63,9 +64,10 @@ class BacktestRunRequest(BaseModel):
     """单股精细回测请求。"""
 
     symbol: str = Field(..., description="标的代码，如 600519.SH / 110043.SH")
-    start_date: str = Field(..., description="起始日期 YYYY-MM-DD")
-    end_date: str = Field(..., description="结束日期 YYYY-MM-DD")
+    start_date: str = Field(..., description="起始时间；日线传 YYYY-MM-DD，分钟线可传 YYYY-MM-DD HH:MM:SS")
+    end_date: str = Field(..., description="结束时间；日线传 YYYY-MM-DD，分钟线可传 YYYY-MM-DD HH:MM:SS")
     asset_type: AssetType = Field("stock", description="资产类型：stock / convertible_bond")
+    timeframe: Timeframe = Field("1d", description="K 线周期：1d / 1min / 5min / 15min / 30min / 60min")
     strategy: str = Field("sma_cross", description="策略名称")
     cash: float = Field(100_000.0, gt=0, description="初始资金")
     commission: float = Field(0.001, ge=0, description="佣金比例")
@@ -152,9 +154,10 @@ class ScreeningRunRequest(BaseModel):
     """批量选股筛选请求。"""
 
     pool_date: str = Field(..., description="股票池基准日期 YYYY-MM-DD")
-    start_date: str = Field(..., description="回测起始日期 YYYY-MM-DD")
-    end_date: str = Field(..., description="回测结束日期 YYYY-MM-DD")
+    start_date: str = Field(..., description="回测起始时间；日线传 YYYY-MM-DD，分钟线可传 YYYY-MM-DD HH:MM:SS")
+    end_date: str = Field(..., description="回测结束时间；日线传 YYYY-MM-DD，分钟线可传 YYYY-MM-DD HH:MM:SS")
     asset_type: AssetType = Field("stock", description="资产类型：stock / convertible_bond")
+    timeframe: Timeframe = Field("1d", description="K 线周期：1d / 1min / 5min / 15min / 30min / 60min")
     signal: str = Field("sma_cross", description="信号函数名称")
     signal_params: dict = Field(default_factory=dict, description="信号参数")
     pool_filters: StockPoolFiltersRequest = Field(default_factory=StockPoolFiltersRequest, description="股票池过滤条件")

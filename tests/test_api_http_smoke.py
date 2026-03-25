@@ -28,6 +28,18 @@ def _make_sample_df(days: int = 240) -> pd.DataFrame:
     }, index=dates)
 
 
+def _make_minute_df(periods: int = 240) -> pd.DataFrame:
+    dates = pd.date_range("2024-01-01 09:30:00", periods=periods, freq="min")
+    close = [10 + math.sin(index / 8) * 0.1 + index * 0.005 for index in range(periods)]
+    return pd.DataFrame({
+        "Open": close,
+        "High": [value + 0.03 for value in close],
+        "Low": [value - 0.03 for value in close],
+        "Close": close,
+        "Volume": [10_000] * periods,
+    }, index=dates)
+
+
 async def _asgi_request(app, method: str, path: str, payload: dict | None = None) -> tuple[int, dict[str, str], object]:
     path_only, _, query_string = path.partition("?")
     body = json.dumps(payload).encode("utf-8") if payload is not None else b""
@@ -94,6 +106,7 @@ def _request(app, method: str, path: str, payload: dict | None = None) -> tuple[
 
 def test_api_http_smoke_end_to_end(tmp_path: Path):
     sample_df = _make_sample_df()
+    minute_df = _make_minute_df()
     benchmark_df = sample_df.copy()
     benchmark_close = [10 + index * 0.01 for index in range(len(benchmark_df))]
     benchmark_df["Open"] = benchmark_close
@@ -119,12 +132,18 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
         start_date: str,
         end_date: str,
         asset_type: str = "stock",
+        timeframe: str = "1d",
         adjust: str = "qfq",
         provider=None,
         db_path=None,
     ):
-        df = benchmark_df.copy() if symbol == "000300.SH" else sample_df.copy()
+        if timeframe == "1d":
+            df = benchmark_df.copy() if symbol == "000300.SH" else sample_df.copy()
+        else:
+            df = minute_df.copy()
         df.attrs["asset_type"] = asset_type
+        df.attrs["timeframe"] = timeframe
+        df.attrs["price_adjustment"] = adjust if timeframe == "1d" else "none"
         df.attrs["data_provider"] = provider or "tushare"
         return df
 
@@ -133,14 +152,17 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
         start_date: str,
         end_date: str,
         asset_type: str = "stock",
+        timeframe: str = "1d",
         adjust: str = "qfq",
         data_provider=None,
         db_path=None,
     ):
         payload = {}
         for symbol in symbols:
-            df = sample_df.copy()
+            df = sample_df.copy() if timeframe == "1d" else minute_df.copy()
             df.attrs["asset_type"] = asset_type
+            df.attrs["timeframe"] = timeframe
+            df.attrs["price_adjustment"] = adjust if timeframe == "1d" else "none"
             df.attrs["data_provider"] = data_provider or "tushare"
             payload[symbol] = df
         return payload
@@ -185,6 +207,7 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
                 "2026-03-25T10:00:00+08:00",
                 "2026-03-25T10:00:01+08:00",
                 "2026-03-25T10:00:02+08:00",
+                "2026-03-25T10:00:03+08:00",
             ],
         ),
         patch(
@@ -621,6 +644,25 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
         assert backtest_payload["run_context"]["asset_type"] == "stock"
         assert backtest_payload["run_context"]["benchmark_symbol"] == "000300.SH"
 
+        minute_backtest_status, _, minute_backtest_payload = _request(
+            app,
+            "POST",
+            "/api/backtest/run",
+            {
+                "symbol": "AAA",
+                "start_date": "2024-01-01 09:30:00",
+                "end_date": "2024-01-01 15:00:00",
+                "timeframe": "1min",
+                "strategy": "sma_cross",
+                "cash": 100_000.0,
+                "commission": 0.0,
+            },
+        )
+        assert minute_backtest_status == 200
+        assert minute_backtest_payload["run_context"]["timeframe"] == "1min"
+        assert minute_backtest_payload["run_context"]["price_adjustment"] == "none"
+        assert minute_backtest_payload["price_bars"][0]["date"].endswith("09:30:00")
+
         second_backtest_status, _, second_backtest_payload = _request(
             app,
             "POST",
@@ -647,8 +689,8 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
             f"/api/backtest/history?{urlencode({'symbol': 'AAA', 'page': 1, 'page_size': 10})}",
         )
         assert history_status == 200
-        assert history_payload["total"] == 2
-        assert len(history_payload["items"]) == 2
+        assert history_payload["total"] == 3
+        assert len(history_payload["items"]) == 3
         latest_run_id = history_payload["items"][0]["run_id"]
         previous_run_id = history_payload["items"][1]["run_id"]
         assert history_payload["items"][0]["summary"]["final_equity"] > 0
@@ -689,7 +731,7 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
             f"/api/backtest/history?{urlencode({'symbol': 'AAA', 'page': 1, 'page_size': 10})}",
         )
         assert history_after_delete_status == 200
-        assert history_after_delete_payload["total"] == 1
+        assert history_after_delete_payload["total"] == 2
 
         cb_backtest_status, _, cb_backtest_payload = _request(
             app,
@@ -815,6 +857,24 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
         assert screening_payload["total_screened"] == 2
         assert len(screening_payload["rankings"]) == 2
         assert screening_payload["run_context"]["asset_type"] == "stock"
+
+        minute_screening_status, _, minute_screening_payload = _request(
+            app,
+            "POST",
+            "/api/screening/run",
+            {
+                "pool_date": "2024-01-01",
+                "start_date": "2024-01-01 09:30:00",
+                "end_date": "2024-01-01 15:00:00",
+                "timeframe": "5min",
+                "signal": "sma_cross",
+                "symbols": ["AAA", "BBB"],
+                "top_n": 2,
+                "cash": 100_000.0,
+            },
+        )
+        assert minute_screening_status == 200
+        assert minute_screening_payload["run_context"]["timeframe"] == "5min"
 
         cb_screening_status, _, cb_screening_payload = _request(
             app,

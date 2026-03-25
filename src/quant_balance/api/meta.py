@@ -15,6 +15,7 @@ def build_api_meta() -> dict:
         "defaults": {
             "backtest": {
                 "asset_type": "stock",
+                "timeframe": "1d",
                 "strategy": "sma_cross",
                 "cash": 100_000.0,
                 "commission": 0.001,
@@ -35,6 +36,7 @@ def build_api_meta() -> dict:
             },
             "screening": {
                 "asset_type": "stock",
+                "timeframe": "1d",
                 "signal": "sma_cross",
                 "pool_filters": {
                     "industries": [],
@@ -137,6 +139,8 @@ def build_api_meta() -> dict:
             "数据默认使用前复权价格（qfq）。",
             "行情数据默认按 akshare -> baostock -> tushare 顺序回退，也可在请求中显式指定。",
             "backtest / optimize / screening 支持 asset_type=convertible_bond；当前可转债仅支持 tushare，并沿用简化版股票化撮合规则。",
+            "backtest/run 与 screening/run 支持 timeframe=1d/1min/5min/15min/30min/60min；分钟线当前仅支持 stock + tushare，且返回未复权价格。",
+            "optimize、portfolio、paper、scheduler 仍以日线研究为主，不提供分钟线参数入口。",
             "默认面向本地研究演示，不作为实盘建议。",
         ],
         "server_mode": "api",

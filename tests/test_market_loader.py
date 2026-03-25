@@ -110,6 +110,58 @@ def test_load_dataframe_routes_convertible_bond_to_cb_loader(
     assert called["ts_code"] == "110043.SH"
 
 
+def test_load_dataframe_routes_minute_timeframe_to_tushare(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called: dict[str, object] = {}
+
+    def fake_tushare_loader(
+        ts_code: str,
+        start_date: str,
+        end_date: str,
+        *,
+        timeframe: str = "1d",
+        adjust: str = "qfq",
+        db_path: Path | None = None,
+    ):
+        called.update({
+            "ts_code": ts_code,
+            "start_date": start_date,
+            "end_date": end_date,
+            "timeframe": timeframe,
+            "adjust": adjust,
+            "db_path": db_path,
+        })
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {"Open": [10.0], "High": [10.2], "Low": [9.9], "Close": [10.1], "Volume": [1000.0]},
+            index=pd.to_datetime(["2026-01-05 09:30:00"]),
+        )
+        df.attrs["data_provider"] = "tushare"
+        df.attrs["asset_type"] = "stock"
+        df.attrs["timeframe"] = timeframe
+        df.attrs["price_adjustment"] = "none"
+        return df
+
+    monkeypatch.setattr("quant_balance.data.market_loader.load_tushare_dataframe", fake_tushare_loader)
+
+    df = load_dataframe(
+        "600519.SH",
+        "2026-01-05 09:30:00",
+        "2026-01-05 15:00:00",
+        timeframe="1min",
+        provider="tushare",
+        db_path=tmp_path / "cache.db",
+    )
+
+    assert list(df["Close"]) == [10.1]
+    assert df.attrs["timeframe"] == "1min"
+    assert df.attrs["price_adjustment"] == "none"
+    assert called["timeframe"] == "1min"
+
+
 def test_load_dataframe_rejects_non_tushare_provider_for_convertible_bond(tmp_path: Path) -> None:
     with pytest.raises(DataLoadError, match="仅支持 tushare"):
         load_dataframe(
@@ -117,6 +169,30 @@ def test_load_dataframe_rejects_non_tushare_provider_for_convertible_bond(tmp_pa
             "2026-01-05",
             "2026-01-06",
             asset_type="convertible_bond",
+            provider="akshare",
+            db_path=tmp_path / "cache.db",
+        )
+
+
+def test_load_dataframe_rejects_minute_timeframe_for_convertible_bond(tmp_path: Path) -> None:
+    with pytest.raises(DataLoadError, match="不支持分钟线"):
+        load_dataframe(
+            "110043.SH",
+            "2026-01-05 09:30:00",
+            "2026-01-05 15:00:00",
+            asset_type="convertible_bond",
+            timeframe="1min",
+            db_path=tmp_path / "cache.db",
+        )
+
+
+def test_load_dataframe_rejects_minute_timeframe_for_non_tushare_provider(tmp_path: Path) -> None:
+    with pytest.raises(DataLoadError, match="分钟线当前仅支持 tushare"):
+        load_dataframe(
+            "AAA",
+            "2026-01-05 09:30:00",
+            "2026-01-05 15:00:00",
+            timeframe="1min",
             provider="akshare",
             db_path=tmp_path / "cache.db",
         )

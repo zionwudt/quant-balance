@@ -96,7 +96,9 @@ def test_meta_endpoint_includes_defaults():
 
     assert result["server_mode"] == "api"
     assert result["defaults"]["backtest"]["asset_type"] == "stock"
+    assert result["defaults"]["backtest"]["timeframe"] == "1d"
     assert result["defaults"]["backtest"]["strategy"] == "sma_cross"
+    assert result["defaults"]["screening"]["timeframe"] == "1d"
     assert result["defaults"]["factors_rank"]["factors"][0]["name"] == "roe"
     assert result["defaults"]["stock_pool"]["filters"]["exclude_st"] is False
     assert result["defaults"]["portfolio"]["allocation"] == "equal"
@@ -479,6 +481,7 @@ def test_backtest_run_delegates_to_service():
         start_date="2024-01-01",
         end_date="2024-06-30",
         asset_type="stock",
+        timeframe="1d",
         strategy="sma_cross",
         cash=100_000.0,
         commission=0.001,
@@ -540,6 +543,7 @@ def test_backtest_run_delegates_convertible_bond_asset_type():
         start_date="2024-01-01",
         end_date="2024-06-30",
         asset_type="convertible_bond",
+        timeframe="1d",
         strategy="sma_cross",
         cash=100_000.0,
         commission=0.001,
@@ -573,6 +577,7 @@ def test_backtest_run_delegates_benchmark_fields_to_service():
         start_date="2024-01-01",
         end_date="2024-06-30",
         asset_type="stock",
+        timeframe="1d",
         strategy="sma_cross",
         cash=100_000.0,
         commission=0.001,
@@ -608,12 +613,45 @@ def test_backtest_run_delegates_slippage_fields_to_service():
         start_date="2024-01-01",
         end_date="2024-06-30",
         asset_type="stock",
+        timeframe="1d",
         strategy="sma_cross",
         cash=100_000.0,
         commission=0.001,
         params={},
         slippage_mode="spread",
         slippage_rate=0.002,
+    )
+    mock_save.assert_called_once()
+
+
+def test_backtest_run_delegates_timeframe_to_service():
+    payload = {"summary": {"final_equity": 123456.0}}
+    with (
+        patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run,
+        patch("quant_balance.data.result_store.save_backtest_run") as mock_save,
+    ):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/run", "POST")
+        request = BacktestRunRequest(
+            symbol="600519.SH",
+            start_date="2024-01-01 09:30:00",
+            end_date="2024-01-01 15:00:00",
+            timeframe="1min",
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        symbol="600519.SH",
+        start_date="2024-01-01 09:30:00",
+        end_date="2024-01-01 15:00:00",
+        asset_type="stock",
+        timeframe="1min",
+        strategy="sma_cross",
+        cash=100_000.0,
+        commission=0.001,
+        params={},
     )
     mock_save.assert_called_once()
 
@@ -826,6 +864,7 @@ def test_screening_run_delegates_pool_filters_to_service():
         start_date="2024-01-01",
         end_date="2024-06-30",
         asset_type="stock",
+        timeframe="1d",
         signal="sma_cross",
         signal_params={},
         pool_filters={"industries": ["银行"], "exclude_st": True},
@@ -857,12 +896,45 @@ def test_screening_run_delegates_convertible_bond_asset_type():
         start_date="2024-01-01",
         end_date="2024-06-30",
         asset_type="convertible_bond",
+        timeframe="1d",
         signal="sma_cross",
         signal_params={},
         pool_filters={},
         top_n=20,
         cash=100_000.0,
         symbols=["110043.SH", "113001.SH"],
+    )
+
+
+def test_screening_run_delegates_timeframe_to_service():
+    payload = {"rankings": [], "total_screened": 0}
+    with patch("quant_balance.services.screening_service.run_stock_screening", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/screening/run", "POST")
+        request = ScreeningRunRequest(
+            pool_date="2024-01-01",
+            start_date="2024-01-01 09:30:00",
+            end_date="2024-01-01 15:00:00",
+            timeframe="5min",
+            signal="sma_cross",
+            symbols=["AAA", "BBB"],
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        pool_date="2024-01-01",
+        start_date="2024-01-01 09:30:00",
+        end_date="2024-01-01 15:00:00",
+        asset_type="stock",
+        timeframe="5min",
+        signal="sma_cross",
+        signal_params={},
+        pool_filters={},
+        top_n=20,
+        cash=100_000.0,
+        symbols=["AAA", "BBB"],
     )
 
 

@@ -12,6 +12,15 @@ from quant_balance.logging_utils import get_logger, log_event
 
 logger = get_logger(__name__)
 
+_TIMEFRAME_TO_VECTORBT_FREQ = {
+    "1d": "1D",
+    "1min": "1min",
+    "5min": "5min",
+    "15min": "15min",
+    "30min": "30min",
+    "60min": "60min",
+}
+
 
 def _has_active_pool_filters(pool_filters: dict | None) -> bool:
     if not pool_filters:
@@ -28,6 +37,7 @@ def run_stock_screening(
     start_date: str,
     end_date: str,
     asset_type: str = "stock",
+    timeframe: str = "1d",
     signal: str = "sma_cross",
     signal_params: dict | None = None,
     top_n: int = 20,
@@ -47,6 +57,11 @@ def run_stock_screening(
     signal_func = SIGNAL_REGISTRY.get(signal)
     if signal_func is None:
         raise ValueError(f"未知信号: {signal}，可用: {list(SIGNAL_REGISTRY)}")
+    if timeframe != "1d":
+        if asset_type != "stock":
+            raise ValueError("分钟筛选当前仅支持 stock 资产类型。")
+        if data_provider not in (None, "tushare"):
+            raise ValueError("分钟筛选当前仅支持 tushare 数据源。")
 
     started_at = perf_counter()
     if asset_type == "convertible_bond":
@@ -65,7 +80,11 @@ def run_stock_screening(
         symbols = get_pool_at_date(pool_date)
     requested_symbols_count = len(symbols)
 
-    load_kwargs = {"asset_type": asset_type}
+    load_kwargs = {
+        "asset_type": asset_type,
+        "timeframe": timeframe,
+        "adjust": "qfq" if timeframe == "1d" else "none",
+    }
     if data_provider is not None:
         load_kwargs["data_provider"] = data_provider
     data = load_multi_dataframes(symbols, start_date, end_date, **load_kwargs)
@@ -78,6 +97,7 @@ def run_stock_screening(
                 "start_date": start_date,
                 "end_date": end_date,
                 "asset_type": asset_type,
+                "timeframe": timeframe,
                 "signal": signal,
                 "signal_params": signal_params or {},
                 "pool_filters": pool_filters or {},
@@ -93,6 +113,7 @@ def run_stock_screening(
             start_date=start_date,
             end_date=end_date,
             asset_type=asset_type,
+            timeframe=timeframe,
             signal=signal,
             signal_params=signal_params or {},
             pool_filters=pool_filters or {},
@@ -108,12 +129,14 @@ def run_stock_screening(
     result = run_screening(
         data, signal_func,
         cash=cash,
+        freq=_TIMEFRAME_TO_VECTORBT_FREQ.get(timeframe, "1D"),
         signal_params=signal_params,
         log_context={
             "pool_date": pool_date,
             "start_date": start_date,
             "end_date": end_date,
             "asset_type": asset_type,
+            "timeframe": timeframe,
             "signal": signal,
             "data_provider": data_provider,
         },
@@ -136,6 +159,7 @@ def run_stock_screening(
             "start_date": start_date,
             "end_date": end_date,
             "asset_type": asset_type,
+            "timeframe": timeframe,
             "signal": signal,
             "signal_params": signal_params or {},
             "pool_filters": pool_filters or {},
@@ -151,6 +175,7 @@ def run_stock_screening(
         start_date=start_date,
         end_date=end_date,
         asset_type=asset_type,
+        timeframe=timeframe,
         signal=signal,
         signal_params=signal_params or {},
         pool_filters=pool_filters or {},

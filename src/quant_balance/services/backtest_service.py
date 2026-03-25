@@ -36,6 +36,7 @@ def run_single_backtest(
     start_date: str,
     end_date: str,
     asset_type: str = "stock",
+    timeframe: str = "1d",
     strategy: str = "sma_cross",
     cash: float = 100_000.0,
     commission: float = 0.001,
@@ -63,8 +64,9 @@ def run_single_backtest(
         start_date,
         end_date,
         asset_type=asset_type,
+        timeframe=timeframe,
         data_provider=data_provider,
-        adjust="qfq",
+        adjust="qfq" if timeframe == "1d" else "none",
     )
     benchmark_df = None
     resolved_benchmark_asset_type = benchmark_asset_type or (
@@ -89,8 +91,9 @@ def run_single_backtest(
             start_date,
             end_date,
             asset_type=resolved_benchmark_asset_type,
+            timeframe=timeframe,
             data_provider=resolved_benchmark_data_provider,
-            adjust=resolved_benchmark_adjust,
+            adjust=resolved_benchmark_adjust if timeframe == "1d" else "none",
         )
 
     result = run_backtest(
@@ -103,6 +106,7 @@ def run_single_backtest(
             "end_date": end_date,
             "asset_type": asset_type,
             "strategy": strategy,
+            "timeframe": df.attrs.get("timeframe", timeframe),
             "data_provider": df.attrs.get("data_provider", data_provider),
         },
     )
@@ -130,12 +134,14 @@ def run_single_backtest(
             "end_date": end_date,
             "asset_type": df.attrs.get("asset_type", asset_type),
             "strategy": strategy,
+            "timeframe": df.attrs.get("timeframe", timeframe),
             "cash": cash,
             "commission": commission,
             "effective_commission": effective_commission,
             "spread": spread,
             "slippage_mode": slippage_mode,
             "slippage_rate": slippage_rate,
+            "price_adjustment": df.attrs.get("price_adjustment", "qfq" if timeframe == "1d" else "none"),
             "params": params or {},
             "bars_count": len(df),
             "data_provider": df.attrs.get("data_provider", data_provider),
@@ -159,12 +165,14 @@ def run_single_backtest(
         end_date=end_date,
         asset_type=df.attrs.get("asset_type", asset_type),
         strategy=strategy,
+        timeframe=df.attrs.get("timeframe", timeframe),
         cash=cash,
         commission=commission,
         effective_commission=effective_commission,
         spread=spread,
         slippage_mode=slippage_mode,
         slippage_rate=slippage_rate,
+        price_adjustment=df.attrs.get("price_adjustment", "qfq" if timeframe == "1d" else "none"),
         params=params or {},
         bars_count=len(df),
         trades_count=len(result.trades),
@@ -235,6 +243,7 @@ def run_optimize(
         start_date,
         end_date,
         asset_type=asset_type,
+        timeframe="1d",
         data_provider=data_provider,
         adjust="qfq",
     )
@@ -254,6 +263,7 @@ def run_optimize(
             "end_date": end_date,
             "asset_type": asset_type,
             "strategy": strategy,
+            "timeframe": "1d",
             "data_provider": df.attrs.get("data_provider", data_provider),
         },
         **normalized_param_ranges,
@@ -296,6 +306,7 @@ def run_optimize(
                 "end_date": end_date,
                 "asset_type": asset_type,
                 "strategy": strategy,
+                "timeframe": "1d",
                 "data_provider": df.attrs.get("data_provider", data_provider),
             },
         )
@@ -329,10 +340,11 @@ def _load_market_dataframe(
     end_date: str,
     *,
     asset_type: str,
+    timeframe: str,
     data_provider: str | None,
     adjust: str,
 ) -> pd.DataFrame:
-    load_kwargs = {"asset_type": asset_type, "adjust": adjust}
+    load_kwargs = {"asset_type": asset_type, "timeframe": timeframe, "adjust": adjust}
     if data_provider is not None:
         load_kwargs["provider"] = data_provider
     return load_dataframe(symbol, start_date, end_date, **load_kwargs)
@@ -358,7 +370,7 @@ def _price_bars_to_dicts(df: pd.DataFrame) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     for index, row in df.iterrows():
         records.append({
-            "date": pd.Timestamp(index).date().isoformat(),
+            "date": _format_time_label(index),
             "open": float(row.get("Open", 0.0)),
             "high": float(row.get("High", 0.0)),
             "low": float(row.get("Low", 0.0)),
@@ -376,8 +388,8 @@ def _trade_markers_to_dicts(trades_df: pd.DataFrame | None) -> list[dict[str, ob
     for trade_index, (_, row) in enumerate(trades_df.iterrows(), start=1):
         entry_bar = int(row.get("EntryBar", 0))
         exit_bar = int(row.get("ExitBar", 0))
-        entry_time = str(row.get("EntryTime", "")).split(" ")[0]
-        exit_time = str(row.get("ExitTime", "")).split(" ")[0]
+        entry_time = _format_trade_time(row.get("EntryTime", ""))
+        exit_time = _format_trade_time(row.get("ExitTime", ""))
         markers.append({
             "trade_index": trade_index,
             "side": "buy",
@@ -395,6 +407,23 @@ def _trade_markers_to_dicts(trades_df: pd.DataFrame | None) -> list[dict[str, ob
             "bar_index": exit_bar,
         })
     return markers
+
+
+def _format_time_label(value: object) -> str:
+    timestamp = pd.Timestamp(value)
+    if timestamp.hour == 0 and timestamp.minute == 0 and timestamp.second == 0:
+        return timestamp.date().isoformat()
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_trade_time(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return _format_time_label(text)
+    except Exception:  # noqa: BLE001
+        return text
 
 
 def _chart_line_series(

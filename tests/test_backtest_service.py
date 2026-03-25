@@ -24,6 +24,18 @@ def _make_sample_df(days: int = 10) -> pd.DataFrame:
     }, index=dates)
 
 
+def _make_minute_df(periods: int = 10) -> pd.DataFrame:
+    dates = pd.date_range("2024-01-01 09:30:00", periods=periods, freq="min")
+    close = [10.0 + index * 0.01 for index in range(periods)]
+    return pd.DataFrame({
+        "Open": [value - 0.01 for value in close],
+        "High": [value + 0.02 for value in close],
+        "Low": [value - 0.02 for value in close],
+        "Close": close,
+        "Volume": [10_000] * periods,
+    }, index=dates)
+
+
 def _fake_backtest_result() -> BacktestResult:
     equity_curve = pd.DataFrame({"Equity": [100_000.0, 102_000.0]}, index=pd.to_datetime(["2024-01-01", "2024-01-02"]))
     trades = pd.DataFrame([
@@ -265,6 +277,7 @@ def test_run_single_backtest_passes_data_provider():
         "2024-01-01",
         "2024-06-30",
         asset_type="stock",
+        timeframe="1d",
         adjust="qfq",
         provider="akshare",
     )
@@ -291,7 +304,38 @@ def test_run_single_backtest_passes_convertible_bond_asset_type():
         "2024-01-01",
         "2024-06-30",
         asset_type="convertible_bond",
+        timeframe="1d",
         adjust="qfq",
+    )
+
+
+def test_run_single_backtest_supports_minute_timeframe() -> None:
+    sample_df = _make_minute_df()
+    sample_df.attrs["data_provider"] = "tushare"
+    sample_df.attrs["asset_type"] = "stock"
+    sample_df.attrs["timeframe"] = "1min"
+    sample_df.attrs["price_adjustment"] = "none"
+    with (
+        patch("quant_balance.services.backtest_service.load_dataframe", return_value=sample_df) as mock_load,
+        patch("quant_balance.services.backtest_service.run_backtest", return_value=_fake_backtest_result()),
+    ):
+        result = run_single_backtest(
+            symbol="600519.SH",
+            start_date="2024-01-01 09:30:00",
+            end_date="2024-01-01 15:00:00",
+            timeframe="1min",
+        )
+
+    assert result["run_context"]["timeframe"] == "1min"
+    assert result["run_context"]["price_adjustment"] == "none"
+    assert result["price_bars"][0]["date"] == "2024-01-01 09:30:00"
+    mock_load.assert_called_once_with(
+        "600519.SH",
+        "2024-01-01 09:30:00",
+        "2024-01-01 15:00:00",
+        asset_type="stock",
+        timeframe="1min",
+        adjust="none",
     )
 
 
@@ -349,6 +393,7 @@ def test_run_single_backtest_uses_stock_index_defaults_for_benchmark_presets():
             "2024-01-01",
             "2024-06-30",
             asset_type="convertible_bond",
+            timeframe="1d",
             adjust="qfq",
         ),
         call(
@@ -356,6 +401,7 @@ def test_run_single_backtest_uses_stock_index_defaults_for_benchmark_presets():
             "2024-01-01",
             "2024-06-30",
             asset_type="stock",
+            timeframe="1d",
             adjust="none",
             provider="tushare",
         ),
@@ -398,6 +444,7 @@ def test_run_single_backtest_includes_benchmark_payload():
             "2024-01-01",
             "2024-06-30",
             asset_type="stock",
+            timeframe="1d",
             adjust="qfq",
             provider="akshare",
         ),
@@ -406,6 +453,7 @@ def test_run_single_backtest_includes_benchmark_payload():
             "2024-01-01",
             "2024-06-30",
             asset_type="stock",
+            timeframe="1d",
             adjust="qfq",
             provider="baostock",
         ),

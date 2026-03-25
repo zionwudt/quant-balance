@@ -1,4 +1,4 @@
-"""统一的日线行情加载入口。"""
+"""统一的行情加载入口。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,9 @@ from quant_balance.logging_utils import get_logger, log_event
 
 MarketRow = tuple[str, str, float, float, float, float, float]
 MarketFetcher = Callable[[str, str, str, Literal["none", "qfq"]], list[MarketRow]]
+Timeframe = Literal["1d", "1min", "5min", "15min", "30min", "60min"]
+
+MINUTE_TIMEFRAMES = {"1min", "5min", "15min", "30min", "60min"}
 
 _PROVIDER_FETCHERS: dict[str, MarketFetcher] = {
     "akshare": fetch_akshare_daily_bar_rows,
@@ -72,16 +75,21 @@ def load_dataframe(
     end_date: str,
     *,
     asset_type: Literal["stock", "convertible_bond"] = "stock",
+    timeframe: Timeframe = "1d",
     adjust: Literal["none", "qfq"] = "qfq",
     provider: str | None = None,
     providers: Sequence[str] | None = None,
     db_path: Path | None = None,
 ) -> pd.DataFrame:
-    """加载日线行情，支持多数据源按顺序回退。"""
+    """加载行情，支持多数据源按顺序回退。"""
     if asset_type == "convertible_bond":
+        if timeframe != "1d":
+            raise DataLoadError("可转债当前仅支持 tushare 日线数据，不支持分钟线。")
         _resolve_cb_provider_order(provider=provider, providers=providers)
         df = load_cb_dataframe(ts_code, start_date, end_date, db_path=db_path)
         df.attrs["asset_type"] = "convertible_bond"
+        df.attrs["timeframe"] = "1d"
+        df.attrs["price_adjustment"] = "none"
         return df
     if asset_type != "stock":
         raise DataLoadError(f"不支持的资产类型 {asset_type!r}，当前支持: stock, convertible_bond")
@@ -98,6 +106,7 @@ def load_dataframe(
                     ts_code,
                     start_date,
                     end_date,
+                    timeframe=timeframe,
                     adjust=adjust,
                     db_path=db_path,
                 )
@@ -106,7 +115,16 @@ def load_dataframe(
                 continue
             df.attrs["data_provider"] = provider_name
             df.attrs["asset_type"] = "stock"
+            df.attrs["timeframe"] = timeframe
+            df.attrs["price_adjustment"] = df.attrs.get(
+                "price_adjustment",
+                adjust if timeframe == "1d" else "none",
+            )
             return df
+
+        if timeframe in MINUTE_TIMEFRAMES:
+            errors.append(f"{provider_name}: 分钟线当前仅支持 tushare 数据源")
+            continue
 
         conn = get_connection(db_path)
         try:
@@ -127,10 +145,14 @@ def load_dataframe(
                     symbol=ts_code,
                     start_date=start_date,
                     end_date=end_date,
+                    timeframe=timeframe,
                     adjust=adjust,
                     rows_count=len(cached_rows),
                 )
-                return _rows_to_dataframe(cached_rows, provider=provider_name)
+                df = _rows_to_dataframe(cached_rows, provider=provider_name)
+                df.attrs["timeframe"] = timeframe
+                df.attrs["price_adjustment"] = adjust
+                return df
 
             log_event(
                 logger,
@@ -140,6 +162,7 @@ def load_dataframe(
                 symbol=ts_code,
                 start_date=start_date,
                 end_date=end_date,
+                timeframe=timeframe,
                 adjust=adjust,
             )
             fetcher = _PROVIDER_FETCHERS[provider_name]
@@ -153,7 +176,10 @@ def load_dataframe(
                 adjust=adjust,
                 rows=fresh_rows,
             )
-            return _rows_to_dataframe(fresh_rows, provider=provider_name)
+            df = _rows_to_dataframe(fresh_rows, provider=provider_name)
+            df.attrs["timeframe"] = timeframe
+            df.attrs["price_adjustment"] = adjust
+            return df
         except DataLoadError as exc:
             errors.append(f"{provider_name}: {exc}")
         finally:
