@@ -8,6 +8,11 @@ from typing import Literal
 
 import pandas as pd
 
+from quant_balance.core.attribution import (
+    AttributionReport,
+    DEFAULT_BENCHMARK_LABEL,
+    build_portfolio_attribution,
+)
 from quant_balance.core.report import normalize_vbt_stats
 from quant_balance.logging_utils import get_logger, log_event
 
@@ -27,6 +32,7 @@ class PortfolioBacktestResult:
     rebalances: pd.DataFrame
     report: dict
     close_matrix: pd.DataFrame
+    attribution: AttributionReport
 
 
 def run_portfolio_backtest(
@@ -37,6 +43,8 @@ def run_portfolio_backtest(
     rebalance_frequency: RebalanceFrequency = "monthly",
     cash: float = 100_000.0,
     commission: float = 0.001,
+    symbol_metadata: dict[str, dict[str, str]] | None = None,
+    benchmark_label: str = DEFAULT_BENCHMARK_LABEL,
     log_context: dict[str, object] | None = None,
 ) -> PortfolioBacktestResult:
     """执行组合回测。"""
@@ -54,11 +62,23 @@ def run_portfolio_backtest(
     )
     effective_weights = target_weights.ffill().fillna(0.0)
     rebalances = build_rebalance_log(target_weights)
+    benchmark_weights = build_benchmark_weights(close_matrix)
 
     started_at = perf_counter()
     pf = vbt.Portfolio.from_orders(
         close_matrix,
         size=target_weights,
+        size_type="targetpercent",
+        init_cash=cash,
+        fees=commission,
+        cash_sharing=True,
+        group_by=True,
+        call_seq="auto",
+        freq="1D",
+    )
+    benchmark_pf = vbt.Portfolio.from_orders(
+        close_matrix,
+        size=benchmark_weights,
         size_type="targetpercent",
         init_cash=cash,
         fees=commission,
@@ -80,6 +100,14 @@ def run_portfolio_backtest(
         "rebalance_frequency": rebalance_frequency,
         "rebalance_count": len(rebalances),
     })
+    attribution = build_portfolio_attribution(
+        close_matrix=close_matrix,
+        portfolio=pf,
+        benchmark=benchmark_pf,
+        initial_cash=cash,
+        symbol_metadata=symbol_metadata,
+        benchmark_label=benchmark_label,
+    )
     log_fields = {
         "stage": "engine",
         "allocation": allocation,
@@ -100,6 +128,7 @@ def run_portfolio_backtest(
         rebalances=rebalances,
         report=report,
         close_matrix=close_matrix,
+        attribution=attribution,
     )
 
 
@@ -139,6 +168,15 @@ def build_rebalance_log(target_weights: pd.DataFrame) -> pd.DataFrame:
         previous = current
 
     return pd.DataFrame(records).set_index("date")
+
+
+def build_benchmark_weights(close_matrix: pd.DataFrame) -> pd.DataFrame:
+    """构造首日等权买入并持有的基准权重。"""
+
+    weight = 1 / len(close_matrix.columns)
+    weights = pd.DataFrame(index=close_matrix.index, columns=close_matrix.columns, dtype=float)
+    weights.iloc[0] = weight
+    return weights
 
 
 def _build_close_matrix(data: dict[str, pd.DataFrame]) -> pd.DataFrame:

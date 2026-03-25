@@ -808,6 +808,9 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
         assert len(portfolio_payload["equity_curve"]) > 0
         assert len(portfolio_payload["weights"]) > 0
         assert len(portfolio_payload["rebalances"]) > 0
+        assert portfolio_payload["attribution"]["benchmark"]["label"] == "同股票池等权买入持有"
+        assert len(portfolio_payload["attribution"]["stock_contributions"]) == 2
+        assert portfolio_payload["attribution"]["cost_breakdown"]["commission"] == 0.0
 
         stock_pool_status, _, stock_pool_payload = _request(
             app,

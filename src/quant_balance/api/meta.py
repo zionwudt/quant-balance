@@ -134,7 +134,7 @@ def build_api_meta() -> dict:
             "market/regime 可返回当前市场状态或区间状态序列，当前至少区分 BULL / BEAR / SIDEWAYS。",
             "历史股票池支持行业、市值、PE、ST、次新等前置过滤，并继续以 get_pool_at_date() 为底座。",
             "多因子打分引擎支持因子标准化、加权总分与排名，可直接用于筛选研究与组合候选池构建。",
-            "组合回测基于 vectorbt 目标权重矩阵，适合做多标的轮动与再平衡研究。",
+            "组合回测基于 vectorbt 目标权重矩阵，适合做多标的轮动、再平衡与收益归因研究。",
             "scheduler.enabled=true 时，服务启动后会自动恢复盘后扫描调度；也可通过 API 手动触发。",
             "signals/today、signals/history 和 signals/{id} 支持信号查询、状态流转与后续表现跟踪。",
             "signals/export 支持把指定日期的信号导出为 CSV、QMT Python 脚本和 JSON。",

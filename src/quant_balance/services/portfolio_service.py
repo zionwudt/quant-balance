@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import asdict, is_dataclass
 from time import perf_counter
 
 from quant_balance.core.data_adapter import load_multi_dataframes
 from quant_balance.core.portfolio import run_portfolio_backtest
+from quant_balance.data.stock_pool import lookup_stock_metadata
 from quant_balance.logging_utils import get_logger, log_event
 
 logger = get_logger(__name__)
@@ -43,6 +45,7 @@ def run_portfolio_research(
         rebalance_frequency=rebalance_frequency,
         cash=cash,
         commission=commission,
+        symbol_metadata=lookup_stock_metadata(list(data.keys())),
         log_context={
             "start_date": start_date,
             "end_date": end_date,
@@ -59,6 +62,7 @@ def run_portfolio_research(
         "equity_curve": _series_to_dicts(result.equity_curve, value_key="equity"),
         "weights": _weights_to_dicts(result.weights),
         "rebalances": _rebalances_to_dicts(result.rebalances),
+        "attribution": _jsonable_value(result.attribution),
         "run_context": {
             "symbols": symbols,
             "loaded_symbols": loaded_symbols,
@@ -94,6 +98,11 @@ def run_portfolio_research(
 
 
 def _jsonable_value(value: object) -> object:
+    if is_dataclass(value):
+        return {
+            key: _jsonable_value(item)
+            for key, item in asdict(value).items()
+        }
     if isinstance(value, dict):
         return {key: _jsonable_value(item) for key, item in value.items()}
     if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):

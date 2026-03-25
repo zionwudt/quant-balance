@@ -7,6 +7,7 @@ import { toast } from '../components/toast.js';
 import { renderEquityChart, disposeEquityChart } from '../components/chart-equity.js';
 import { renderKlineChart, highlightKlineTrade, disposeKlineChart } from '../components/chart-kline.js';
 import { renderMonthlyHeatmap, disposeMonthlyHeatmap } from '../components/chart-heatmap.js';
+import { renderPortfolioAttributionCharts, disposePortfolioAttributionCharts } from '../components/chart-attribution.js';
 import { renderTradesTable } from '../components/data-table.js';
 import { createMultiStockSearch } from '../components/stock-search.js';
 import { getAppSettings } from '../settings.js';
@@ -126,6 +127,7 @@ export async function initBacktestPage(container, routeContext = {}) {
   disposeEquityChart();
   disposeKlineChart();
   disposeMonthlyHeatmap();
+  disposePortfolioAttributionCharts();
   pageState = createInitialState(routeContext.params);
 
   try {
@@ -168,6 +170,7 @@ export async function initBacktestPage(container, routeContext = {}) {
       disposeEquityChart();
       disposeKlineChart();
       disposeMonthlyHeatmap();
+      disposePortfolioAttributionCharts();
     },
   };
 }
@@ -729,6 +732,7 @@ function collectStrategyParams(container) {
 
 function renderSingleResults(container, result) {
   disposeMonthlyHeatmap();
+  disposePortfolioAttributionCharts();
   const summary = result.summary || {};
   const trades = (result.trades || []).map((trade, index) => ({
     ...trade,
@@ -827,10 +831,16 @@ function renderSingleResults(container, result) {
 function renderPortfolioResults(container, result) {
   disposeKlineChart();
   disposeMonthlyHeatmap();
+  disposePortfolioAttributionCharts();
   const summary = result.summary || {};
   const equityCurve = result.equity_curve || [];
   const weights = result.weights || [];
   const rebalances = result.rebalances || [];
+  const attribution = result.attribution || {};
+  const stockContributions = attribution.stock_contributions || [];
+  const sectorSummary = attribution.sector_summary || [];
+  const benchmark = attribution.benchmark || {};
+  const costBreakdown = attribution.cost_breakdown || {};
   const context = result.run_context || {};
   const loadedSymbols = context.loaded_symbols || context.symbols || [];
   const latestWeights = weights[weights.length - 1]?.weights || {};
@@ -840,7 +850,7 @@ function renderPortfolioResults(container, result) {
       <div>
         <div class="results-title">组合回测 · ${loadedSymbols.length} 只股票</div>
         <p class="results-subtitle">
-          ${context.start_date || '-'} ~ ${context.end_date || '-'} · 等权配置 · ${formatRebalanceLabel(summary.rebalance_frequency || context.rebalance_frequency)}
+          ${context.start_date || '-'} ~ ${context.end_date || '-'} · ${context.allocation === 'custom' ? '自定义权重' : '等权配置'} · ${formatRebalanceLabel(summary.rebalance_frequency || context.rebalance_frequency)}
         </p>
       </div>
       <div class="results-tags">
@@ -875,6 +885,28 @@ function renderPortfolioResults(container, result) {
       <div class="card">
         <div class="results-card-head">
           <div>
+            <div class="card-title">个股贡献拆解</div>
+            <p class="card-subtitle">饼图按贡献绝对值分配扇区，悬浮可查看正负贡献、PnL 和期末权重。</p>
+          </div>
+        </div>
+        <div class="chart-container chart-container-attribution" id="bt-stock-attribution-chart"></div>
+      </div>
+
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">Brinson 行业归因</div>
+            <p class="card-subtitle">相对 ${benchmark.label || '内置基准'} 的配置、选股与交互效应；三项合计等于超额收益。</p>
+          </div>
+        </div>
+        <div class="chart-container chart-container-attribution" id="bt-sector-attribution-chart"></div>
+      </div>
+    </div>
+
+    <div class="portfolio-results-grid">
+      <div class="card">
+        <div class="results-card-head">
+          <div>
             <div class="card-title">最新持仓权重</div>
             <p class="card-subtitle">展示最后一个有效调仓节点的目标权重。</p>
           </div>
@@ -896,6 +928,30 @@ function renderPortfolioResults(container, result) {
         </div>
       </div>
     </div>
+
+    <div class="portfolio-results-grid portfolio-results-grid-wide">
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">个股贡献明细</div>
+            <p class="card-subtitle">按股票展开 PnL、收益贡献与贡献占比，快速定位主要来源与拖累项。</p>
+          </div>
+        </div>
+        <div class="portfolio-table-wrapper">
+          ${renderStockContributionRows(stockContributions)}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">成本与超额摘要</div>
+            <p class="card-subtitle">同步展示内置基准表现、总成本、换手率和成本效率。</p>
+          </div>
+        </div>
+        ${renderPortfolioAttributionSummary(benchmark, costBreakdown)}
+      </div>
+    </div>
   `;
 
   renderMetrics(container.querySelector('#bt-metrics'), summary, equityCurve);
@@ -907,6 +963,12 @@ function renderPortfolioResults(container, result) {
   renderMonthlyHeatmap(
     container.querySelector('#bt-heatmap-chart'),
     summary.monthly_returns || [],
+  );
+  renderPortfolioAttributionCharts(
+    container.querySelector('#bt-stock-attribution-chart'),
+    stockContributions,
+    container.querySelector('#bt-sector-attribution-chart'),
+    sectorSummary,
   );
 }
 
@@ -960,6 +1022,90 @@ function renderRebalanceRows(rebalances) {
         `).join('')}
       </tbody>
     </table>
+  `;
+}
+
+function renderStockContributionRows(stockContributions) {
+  if (!stockContributions.length) {
+    return '<div class="empty-state"><div class="empty-state-icon">🧩</div><p>暂无个股贡献数据</p></div>';
+  }
+
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>股票</th>
+          <th>行业</th>
+          <th data-align="right">PnL</th>
+          <th data-align="right">贡献</th>
+          <th data-align="right">贡献占比</th>
+          <th data-align="right">期末权重</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${stockContributions.map(item => `
+          <tr>
+            <td>
+              <div class="table-primary">${item.name || item.symbol}</div>
+              <div class="table-secondary mono">${item.symbol}</div>
+            </td>
+            <td>${item.sector || '未分类'}</td>
+            <td data-align="right" class="mono ${Number(item.pnl) >= 0 ? 'text-profit' : 'text-loss'}">${formatMoney(item.pnl)}</td>
+            <td data-align="right" class="mono ${Number(item.contribution_pct) >= 0 ? 'text-profit' : 'text-loss'}">${formatPct(item.contribution_pct)}</td>
+            <td data-align="right" class="mono">${formatPct(item.contribution_share_pct)}</td>
+            <td data-align="right" class="mono">${formatPctAbs(item.final_weight_pct)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderPortfolioAttributionSummary(benchmark, costBreakdown) {
+  const totalCost = Number(costBreakdown.total_cost);
+  const excessReturn = Number(benchmark.excess_return_pct);
+  return `
+    <div class="cost-breakdown-grid">
+      <div class="metric-card">
+        <span class="metric-label">组合总收益</span>
+        <span class="metric-value" style="color:${pctColor(benchmark.portfolio_total_return_pct)}">${formatPct(benchmark.portfolio_total_return_pct)}</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">基准收益</span>
+        <span class="metric-value">${formatPct(benchmark.benchmark_total_return_pct)}</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">超额收益</span>
+        <span class="metric-value" style="color:${pctColor(excessReturn)}">${formatPct(excessReturn)}</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-label">总交易成本</span>
+        <span class="metric-value" style="color:${totalCost > 0 ? 'var(--loss)' : 'var(--text-primary)'}">${formatMoney(totalCost)}</span>
+      </div>
+    </div>
+
+    <div class="attribution-summary">
+      <div class="attribution-summary-block">
+        <div class="attribution-summary-title">成本拆解</div>
+        <div class="attribution-summary-row"><span>佣金</span><span class="mono">${formatMoney(costBreakdown.commission)} (${formatPctAbs(costBreakdown.commission_share_pct)})</span></div>
+        <div class="attribution-summary-row"><span>印花税</span><span class="mono">${formatMoney(costBreakdown.stamp_tax)} (${formatPctAbs(costBreakdown.stamp_tax_share_pct)})</span></div>
+        <div class="attribution-summary-row"><span>滑点</span><span class="mono">${formatMoney(costBreakdown.slippage)} (${formatPctAbs(costBreakdown.slippage_share_pct)})</span></div>
+        <div class="attribution-summary-row"><span>成本率</span><span class="mono">${formatPctAbs(costBreakdown.cost_rate_pct)}</span></div>
+      </div>
+
+      <div class="attribution-summary-block">
+        <div class="attribution-summary-title">换手关系</div>
+        <div class="attribution-summary-row"><span>成交额</span><span class="mono">${formatMoney(costBreakdown.traded_notional)}</span></div>
+        <div class="attribution-summary-row"><span>累计换手</span><span class="mono">${formatPctAbs(costBreakdown.turnover_pct)}</span></div>
+        <div class="attribution-summary-row"><span>成本 / 换手</span><span class="mono">${formatNum(costBreakdown.cost_to_turnover_bps)} bps</span></div>
+        <div class="attribution-summary-row"><span>订单数</span><span class="mono">${costBreakdown.orders_count ?? '-'}</span></div>
+      </div>
+
+      <div class="attribution-summary-block attribution-summary-note">
+        <div class="attribution-summary-title">基准说明</div>
+        <p>${benchmark.methodology || '以同股票池内置基准做简化 Brinson 归因。'}</p>
+      </div>
+    </div>
   `;
 }
 

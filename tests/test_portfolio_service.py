@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+from quant_balance.core.attribution import AttributionBenchmark, AttributionReport, CostBreakdown
 from quant_balance.core.portfolio import PortfolioBacktestResult
 from quant_balance.services.portfolio_service import run_portfolio_research
 
@@ -41,6 +42,36 @@ def _fake_portfolio_result() -> PortfolioBacktestResult:
             {"AAA": [10.0, 10.5], "BBB": [20.0, 19.5]},
             index=index,
         ),
+        attribution=AttributionReport(
+            stock_contributions=[],
+            sector_allocation=[],
+            sector_selection=[],
+            sector_interaction=[],
+            sector_summary=[],
+            cost_breakdown=CostBreakdown(
+                commission=12.3,
+                stamp_tax=0.0,
+                slippage=0.0,
+                total_cost=12.3,
+                commission_share_pct=100.0,
+                stamp_tax_share_pct=0.0,
+                slippage_share_pct=0.0,
+                cost_rate_pct=0.0123,
+                traded_notional=12345.0,
+                turnover_pct=12.345,
+                cost_to_turnover_bps=9.963548,
+                buy_notional=12345.0,
+                sell_notional=0.0,
+                orders_count=2,
+            ),
+            benchmark=AttributionBenchmark(
+                label="同股票池等权买入持有",
+                methodology="测试基准",
+                portfolio_total_return_pct=5.0,
+                benchmark_total_return_pct=4.0,
+                excess_return_pct=1.0,
+            ),
+        ),
     )
 
 
@@ -60,6 +91,7 @@ def test_run_portfolio_research_returns_api_ready_payload():
     }
     with (
         patch("quant_balance.services.portfolio_service.load_multi_dataframes", return_value=sample_data) as mock_load,
+        patch("quant_balance.services.portfolio_service.lookup_stock_metadata", return_value={}),
         patch("quant_balance.services.portfolio_service.run_portfolio_backtest", return_value=_fake_portfolio_result()) as mock_run,
     ):
         result = run_portfolio_research(
@@ -75,6 +107,8 @@ def test_run_portfolio_research_returns_api_ready_payload():
     assert result["equity_curve"][0]["equity"] == 100_000.0
     assert result["weights"][0]["weights"]["AAA"] == 0.5
     assert result["rebalances"][0]["turnover_pct"] == 100.0
+    assert result["attribution"]["benchmark"]["excess_return_pct"] == 1.0
+    assert result["attribution"]["cost_breakdown"]["commission"] == 12.3
     assert result["run_context"]["loaded_symbols"] == ["AAA", "BBB"]
     mock_load.assert_called_once()
     mock_run.assert_called_once()
@@ -84,6 +118,7 @@ def test_run_portfolio_research_passes_data_provider():
     sample_data = {"AAA": _make_sample_df(base_price=10.0)}
     with (
         patch("quant_balance.services.portfolio_service.load_multi_dataframes", return_value=sample_data) as mock_load,
+        patch("quant_balance.services.portfolio_service.lookup_stock_metadata", return_value={}),
         patch("quant_balance.services.portfolio_service.run_portfolio_backtest", return_value=_fake_portfolio_result()),
     ):
         run_portfolio_research(

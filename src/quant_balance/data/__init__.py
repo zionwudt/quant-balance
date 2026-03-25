@@ -13,6 +13,7 @@ from quant_balance.data.stock_pool import (
     StockPoolRecord,
     filter_pool_at_date,
     get_pool_at_date,
+    lookup_stock_metadata,
 )
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "load_dataframe",
     "load_convertible_bond_dataframe",
     "load_financial_at",
+    "lookup_stock_metadata",
     "update_fundamental_cache",
 ]

@@ -27,7 +27,7 @@
 - 消息推送：企业微信 / 钉钉 / Server酱 / SMTP 邮件 4 种渠道独立发送，支持设置页连通性测试
 - Web Dashboard：已包含 hash 路由侧栏、股票池研究页、多标的标签输入、组合回测月度热力图、信号中心、模拟盘和设置页；回测页支持策略卡切换、动态参数表单、代码搜索下拉、K 线 / 成交量 / 买卖点叠加、成交明细联动高亮，以及浅色 / 深色 / 跟随系统主题和 A 股 / 国际涨跌配色切换
 - 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
-- 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
+- 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究，并内置个股贡献、简化 Brinson 行业归因与交易成本拆解
 - 历史股票池：`get_pool_at_date()` + 行业 / 市值 / PE / ST / 次新过滤，避免幸存者偏差
 - 财务快照：`load_financial_at()` 聚合 `daily_basic / income / balancesheet / cashflow / fina_indicator`，按公告日对齐，避免未来函数
 - 数据缓存：SQLite 本地缓存日线、分钟线、复权因子和多表基本面数据
@@ -735,6 +735,13 @@ curl "http://127.0.0.1:8765/api/market/regime?symbol=000300.SH&start_date=2024-0
 }
 ```
 
+响应会额外返回 `attribution`，包含：
+
+- `stock_contributions`：逐股票 `pnl / contribution_pct / contribution_share_pct / final_weight_pct`
+- `sector_summary`：按行业聚合后的 `allocation / selection / interaction` 三项 Brinson 结果
+- `cost_breakdown`：佣金、总成本、成交额、换手率与 `cost_to_turnover_bps`
+- `benchmark`：内置简化基准（同股票池首日等权买入持有）的收益与超额收益
+
 ## 架构概览
 
 ```text
@@ -745,6 +752,7 @@ src/quant_balance/
 │   └── schemas.py          # Pydantic 请求模型
 ├── core/
 │   ├── backtest.py         # backtesting.py 封装
+│   ├── attribution.py      # 组合收益归因
 │   ├── factors.py          # 多因子标准化与加权排名
 │   ├── portfolio.py        # vectorbt 组合回测
 │   ├── screening.py        # vectorbt 批量筛选

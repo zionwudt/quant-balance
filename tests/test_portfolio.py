@@ -43,6 +43,8 @@ def test_run_portfolio_backtest_equal_weight_monthly():
     assert isinstance(result.report["rolling_sharpe"], list)
     assert result.weights.iloc[0]["AAA"] == 0.5
     assert result.weights.iloc[0]["BBB"] == 0.5
+    assert len(result.attribution.stock_contributions) == 2
+    assert result.attribution.cost_breakdown.orders_count > 0
 
 
 def test_run_portfolio_backtest_custom_weights_normalizes_input():
@@ -64,3 +66,4 @@ def test_run_portfolio_backtest_custom_weights_normalizes_input():
     assert result.weights.iloc[0]["BBB"] == 0.25
     assert result.report["allocation"] == "custom"
     assert result.report["final_equity"] == result.report["final_value"]
+    assert result.attribution.benchmark.label == "同股票池等权买入持有"

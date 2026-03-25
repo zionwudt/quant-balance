@@ -395,6 +395,52 @@ def search_stock_candidates(
         conn.close()
 
 
+def lookup_stock_metadata(
+    symbols: list[str],
+    *,
+    db_path: Path | None = None,
+) -> dict[str, dict[str, str]]:
+    """从本地缓存读取股票名称/行业/市场；不主动触发远程拉取。"""
+
+    normalized_symbols = sorted({
+        str(symbol).strip().upper()
+        for symbol in symbols
+        if str(symbol).strip()
+    })
+    if not normalized_symbols:
+        return {}
+
+    path = db_path or CACHE_DB_PATH
+    if not path.exists():
+        return {}
+
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return {}
+    conn.row_factory = sqlite3.Row
+    try:
+        placeholders = ",".join("?" for _ in normalized_symbols)
+        try:
+            rows = conn.execute(
+                f"SELECT ts_code, name, industry, market FROM stock_list WHERE ts_code IN ({placeholders})",
+                normalized_symbols,
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return {}
+        return {
+            str(row["ts_code"]): {
+                "symbol": str(row["ts_code"]),
+                "name": str(row["name"] or ""),
+                "industry": str(row["industry"] or ""),
+                "market": str(row["market"] or ""),
+            }
+            for row in rows
+        }
+    finally:
+        conn.close()
+
+
 def filter_pool_at_date(
     date: str,
     *,
