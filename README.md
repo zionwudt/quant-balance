@@ -20,6 +20,7 @@
 - 定时调度：支持每个交易日盘后自动扫描策略、持久化信号、可选通知推送，并支持 API 手动触发
 - 信号管理：统一记录策略信号、状态流转与 1/5/10/20 日后跟踪收益，支持今日/历史查询
 - 信号导出：支持按日期导出 CSV、QMT miniQMT Python 指令脚本和 JSON，对接半自动执行流程
+- 模拟盘会话：支持 API 启动 / 暂停 / 停止模拟盘，按次日开盘价成交、按日收盘估值，并把交易与会话写入 SQLite
 - 消息推送：企业微信 / 钉钉 / Server酱 / SMTP 邮件 4 种渠道独立发送，支持设置页连通性测试
 - Web Dashboard：已包含 hash 路由侧栏、股票池研究页、多标的标签输入、组合回测月度热力图、信号中心、模拟盘和设置页；回测页支持策略卡切换、动态参数表单、代码搜索下拉、K 线 / 成交量 / 买卖点叠加、成交明细联动高亮，以及浅色 / 深色 / 跟随系统主题和 A 股 / 国际涨跌配色切换
 - 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
@@ -138,13 +139,14 @@ Web Dashboard 当前说明：
 
 - `/#/backtest`：单股 / 组合回测工作台，支持快捷键 `Ctrl+Enter` 运行、`Ctrl+E` 导出
 - `/#/stock-pool`：历史股票池 + 多因子排序，可一键把候选股带入组合回测
-- `/#/paper-trading`：本地模拟盘，实时刷新权益、持仓和成交日志，可导出报告
+- `/#/paper-trading`：当前仍是本地演示版模拟盘页面；后端真实模拟盘能力已通过 API 提供
 - `/#/signals`：买卖信号卡片、历史跟踪与一键加入模拟盘
 - `/#/settings`：Tushare Token、通知渠道、交易默认值、主题与涨跌配色偏好
 
 说明：
 
-- 模拟盘和外观偏好当前仍基于浏览器本地存储持久化，便于单机研究和原型验证
+- Web 端模拟盘页面当前仍保留浏览器本地原型态；后端 `paper/start|status|pause|stop` 已支持 SQLite 持久化模拟盘会话与交易
+- 外观偏好当前仍基于浏览器本地存储持久化
 - 后端已提供信号管理 API；调度扫描生成的信号会持久化到 SQLite，可用于推送、复盘和后续前端接入
 - Tushare Token 保存仍会写入后端 `config/config.toml`
 
@@ -156,6 +158,7 @@ Web Dashboard 当前说明：
 - `GET /api/meta`
 - `GET /api/config/status`
 - `GET /api/scheduler/status`
+- `GET /api/paper/status`
 - `GET /api/strategies`
 - `GET /api/signals/recent`
 - `GET /api/signals/today`
@@ -164,6 +167,9 @@ Web Dashboard 当前说明：
 - `GET /api/symbols/search`
 - `POST /api/factors/rank`
 - `POST /api/stock-pool/filter`
+- `POST /api/paper/start`
+- `POST /api/paper/pause`
+- `POST /api/paper/stop`
 - `POST /api/config/tushare-token`
 - `POST /api/notify/test`
 - `PATCH /api/signals/{signal_id}`
@@ -249,6 +255,60 @@ Web Dashboard 当前说明：
 - `trade_date` 可选；不传时默认使用当天
 - `force=true` 时，如果当天不是交易日，会自动回退到最近一个交易日继续执行
 - 返回本次扫描摘要、每个策略的运行结果、持久化后的信号列表，以及通知发送结果
+
+### `POST /api/paper/start`
+
+```json
+{
+  "strategy": "macd",
+  "strategy_params": {},
+  "symbols": ["600519.SH", "000858.SZ"],
+  "initial_cash": 100000,
+  "start_date": "2024-03-28"
+}
+```
+
+说明：
+
+- 会创建新的模拟盘会话，并按策略名 + 股票池过滤后续持久化信号
+- 买卖信号默认按“信号日后的首个交易日开盘价”模拟成交
+- 当前只允许一个未结束会话；如已有运行中 / 已暂停会话，需要先停止再新建
+
+### `GET /api/paper/status`
+
+查询参数：
+
+- `session_id`：可选；不传默认当前活跃会话
+- `date`：可选估值日期 `YYYY-MM-DD`
+
+响应会附带：
+
+- `summary`：当前权益、现金、持仓市值、今日盈亏和回测风格绩效指标
+- `holdings`：当前持仓快照
+- `trades`：当前会话下全部成交记录
+- `equity_curve`：按日权益曲线
+- `report`：与回测结果格式接近的完整报告
+
+### `POST /api/paper/pause`
+
+```json
+{
+  "session_id": "your-session-id"
+}
+```
+
+- 暂停后不再接收新信号成交，但仍可继续按查询日期对现有持仓做收盘估值
+
+### `POST /api/paper/stop`
+
+```json
+{
+  "session_id": "your-session-id",
+  "date": "2024-04-01"
+}
+```
+
+- 停止后会冻结最终快照，并把完整报告写入 SQLite，后续 `paper/status` 会优先返回该冻结结果
 
 ### `GET /api/signals/recent`
 

@@ -85,6 +85,15 @@ def build_api_meta() -> dict:
                 "commission": 0.001,
                 "data_provider": None,
             },
+            "paper": {
+                "strategy": "macd",
+                "strategy_params": {},
+                "symbols": [],
+                "initial_cash": 100_000.0,
+                "asset_type": "stock",
+                "start_date": None,
+                "data_provider": None,
+            },
             "scheduler": {
                 "enabled": False,
                 "scan_time": "16:00",
@@ -122,6 +131,7 @@ def build_api_meta() -> dict:
             "scheduler.enabled=true 时，服务启动后会自动恢复盘后扫描调度；也可通过 API 手动触发。",
             "signals/today、signals/history 和 signals/{id} 支持信号查询、状态流转与后续表现跟踪。",
             "signals/export 支持把指定日期的信号导出为 CSV、QMT Python 脚本和 JSON。",
+            "paper/start、paper/status、paper/pause 和 paper/stop 支持模拟盘会话、持仓估值、交易记录与最终报告。",
             "notify/test 可用来验证企业微信、钉钉、Server酱和 SMTP 邮件渠道连通性。",
             "backtest/run 会自动把单股回测结果写入 SQLite；可通过 backtest/history 与 backtest/compare 查询和对比。",
             "数据默认使用前复权价格（qfq）。",

@@ -187,6 +187,34 @@ class PortfolioRunRequest(BaseModel):
     )
 
 
+class PaperStartRequest(BaseModel):
+    """开始模拟盘请求。"""
+
+    strategy: str = Field("macd", description="信号策略名称")
+    strategy_params: dict = Field(default_factory=dict, description="策略参数")
+    symbols: list[str] = Field(..., min_length=1, description="跟踪股票池")
+    initial_cash: float = Field(100_000.0, gt=0, description="初始资金")
+    asset_type: AssetType = Field("stock", description="资产类型：stock / convertible_bond")
+    start_date: str | None = Field(None, description="可选起始日期 YYYY-MM-DD；不传默认今天")
+    data_provider: str | None = Field(
+        None,
+        description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",
+    )
+
+
+class PaperPauseRequest(BaseModel):
+    """暂停模拟盘请求。"""
+
+    session_id: str | None = Field(None, description="可选模拟盘会话 ID；不传默认当前活跃会话")
+
+
+class PaperStopRequest(BaseModel):
+    """停止模拟盘请求。"""
+
+    session_id: str | None = Field(None, description="可选模拟盘会话 ID；不传默认当前活跃会话")
+    date: str | None = Field(None, description="可选结算日期 YYYY-MM-DD；不传默认今天")
+
+
 class TushareTokenRequest(BaseModel):
     """Tushare token 保存/验证请求。"""
 

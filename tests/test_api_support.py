@@ -16,6 +16,9 @@ from quant_balance.api.schemas import (
     NotifyTestRequest,
     OptimizeConstraintRequest,
     OptimizeRequest,
+    PaperPauseRequest,
+    PaperStartRequest,
+    PaperStopRequest,
     PortfolioRunRequest,
     SchedulerRunRequest,
     SignalStatusUpdateRequest,
@@ -43,10 +46,14 @@ def test_create_api_app_registers_expected_routes():
         ("/api/meta", "GET"),
         ("/api/config/status", "GET"),
         ("/api/scheduler/status", "GET"),
+        ("/api/paper/status", "GET"),
         ("/api/signals/recent", "GET"),
         ("/api/signals/today", "GET"),
         ("/api/signals/history", "GET"),
         ("/api/signals/export", "GET"),
+        ("/api/paper/start", "POST"),
+        ("/api/paper/pause", "POST"),
+        ("/api/paper/stop", "POST"),
         ("/api/config/tushare-token", "POST"),
         ("/api/notify/test", "POST"),
         ("/api/scheduler/run", "POST"),
@@ -108,6 +115,9 @@ def test_post_routes_expose_request_body_in_openapi():
     assert "requestBody" in schema["paths"]["/api/backtest/optimize"]["post"]
     assert "requestBody" in schema["paths"]["/api/portfolio/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/screening/run"]["post"]
+    assert "requestBody" in schema["paths"]["/api/paper/start"]["post"]
+    assert "requestBody" in schema["paths"]["/api/paper/pause"]["post"]
+    assert "requestBody" in schema["paths"]["/api/paper/stop"]["post"]
     assert "requestBody" in schema["paths"]["/api/config/tushare-token"]["post"]
     assert "requestBody" in schema["paths"]["/api/notify/test"]["post"]
     assert "requestBody" in schema["paths"]["/api/scheduler/run"]["post"]
@@ -191,6 +201,76 @@ def test_scheduler_status_endpoint_delegates_to_manager():
         result = endpoint()
 
     assert result == expected
+
+
+def test_paper_status_endpoint_delegates_to_manager():
+    expected = {
+        "has_session": True,
+        "session_id": "paper-1",
+        "status": "running",
+        "summary": {"equity": 101_000.0},
+    }
+    with patch("quant_balance.execution.paper_trading.PaperTradingManager.get_status", return_value=expected) as mock_status:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/paper/status", "GET")
+
+        result = endpoint("paper-1", "2024-03-29")
+
+    assert result == expected
+    mock_status.assert_called_once_with(session_id="paper-1", as_of_date="2024-03-29")
+
+
+def test_paper_start_endpoint_delegates_to_manager():
+    payload = {"session_id": "paper-1", "status": "running"}
+    with patch("quant_balance.execution.paper_trading.PaperTradingManager.start_session", return_value=payload) as mock_start:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/paper/start", "POST")
+        request = PaperStartRequest(
+            strategy="macd",
+            strategy_params={"fast_period": 12},
+            symbols=["600519.SH"],
+            initial_cash=100_000.0,
+            start_date="2024-03-29",
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_start.assert_called_once_with(
+        strategy="macd",
+        strategy_params={"fast_period": 12},
+        symbols=["600519.SH"],
+        initial_cash=100_000.0,
+        asset_type="stock",
+        start_date="2024-03-29",
+        data_provider=None,
+    )
+
+
+def test_paper_pause_endpoint_delegates_to_manager():
+    payload = {"session_id": "paper-1", "status": "paused"}
+    with patch("quant_balance.execution.paper_trading.PaperTradingManager.pause_session", return_value=payload) as mock_pause:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/paper/pause", "POST")
+        request = PaperPauseRequest(session_id="paper-1")
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_pause.assert_called_once_with(session_id="paper-1")
+
+
+def test_paper_stop_endpoint_delegates_to_manager():
+    payload = {"session_id": "paper-1", "status": "stopped"}
+    with patch("quant_balance.execution.paper_trading.PaperTradingManager.stop_session", return_value=payload) as mock_stop:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/paper/stop", "POST")
+        request = PaperStopRequest(session_id="paper-1", date="2024-03-29")
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_stop.assert_called_once_with(session_id="paper-1", as_of_date="2024-03-29")
 
 
 def test_scheduler_run_endpoint_delegates_to_manager():

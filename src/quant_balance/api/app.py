@@ -12,6 +12,9 @@ from quant_balance.api.schemas import (
     FactorsRankRequest,
     NotifyTestRequest,
     OptimizeRequest,
+    PaperPauseRequest,
+    PaperStartRequest,
+    PaperStopRequest,
     PortfolioRunRequest,
     SchedulerRunRequest,
     SignalStatusUpdateRequest,
@@ -79,6 +82,7 @@ def create_api_app() -> Any:
         list_today_signals,
         update_signal_status,
     )
+    from quant_balance.execution.paper_trading import PaperTradingManager
     from quant_balance.execution.signal_export import export_signals_for_date
     from quant_balance.notify import send_configured_notifications
     from quant_balance.scheduler import DailyScanScheduler
@@ -95,7 +99,9 @@ def create_api_app() -> Any:
         description="QuantBalance 回测与研究接口 — backtesting.py + vectorbt",
     )
     scheduler_manager = DailyScanScheduler()
+    paper_manager = PaperTradingManager()
     app.state.scheduler_manager = scheduler_manager
+    app.state.paper_manager = paper_manager
 
     @app.on_event("startup")
     def startup_scheduler() -> None:
@@ -146,6 +152,131 @@ def create_api_app() -> Any:
         """返回定时调度器状态。"""
 
         return scheduler_manager.get_status()
+
+    @app.get("/api/paper/status")
+    def paper_status(session_id: str | None = None, date: str | None = None) -> dict[str, object]:
+        """返回模拟盘状态快照。"""
+
+        context = {"session_id": session_id, "date": date}
+        try:
+            return paper_manager.get_status(session_id=session_id, as_of_date=date)
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/paper/status",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/paper/status",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.post("/api/paper/start")
+    def paper_start(req: PaperStartRequest) -> dict[str, object]:
+        """启动新的模拟盘会话。"""
+
+        context = {
+            "strategy": req.strategy,
+            "symbols_count": len(req.symbols),
+            "asset_type": req.asset_type,
+            "start_date": req.start_date,
+        }
+        try:
+            return paper_manager.start_session(
+                strategy=req.strategy,
+                strategy_params=req.strategy_params,
+                symbols=req.symbols,
+                initial_cash=req.initial_cash,
+                asset_type=req.asset_type,
+                start_date=req.start_date,
+                data_provider=req.data_provider,
+            )
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/paper/start",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/paper/start",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.post("/api/paper/pause")
+    def paper_pause(req: PaperPauseRequest) -> dict[str, object]:
+        """暂停当前模拟盘会话。"""
+
+        context = {"session_id": req.session_id}
+        try:
+            return paper_manager.pause_session(session_id=req.session_id)
+        except LookupError as exc:
+            _log_api_error(
+                endpoint="/api/paper/pause",
+                status_code=404,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/paper/pause",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/paper/pause",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.post("/api/paper/stop")
+    def paper_stop(req: PaperStopRequest) -> dict[str, object]:
+        """停止模拟盘并冻结最终报告。"""
+
+        context = {"session_id": req.session_id, "date": req.date}
+        try:
+            return paper_manager.stop_session(session_id=req.session_id, as_of_date=req.date)
+        except LookupError as exc:
+            _log_api_error(
+                endpoint="/api/paper/stop",
+                status_code=404,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/paper/stop",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/paper/stop",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
 
     @app.post("/api/scheduler/run")
     def scheduler_run(req: SchedulerRunRequest) -> dict[str, object]:

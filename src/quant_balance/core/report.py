@@ -151,6 +151,77 @@ def normalize_vbt_stats(
     return report
 
 
+def build_equity_performance_report(
+    equity_series: pd.Series | pd.DataFrame | None,
+    *,
+    closed_trade_pnls: list[float] | None = None,
+    closed_trade_returns_pct: list[float] | None = None,
+    orders_count: int | None = None,
+    exposure_pct: float | None = None,
+    rolling_sharpe_window: int = 60,
+) -> dict[str, object]:
+    """基于任意权益曲线构建与回测结果风格一致的绩效摘要。"""
+
+    normalized_equity = _normalize_equity_series(equity_series)
+    returns = (
+        normalized_equity.pct_change().dropna()
+        if normalized_equity is not None and len(normalized_equity) > 1
+        else None
+    )
+    realized_pnls = [float(value) for value in (closed_trade_pnls or [])]
+    realized_returns = [float(value) for value in (closed_trade_returns_pct or [])]
+
+    initial_equity = None
+    final_equity = None
+    total_return_pct = None
+    if normalized_equity is not None and not normalized_equity.empty:
+        initial_equity = float(normalized_equity.iloc[0])
+        final_equity = float(normalized_equity.iloc[-1])
+        if initial_equity > 0:
+            total_return_pct = _rounded((final_equity / initial_equity - 1) * 100)
+
+    wins = [value for value in realized_pnls if value > 0]
+    losses = [abs(value) for value in realized_pnls if value < 0]
+    closed_trades_count = len(realized_pnls)
+    avg_trade_pct = (
+        _rounded(sum(realized_returns) / len(realized_returns))
+        if realized_returns
+        else None
+    )
+
+    annualized_return_pct = _rounded(_annualized_return_pct(normalized_equity))
+    max_drawdown_pct = _rounded(_max_drawdown_pct(normalized_equity))
+    report = {
+        "initial_equity": _rounded(initial_equity),
+        "final_equity": _rounded(final_equity),
+        "final_value": _rounded(final_equity),
+        "total_return_pct": total_return_pct,
+        "annualized_return_pct": annualized_return_pct,
+        "sharpe_ratio": _rounded(_annualized_sharpe(returns)),
+        "sortino_ratio": _rounded(_annualized_sortino(returns)),
+        "max_drawdown_pct": max_drawdown_pct,
+        "calmar_ratio": _rounded(_calmar_ratio(annualized_return_pct, max_drawdown_pct)),
+        "trades_count": closed_trades_count,
+        "orders_count": int(orders_count if orders_count is not None else closed_trades_count),
+        "win_rate_pct": _rounded(len(wins) / closed_trades_count * 100) if closed_trades_count else None,
+        "best_trade_pct": _rounded(max(realized_returns)) if realized_returns else None,
+        "worst_trade_pct": _rounded(min(realized_returns)) if realized_returns else None,
+        "avg_trade_pct": avg_trade_pct,
+        "profit_factor": _rounded(sum(wins) / sum(losses)) if wins and losses else None,
+        "expectancy_pct": avg_trade_pct,
+        "avg_trade_duration": None,
+        "exposure_pct": _rounded(exposure_pct),
+        "monthly_returns": _monthly_return_table(normalized_equity),
+        "rolling_sharpe_window_bars": rolling_sharpe_window,
+        "rolling_sharpe": _rolling_sharpe_series(
+            normalized_equity,
+            window=rolling_sharpe_window,
+        ),
+        "yearly_stats": _yearly_stats(normalized_equity),
+    }
+    return report
+
+
 def bt_trades_to_dicts(
     trades_df: pd.DataFrame,
     risk_params: dict | None = None,
@@ -456,6 +527,18 @@ def _annualized_sharpe(returns: pd.Series | None) -> float | None:
     if volatility <= 0 or pd.isna(volatility):
         return None
     return float(returns.mean()) / volatility * sqrt(TRADING_DAYS_PER_YEAR)
+
+
+def _annualized_sortino(returns: pd.Series | None) -> float | None:
+    if returns is None or returns.empty:
+        return None
+    downside = returns[returns < 0]
+    if downside.empty:
+        return None
+    downside_volatility = float(downside.std(ddof=0))
+    if downside_volatility <= 0 or pd.isna(downside_volatility):
+        return None
+    return float(returns.mean()) / downside_volatility * sqrt(TRADING_DAYS_PER_YEAR)
 
 
 def _calmar_ratio(

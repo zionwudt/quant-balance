@@ -4,9 +4,15 @@ import json
 import math
 
 import pandas as pd
+import pytest
 
 from quant_balance.core.backtest import run_backtest
-from quant_balance.core.report import bt_trades_to_dicts, equity_curve_to_dicts, normalize_bt_stats
+from quant_balance.core.report import (
+    bt_trades_to_dicts,
+    build_equity_performance_report,
+    equity_curve_to_dicts,
+    normalize_bt_stats,
+)
 from quant_balance.core.strategies import SmaCross
 
 
@@ -182,4 +188,34 @@ def test_normalize_bt_stats_includes_enhanced_sections_and_benchmark_summary():
     assert "benchmark_total_return_pct" in report
     assert "beta" in report
     assert "alpha_annualized_pct" in report
+    json.dumps(report, allow_nan=False)
+
+
+def test_build_equity_performance_report_returns_backtest_like_keys():
+    dates = pd.date_range("2024-01-02", periods=80, freq="B")
+    equity_series = pd.Series(
+        [100_000.0 * (1 + index * 0.0015 + math.sin(index / 6) * 0.01) for index in range(len(dates))],
+        index=dates,
+    )
+
+    report = build_equity_performance_report(
+        equity_series,
+        closed_trade_pnls=[1_200.0, -400.0, 800.0],
+        closed_trade_returns_pct=[6.0, -2.0, 4.0],
+        orders_count=5,
+        exposure_pct=62.5,
+        rolling_sharpe_window=20,
+    )
+
+    assert report["initial_equity"] == 100_000.0
+    assert report["final_equity"] > 100_000.0
+    assert report["trades_count"] == 3
+    assert report["orders_count"] == 5
+    assert report["win_rate_pct"] == pytest.approx(66.666667)
+    assert report["profit_factor"] == 5.0
+    assert report["expectancy_pct"] == pytest.approx(2.666667)
+    assert report["exposure_pct"] == 62.5
+    assert len(report["monthly_returns"]) >= 3
+    assert len(report["rolling_sharpe"]) > 0
+    assert len(report["yearly_stats"]) == 1
     json.dumps(report, allow_nan=False)

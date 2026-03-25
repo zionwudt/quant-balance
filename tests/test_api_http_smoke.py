@@ -13,6 +13,7 @@ import pandas as pd
 
 from quant_balance.api.app import create_api_app
 from quant_balance.core.backtest import OptimizeResult
+from quant_balance.core.signals import Signal, persist_signals
 
 
 def _make_sample_df(days: int = 240) -> pd.DataFrame:
@@ -144,8 +145,39 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
             payload[symbol] = df
         return payload
 
+    paper_db_path = tmp_path / "paper-store.db"
+    persist_signals(
+        [
+            Signal(
+                symbol="600519.SH",
+                name="贵州茅台",
+                side="BUY",
+                strategy="macd",
+                reason="模拟盘买入",
+                price=10.0,
+                suggested_qty=100,
+                timestamp=pd.Timestamp("2024-03-28 15:00:00", tz="Asia/Shanghai").to_pydatetime(),
+                trade_date="2024-03-28",
+            ),
+            Signal(
+                symbol="600519.SH",
+                name="贵州茅台",
+                side="SELL",
+                strategy="macd",
+                reason="模拟盘卖出",
+                price=10.8,
+                suggested_qty=100,
+                timestamp=pd.Timestamp("2024-03-29 15:00:00", tz="Asia/Shanghai").to_pydatetime(),
+                trade_date="2024-03-29",
+            ),
+        ],
+        db_path=paper_db_path,
+    )
+
     with (
         patch("quant_balance.services.backtest_service.load_dataframe", side_effect=fake_load_dataframe),
+        patch("quant_balance.execution.paper_trading.load_dataframe", side_effect=fake_load_dataframe),
+        patch("quant_balance.execution.paper_trading.CACHE_DB_PATH", paper_db_path),
         patch("quant_balance.data.result_store.CACHE_DB_PATH", tmp_path / "result-store.db"),
         patch(
             "quant_balance.data.result_store.result_store_now",
@@ -387,6 +419,47 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
         assert scheduler_run_status == 200
         assert scheduler_run_payload["status"] == "completed"
         assert scheduler_run_payload["signals_count"] == 2
+
+        paper_start_status, _, paper_start_payload = _request(
+            app,
+            "POST",
+            "/api/paper/start",
+            {
+                "strategy": "macd",
+                "symbols": ["600519.SH"],
+                "initial_cash": 100000,
+                "start_date": "2024-03-28",
+            },
+        )
+        assert paper_start_status == 200
+        assert paper_start_payload["status"] == "running"
+        assert paper_start_payload["summary"]["equity"] == 100000.0
+
+        paper_status_running, _, paper_status_running_payload = _request(
+            app,
+            "GET",
+            f"/api/paper/status?{urlencode({'session_id': paper_start_payload['session_id'], 'date': '2024-03-29'})}",
+        )
+        assert paper_status_running == 200
+        assert len(paper_status_running_payload["trades"]) == 1
+        assert paper_status_running_payload["trades"][0]["trade_date"] == "2024-03-29"
+        assert paper_status_running_payload["summary"]["holdings_value"] > 0
+
+        paper_stop_status, _, paper_stop_payload = _request(
+            app,
+            "POST",
+            "/api/paper/stop",
+            {
+                "session_id": paper_start_payload["session_id"],
+                "date": "2024-04-01",
+            },
+        )
+        assert paper_stop_status == 200
+        assert paper_stop_payload["status"] == "stopped"
+        assert len(paper_stop_payload["trades"]) == 2
+        assert paper_stop_payload["summary"]["orders_count"] == 2
+        assert paper_stop_payload["summary"]["trades_count"] == 1
+        assert paper_stop_payload["report"]["run_context"]["strategy"] == "macd"
 
         recent_signals_status, _, recent_signals_payload = _request(
             app,
