@@ -13,6 +13,7 @@ from quant_balance.core.factors import (
     standardize_factor_series,
 )
 from quant_balance.core.portfolio import PortfolioBacktestResult, run_portfolio_backtest
+from quant_balance.core.regime import RegimeDetector
 from quant_balance.core.report import (
     bt_trades_to_dicts,
     equity_curve_to_dicts,
@@ -50,6 +51,7 @@ __all__ = [
     "FactorSpec",
     "OptimizeResult",
     "PortfolioBacktestResult",
+    "RegimeDetector",
     "BollingerBreakout",
     "BuyAndHold",
     "DcaStrategy",

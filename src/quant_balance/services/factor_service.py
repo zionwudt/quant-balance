@@ -9,6 +9,7 @@ from quant_balance.core.factors import DEFAULT_FACTOR_SPECS, rank_factor_items, 
 from quant_balance.data.fundamental_loader import load_financial_at
 from quant_balance.data.stock_pool import filter_pool_at_date
 from quant_balance.logging_utils import get_logger, log_event
+from quant_balance.services.regime_service import DEFAULT_REGIME_SYMBOL, resolve_market_regime_filter
 
 logger = get_logger(__name__)
 
@@ -20,6 +21,8 @@ def run_factor_ranking(
     top_n: int = 50,
     symbols: list[str] | None = None,
     pool_filters: dict | None = None,
+    market_regime: str | None = None,
+    market_regime_symbol: str = DEFAULT_REGIME_SYMBOL,
 ) -> dict[str, object]:
     """执行多因子打分与排名。"""
 
@@ -28,6 +31,52 @@ def run_factor_ranking(
 
     started_at = perf_counter()
     factor_specs = resolve_factor_specs(factors or list(DEFAULT_FACTOR_SPECS))
+    regime_filter = None
+    if market_regime is not None:
+        regime_filter = resolve_market_regime_filter(
+            market_regime,
+            as_of_date=pool_date,
+            symbol=market_regime_symbol,
+        )
+        if not regime_filter["matches"]:
+            payload = {
+                "symbols": [],
+                "weights": {},
+                "rankings": [],
+                "run_context": {
+                    "pool_date": pool_date,
+                    "pool_filters": pool_filters or {},
+                    "requested_symbols_count": len(symbols) if symbols is not None else None,
+                    "candidate_count": 0,
+                    "scored_count": 0,
+                    "top_n": top_n,
+                    "skipped_symbols_no_financial": [],
+                    "skipped_symbols_missing_factors": [],
+                    "market_regime_filter": market_regime,
+                    "market_regime_symbol": market_regime_symbol,
+                    "market_regime_actual": regime_filter["actual_regime"],
+                    "market_regime_match": False,
+                    "factors": [],
+                },
+            }
+            log_event(
+                logger,
+                "FACTORS_RANK",
+                pool_date=pool_date,
+                pool_filters=pool_filters or {},
+                requested_symbols_count=len(symbols) if symbols is not None else None,
+                candidate_count=0,
+                scored_count=0,
+                top_n=top_n,
+                market_regime_filter=market_regime,
+                market_regime_symbol=market_regime_symbol,
+                market_regime_actual=regime_filter["actual_regime"],
+                market_regime_match=False,
+                factors=[],
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
+            return payload
+
     records = filter_pool_at_date(
         pool_date,
         filters=pool_filters if _has_active_pool_filters(pool_filters) else None,
@@ -99,6 +148,10 @@ def run_factor_ranking(
             "top_n": top_n,
             "skipped_symbols_no_financial": missing_financial_symbols,
             "skipped_symbols_missing_factors": result.skipped_symbols,
+            "market_regime_filter": market_regime,
+            "market_regime_symbol": market_regime_symbol if market_regime is not None else None,
+            "market_regime_actual": regime_filter["actual_regime"] if regime_filter is not None else None,
+            "market_regime_match": regime_filter["matches"] if regime_filter is not None else None,
             "factors": [
                 {
                     "name": spec.name,
@@ -118,6 +171,10 @@ def run_factor_ranking(
         candidate_count=len(records),
         scored_count=len(result.rankings),
         top_n=top_n,
+        market_regime_filter=market_regime,
+        market_regime_symbol=market_regime_symbol if market_regime is not None else None,
+        market_regime_actual=regime_filter["actual_regime"] if regime_filter is not None else None,
+        market_regime_match=regime_filter["matches"] if regime_filter is not None else None,
         factors=payload["run_context"]["factors"],
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )

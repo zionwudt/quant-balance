@@ -38,6 +38,8 @@ def build_api_meta() -> dict:
                 "asset_type": "stock",
                 "timeframe": "1d",
                 "signal": "sma_cross",
+                "market_regime": None,
+                "market_regime_symbol": "000300.SH",
                 "pool_filters": {
                     "industries": [],
                     "exclude_st": False,
@@ -63,6 +65,8 @@ def build_api_meta() -> dict:
                 },
             },
             "factors_rank": {
+                "market_regime": None,
+                "market_regime_symbol": "000300.SH",
                 "factors": [
                     {"name": "roe", "weight": 0.4},
                     {"name": "pe", "weight": 0.25},
@@ -127,6 +131,7 @@ def build_api_meta() -> dict:
         "notes": [
             "回测引擎基于 backtesting.py，支持精细化单股回测和参数优化。",
             "批量筛选引擎基于 vectorbt，支持向量化快速扫描多只股票。",
+            "market/regime 可返回当前市场状态或区间状态序列，当前至少区分 BULL / BEAR / SIDEWAYS。",
             "历史股票池支持行业、市值、PE、ST、次新等前置过滤，并继续以 get_pool_at_date() 为底座。",
             "多因子打分引擎支持因子标准化、加权总分与排名，可直接用于筛选研究与组合候选池构建。",
             "组合回测基于 vectorbt 目标权重矩阵，适合做多标的轮动与再平衡研究。",
@@ -140,6 +145,7 @@ def build_api_meta() -> dict:
             "行情数据默认按 akshare -> baostock -> tushare 顺序回退，也可在请求中显式指定。",
             "backtest / optimize / screening 支持 asset_type=convertible_bond；当前可转债仅支持 tushare，并沿用简化版股票化撮合规则。",
             "backtest/run 与 screening/run 支持 timeframe=1d/1min/5min/15min/30min/60min；分钟线当前仅支持 stock + tushare，且返回未复权价格。",
+            "factors/rank 与 screening/run 支持可选 market_regime 过滤，默认基于沪深300日线状态判断。",
             "optimize、portfolio、paper、scheduler 仍以日线研究为主，不提供分钟线参数入口。",
             "默认面向本地研究演示，不作为实盘建议。",
         ],

@@ -44,6 +44,7 @@ def test_create_api_app_registers_expected_routes():
         ("/favicon.svg", "GET"),
         ("/health", "GET"),
         ("/api/meta", "GET"),
+        ("/api/market/regime", "GET"),
         ("/api/config/status", "GET"),
         ("/api/scheduler/status", "GET"),
         ("/api/paper/status", "GET"),
@@ -99,6 +100,8 @@ def test_meta_endpoint_includes_defaults():
     assert result["defaults"]["backtest"]["timeframe"] == "1d"
     assert result["defaults"]["backtest"]["strategy"] == "sma_cross"
     assert result["defaults"]["screening"]["timeframe"] == "1d"
+    assert result["defaults"]["screening"]["market_regime_symbol"] == "000300.SH"
+    assert result["defaults"]["factors_rank"]["market_regime_symbol"] == "000300.SH"
     assert result["defaults"]["factors_rank"]["factors"][0]["name"] == "roe"
     assert result["defaults"]["stock_pool"]["filters"]["exclude_st"] is False
     assert result["defaults"]["portfolio"]["allocation"] == "equal"
@@ -157,6 +160,28 @@ def test_symbols_search_delegates_to_service():
 
     assert result == payload
     mock_search.assert_called_once_with("茅台", limit=5)
+
+
+def test_market_regime_endpoint_delegates_to_service():
+    payload = {
+        "symbol": "000300.SH",
+        "latest": {"date": "2024-03-29", "regime": "BULL"},
+        "series": [{"date": "2024-03-29", "regime": "BULL"}],
+        "run_context": {"symbol": "000300.SH"},
+    }
+    with patch("quant_balance.services.regime_service.run_market_regime_analysis", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/market/regime", "GET")
+
+        result = endpoint("000300.SH", "2024-03-01", "2024-03-29", "tushare")
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        symbol="000300.SH",
+        start_date="2024-03-01",
+        end_date="2024-03-29",
+        data_provider="tushare",
+    )
 
 
 def test_optimize_constraint_schema_requires_single_right_operand():
@@ -824,8 +849,36 @@ def test_factors_rank_delegates_to_service():
             {"name": "pe", "weight": 0.4},
         ],
         pool_filters={"industries": ["银行"]},
+        market_regime=None,
+        market_regime_symbol="000300.SH",
         top_n=10,
         symbols=["AAA", "BBB"],
+    )
+
+
+def test_factors_rank_delegates_market_regime_to_service():
+    payload = {"symbols": [], "rankings": []}
+    with patch("quant_balance.services.factor_service.run_factor_ranking", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/factors/rank", "POST")
+        request = FactorsRankRequest(
+            pool_date="2024-01-01",
+            market_regime="BULL",
+            market_regime_symbol="000905.SH",
+            factors=[{"name": "roe", "weight": 1.0}],
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        pool_date="2024-01-01",
+        factors=[{"name": "roe", "weight": 1.0}],
+        pool_filters={},
+        market_regime="BULL",
+        market_regime_symbol="000905.SH",
+        top_n=50,
+        symbols=None,
     )
 
 
@@ -868,6 +921,8 @@ def test_screening_run_delegates_pool_filters_to_service():
         signal="sma_cross",
         signal_params={},
         pool_filters={"industries": ["银行"], "exclude_st": True},
+        market_regime=None,
+        market_regime_symbol="000300.SH",
         top_n=20,
         cash=100_000.0,
         symbols=["AAA", "BBB"],
@@ -900,6 +955,8 @@ def test_screening_run_delegates_convertible_bond_asset_type():
         signal="sma_cross",
         signal_params={},
         pool_filters={},
+        market_regime=None,
+        market_regime_symbol="000300.SH",
         top_n=20,
         cash=100_000.0,
         symbols=["110043.SH", "113001.SH"],
@@ -932,9 +989,46 @@ def test_screening_run_delegates_timeframe_to_service():
         signal="sma_cross",
         signal_params={},
         pool_filters={},
+        market_regime=None,
+        market_regime_symbol="000300.SH",
         top_n=20,
         cash=100_000.0,
         symbols=["AAA", "BBB"],
+    )
+
+
+def test_screening_run_delegates_market_regime_to_service():
+    payload = {"rankings": [], "total_screened": 0}
+    with patch("quant_balance.services.screening_service.run_stock_screening", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/screening/run", "POST")
+        request = ScreeningRunRequest(
+            pool_date="2024-01-01",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            market_regime="SIDEWAYS",
+            market_regime_symbol="000905.SH",
+            signal="sma_cross",
+            symbols=["AAA"],
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        pool_date="2024-01-01",
+        start_date="2024-01-01",
+        end_date="2024-06-30",
+        asset_type="stock",
+        timeframe="1d",
+        signal="sma_cross",
+        signal_params={},
+        pool_filters={},
+        market_regime="SIDEWAYS",
+        market_regime_symbol="000905.SH",
+        top_n=20,
+        cash=100_000.0,
+        symbols=["AAA"],
     )
 
 
@@ -1130,3 +1224,15 @@ def test_backtest_run_maps_unexpected_error_to_http_500(caplog: pytest.LogCaptur
     assert payload["endpoint"] == "/api/backtest/run"
     assert payload["status_code"] == 500
     assert payload["error_type"] == "RuntimeError"
+
+
+def test_market_regime_endpoint_maps_value_error_to_http_400():
+    with patch("quant_balance.services.regime_service.run_market_regime_analysis", side_effect=ValueError("bad date")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/market/regime", "GET")
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint("000300.SH", None, "bad-date", None)
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "bad date"

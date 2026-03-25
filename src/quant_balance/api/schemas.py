@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 AssetType = Literal["stock", "convertible_bond"]
 NotifyChannel = Literal["wecom", "dingtalk", "serverchan", "email"]
 Timeframe = Literal["1d", "1min", "5min", "15min", "30min", "60min"]
+MarketRegime = Literal["BULL", "BEAR", "SIDEWAYS"]
 
 
 class StockPoolFiltersRequest(BaseModel):
@@ -56,6 +57,8 @@ class FactorsRankRequest(BaseModel):
         description="因子配置列表",
     )
     pool_filters: StockPoolFiltersRequest = Field(default_factory=StockPoolFiltersRequest, description="股票池过滤条件")
+    market_regime: MarketRegime | None = Field(None, description="可选市场状态过滤：BULL / BEAR / SIDEWAYS")
+    market_regime_symbol: str = Field("000300.SH", description="市场状态识别基准指数，默认沪深300")
     top_n: int = Field(50, gt=0, description="返回前 N 名")
     symbols: list[str] | None = Field(None, description="可选候选股票列表；传入时会与历史股票池取交集")
 
@@ -161,6 +164,8 @@ class ScreeningRunRequest(BaseModel):
     signal: str = Field("sma_cross", description="信号函数名称")
     signal_params: dict = Field(default_factory=dict, description="信号参数")
     pool_filters: StockPoolFiltersRequest = Field(default_factory=StockPoolFiltersRequest, description="股票池过滤条件")
+    market_regime: MarketRegime | None = Field(None, description="可选市场状态过滤：BULL / BEAR / SIDEWAYS")
+    market_regime_symbol: str = Field("000300.SH", description="市场状态识别基准指数，默认沪深300")
     top_n: int = Field(20, gt=0, description="返回前 N 名")
     cash: float = Field(100_000.0, gt=0, description="初始资金")
     symbols: list[str] | None = Field(None, description="自定义候选股票列表（传入时会与历史股票池取交集）")

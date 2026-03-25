@@ -9,6 +9,7 @@ from quant_balance.core.screening import run_screening
 from quant_balance.core.strategies import SIGNAL_REGISTRY
 from quant_balance.data.stock_pool import filter_pool_at_date, get_pool_at_date
 from quant_balance.logging_utils import get_logger, log_event
+from quant_balance.services.regime_service import DEFAULT_REGIME_SYMBOL, resolve_market_regime_filter
 
 logger = get_logger(__name__)
 
@@ -44,6 +45,8 @@ def run_stock_screening(
     cash: float = 100_000.0,
     symbols: list[str] | None = None,
     pool_filters: dict | None = None,
+    market_regime: str | None = None,
+    market_regime_symbol: str = DEFAULT_REGIME_SYMBOL,
     data_provider: str | None = None,
 ) -> dict:
     """执行批量选股筛选，返回 API 可直接消费的结果字典。
@@ -57,13 +60,65 @@ def run_stock_screening(
     signal_func = SIGNAL_REGISTRY.get(signal)
     if signal_func is None:
         raise ValueError(f"未知信号: {signal}，可用: {list(SIGNAL_REGISTRY)}")
+    started_at = perf_counter()
     if timeframe != "1d":
         if asset_type != "stock":
             raise ValueError("分钟筛选当前仅支持 stock 资产类型。")
         if data_provider not in (None, "tushare"):
             raise ValueError("分钟筛选当前仅支持 tushare 数据源。")
+    regime_filter = None
+    if market_regime is not None:
+        regime_filter = resolve_market_regime_filter(
+            market_regime,
+            as_of_date=pool_date,
+            symbol=market_regime_symbol,
+        )
+        if not regime_filter["matches"]:
+            payload = {
+                "rankings": [],
+                "total_screened": 0,
+                "run_context": {
+                    "pool_date": pool_date,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "asset_type": asset_type,
+                    "timeframe": timeframe,
+                    "signal": signal,
+                    "signal_params": signal_params or {},
+                    "pool_filters": pool_filters or {},
+                    "top_n": top_n,
+                    "data_provider": data_provider,
+                    "market_regime_filter": market_regime,
+                    "market_regime_symbol": market_regime_symbol,
+                    "market_regime_actual": regime_filter["actual_regime"],
+                    "market_regime_match": False,
+                },
+            }
+            log_event(
+                logger,
+                "SCREENING_RUN",
+                stage="service",
+                pool_date=pool_date,
+                start_date=start_date,
+                end_date=end_date,
+                asset_type=asset_type,
+                timeframe=timeframe,
+                signal=signal,
+                signal_params=signal_params or {},
+                pool_filters=pool_filters or {},
+                top_n=top_n,
+                requested_symbols_count=len(symbols) if symbols is not None else None,
+                loaded_symbols_count=0,
+                total_screened=0,
+                data_provider=data_provider,
+                market_regime_filter=market_regime,
+                market_regime_symbol=market_regime_symbol,
+                market_regime_actual=regime_filter["actual_regime"],
+                market_regime_match=False,
+                duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            )
+            return payload
 
-    started_at = perf_counter()
     if asset_type == "convertible_bond":
         if _has_active_pool_filters(pool_filters):
             raise ValueError("可转债筛选暂不支持 pool_filters，请直接传入 symbols。")
@@ -103,6 +158,10 @@ def run_stock_screening(
                 "pool_filters": pool_filters or {},
                 "top_n": top_n,
                 "data_provider": data_provider,
+                "market_regime_filter": market_regime,
+                "market_regime_symbol": market_regime_symbol if market_regime is not None else None,
+                "market_regime_actual": regime_filter["actual_regime"] if regime_filter is not None else None,
+                "market_regime_match": regime_filter["matches"] if regime_filter is not None else None,
             },
         }
         log_event(
@@ -122,6 +181,10 @@ def run_stock_screening(
             loaded_symbols_count=0,
             total_screened=0,
             data_provider=data_provider,
+            market_regime_filter=market_regime,
+            market_regime_symbol=market_regime_symbol if market_regime is not None else None,
+            market_regime_actual=regime_filter["actual_regime"] if regime_filter is not None else None,
+            market_regime_match=regime_filter["matches"] if regime_filter is not None else None,
             duration_ms=round((perf_counter() - started_at) * 1000, 2),
         )
         return payload
@@ -165,6 +228,10 @@ def run_stock_screening(
             "pool_filters": pool_filters or {},
             "top_n": top_n,
             "data_provider": data_provider,
+            "market_regime_filter": market_regime,
+            "market_regime_symbol": market_regime_symbol if market_regime is not None else None,
+            "market_regime_actual": regime_filter["actual_regime"] if regime_filter is not None else None,
+            "market_regime_match": regime_filter["matches"] if regime_filter is not None else None,
         },
     }
     log_event(
@@ -185,6 +252,10 @@ def run_stock_screening(
         total_screened=len(data),
         ranked_count=len(rankings_list),
         data_provider=data_provider,
+        market_regime_filter=market_regime,
+        market_regime_symbol=market_regime_symbol if market_regime is not None else None,
+        market_regime_actual=regime_filter["actual_regime"] if regime_filter is not None else None,
+        market_regime_match=regime_filter["matches"] if regime_filter is not None else None,
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )
     return payload

@@ -236,3 +236,36 @@ def test_run_stock_screening_rejects_non_tushare_data_provider_for_minute() -> N
             data_provider="akshare",
             symbols=["AAA"],
         )
+
+
+def test_run_stock_screening_skips_when_market_regime_filter_mismatches() -> None:
+    with (
+        patch(
+            "quant_balance.services.screening_service.resolve_market_regime_filter",
+            return_value={
+                "requested_regime": "BULL",
+                "actual_regime": "SIDEWAYS",
+                "matches": False,
+                "symbol": "000300.SH",
+                "date": "2024-01-01",
+            },
+        ) as mock_regime,
+        patch("quant_balance.services.screening_service.load_multi_dataframes") as mock_load,
+    ):
+        payload = run_stock_screening(
+            pool_date="2024-01-01",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            market_regime="BULL",
+            symbols=["AAA"],
+        )
+
+    assert payload["rankings"] == []
+    assert payload["run_context"]["market_regime_actual"] == "SIDEWAYS"
+    assert payload["run_context"]["market_regime_match"] is False
+    mock_regime.assert_called_once_with(
+        "BULL",
+        as_of_date="2024-01-01",
+        symbol="000300.SH",
+    )
+    mock_load.assert_not_called()

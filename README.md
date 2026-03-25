@@ -14,6 +14,7 @@
 - 单股精细回测：`sma_cross`、`ema_cross`、`buy_and_hold`、`macd`、`rsi`、`bollinger`、`grid`、`dca`、`ma_rsi_filter`
 - 参数优化：基于 `backtesting.py Backtest.optimize()`，支持 top-N 排名、参数约束与 Walk-Forward 验证
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
+- 市场状态识别：支持基于指数 `DataFrame` 判断 `BULL / BEAR / SIDEWAYS`，并可供 API、筛选和因子服务复用
 - 分钟级研究：股票 / 指数支持 `1min / 5min / 15min / 30min / 60min` K 线加载、缓存，并可直接用于单股回测与批量筛选
 - 可转债研究：`asset_type=convertible_bond` 时支持日线加载、单标回测/优化、显式列表筛选，并附带转股价值 / 转股溢价率 / 纯债溢价率 / 推导转股价等字段
 - 报告增强：单股回测 `summary` 内置 Calmar、月度收益、滚动 Sharpe、分年统计，并支持可选 benchmark 对比（基准权益、超额收益、Beta、Alpha）
@@ -159,6 +160,7 @@ Web Dashboard 当前说明：
 - `GET /health`
 - `GET /api/meta`
 - `GET /api/config/status`
+- `GET /api/market/regime`
 - `GET /api/scheduler/status`
 - `GET /api/paper/status`
 - `GET /api/strategies`
@@ -198,6 +200,12 @@ Web Dashboard 当前说明：
 - 分钟线当前返回未复权价格
 
 四个行情研究类 `POST` 接口都支持可选字段 `data_provider`，但可转债当前仅接受 `tushare`；分钟线当前也仅接受 `tushare`。
+
+`/api/factors/rank` 与 `/api/screening/run` 还支持可选字段 `market_regime` / `market_regime_symbol`：
+
+- `market_regime`：仅支持 `BULL / BEAR / SIDEWAYS`
+- `market_regime_symbol`：用于判定市场状态的指数代码，默认 `000300.SH`
+- 过滤判定时点统一使用 `pool_date`
 
 ## 内置策略
 
@@ -536,6 +544,45 @@ curl "http://127.0.0.1:8765/api/symbols/search?q=茅台&limit=5"
 }
 ```
 
+### `GET /api/market/regime`
+
+返回当前市场状态或某区间的状态序列。默认基于 `000300.SH`（沪深300）日线判断。
+
+示例：
+
+```bash
+curl "http://127.0.0.1:8765/api/market/regime?symbol=000300.SH&start_date=2024-01-01&end_date=2024-03-31"
+```
+
+返回结构：
+
+```json
+{
+  "symbol": "000300.SH",
+  "latest": {
+    "date": "2024-03-29",
+    "regime": "BULL",
+    "close": 3560.12,
+    "short_ma": 3520.45,
+    "long_ma": 3408.18,
+    "trend_strength_pct": 3.2931,
+    "momentum_pct": 5.8241
+  },
+  "series": [
+    {
+      "date": "2024-03-01",
+      "regime": "SIDEWAYS"
+    }
+  ],
+  "run_context": {
+    "symbol": "000300.SH",
+    "start_date": "2024-01-01",
+    "end_date": "2024-03-31",
+    "data_provider": "tushare"
+  }
+}
+```
+
 可转债示例：
 
 ```json
@@ -608,6 +655,8 @@ curl "http://127.0.0.1:8765/api/symbols/search?q=茅台&limit=5"
 ```json
 {
   "pool_date": "2024-01-01",
+  "market_regime": "BULL",
+  "market_regime_symbol": "000300.SH",
   "factors": [
     { "name": "roe", "weight": 0.4 },
     { "name": "pe", "weight": 0.25 },
@@ -631,6 +680,8 @@ curl "http://127.0.0.1:8765/api/symbols/search?q=茅台&limit=5"
   "end_date": "2024-12-31",
   "asset_type": "stock",
   "timeframe": "1d",
+  "market_regime": "BULL",
+  "market_regime_symbol": "000300.SH",
   "signal": "sma_cross",
   "signal_params": {
     "fast": 5,
@@ -662,6 +713,7 @@ curl "http://127.0.0.1:8765/api/symbols/search?q=茅台&limit=5"
 
 - 可转债筛选当前需要显式传入 `symbols`
 - 可转债筛选暂不支持 `pool_filters`
+- `market_regime / market_regime_symbol` 可作为市场环境过滤条件；当 `pool_date` 对应状态不匹配时，直接返回空结果
 - 分钟筛选可把 `timeframe` 改成 `1min / 5min / 15min / 30min / 60min`
 - 分钟筛选当前仅支持股票 + Tushare，且使用未复权价格
 
@@ -748,6 +800,7 @@ core/screening.py -> vectorbt
 - 股票分钟线当前仅支持 `tushare`，并返回未复权价格
 - 可转债日线当前仅支持 `tushare`，会额外输出 `ConversionValue`、`ConversionPremiumRate`、`PureBondPremiumRate`、`ConversionPrice` 等字段
 - `backtest/run` 与 `screening/run` 支持分钟线；`optimize`、`portfolio`、`paper`、`scheduler` 当前仍以日线研究为主
+- 市场状态识别基于指数 `DataFrame`，默认提供 `BULL / BEAR / SIDEWAYS` 三态，并可在 `factors/rank` 与 `screening/run` 中复用
 - 组合回测通过目标权重矩阵做再平衡，不重新引入旧的自研多标的撮合内核
 - `load_financial_at()` 会把估值与财报字段聚合成稳定快照，其中财报类字段严格按 `ann_date` 过滤
 - 股票池过滤始终建立在 `get_pool_at_date()` 的历史池之上，可叠加行业 / 市值 / PE / ST / 次新条件
@@ -771,6 +824,7 @@ core/screening.py -> vectorbt
 - `BACKTEST_OPTIMIZE`：`symbol`、`start_date`、`end_date`、`asset_type`、`strategy`、`maximize`、`param_ranges`、`best_params`、`data_provider`
 - `FACTORS_RANK`：`pool_date`、`factors`、`candidate_count`、`scored_count`、`top_n`
 - `SCREENING_RUN`：`pool_date`、`start_date`、`end_date`、`asset_type`、`signal`、`top_n`、`total_screened`、`data_provider`
+- `MARKET_REGIME`：`symbol`、`start_date`、`end_date`、`latest_regime`、`series_count`、`data_provider`
 - `API_ERROR`：`endpoint`、`status_code`、`detail`，以及对应请求的 `symbol` / `strategy` / `signal` / `pool_date`
 
 默认日志级别为 `INFO`，可通过环境变量 `QUANT_BALANCE_LOG_LEVEL` 调整。

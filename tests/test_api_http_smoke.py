@@ -198,6 +198,7 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
 
     with (
         patch("quant_balance.services.backtest_service.load_dataframe", side_effect=fake_load_dataframe),
+        patch("quant_balance.services.regime_service.load_dataframe", side_effect=fake_load_dataframe),
         patch("quant_balance.execution.paper_trading.load_dataframe", side_effect=fake_load_dataframe),
         patch("quant_balance.execution.paper_trading.CACHE_DB_PATH", paper_db_path),
         patch("quant_balance.data.result_store.CACHE_DB_PATH", tmp_path / "result-store.db"),
@@ -600,6 +601,16 @@ def test_api_http_smoke_end_to_end(tmp_path: Path):
         assert search_payload["query"] == "茅台"
         assert search_payload["items"][0]["symbol"] == "600519.SH"
         assert search_payload["items"][1]["kind"] == "benchmark"
+
+        regime_status, _, regime_payload = _request(
+            app,
+            "GET",
+            f"/api/market/regime?{urlencode({'symbol': '000300.SH', 'start_date': '2024-03-01', 'end_date': '2024-12-31'})}",
+        )
+        assert regime_status == 200
+        assert regime_payload["symbol"] == "000300.SH"
+        assert regime_payload["latest"]["regime"] in {"BULL", "SIDEWAYS"}
+        assert len(regime_payload["series"]) > 0
 
         backtest_status, _, backtest_payload = _request(
             app,

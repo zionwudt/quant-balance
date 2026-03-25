@@ -89,6 +89,7 @@ def create_api_app() -> Any:
     from quant_balance.services.backtest_service import run_optimize, run_single_backtest
     from quant_balance.services.factor_service import run_factor_ranking
     from quant_balance.services.portfolio_service import run_portfolio_research
+    from quant_balance.services.regime_service import run_market_regime_analysis
     from quant_balance.services.screening_service import run_stock_screening
     from quant_balance.services.symbol_search_service import search_symbol_candidates
     from quant_balance.services.stock_pool_service import run_stock_pool_filter
@@ -562,6 +563,47 @@ def create_api_app() -> Any:
             )
             raise HTTPException(status_code=500, detail="内部服务器错误") from exc
 
+    @app.get("/api/market/regime")
+    def market_regime(
+        symbol: str = "000300.SH",
+        start_date: str | None = None,
+        end_date: str | None = None,
+        data_provider: str | None = None,
+    ) -> dict[str, object]:
+        """返回当前市场状态或区间状态序列。"""
+
+        context = {
+            "symbol": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+            "data_provider": data_provider,
+        }
+        try:
+            kwargs = {
+                "symbol": symbol,
+                "start_date": start_date,
+                "end_date": end_date,
+            }
+            if data_provider is not None:
+                kwargs["data_provider"] = data_provider
+            return run_market_regime_analysis(**kwargs)
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/market/regime",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/market/regime",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
     @app.post("/api/factors/rank")
     def factors_rank(req: FactorsRankRequest) -> dict:
         """多因子打分与排名。"""
@@ -574,6 +616,8 @@ def create_api_app() -> Any:
             "pool_date": req.pool_date,
             "factors": factors,
             "pool_filters": pool_filters,
+            "market_regime": req.market_regime,
+            "market_regime_symbol": req.market_regime_symbol,
             "top_n": req.top_n,
             "symbols_count": len(req.symbols) if req.symbols is not None else None,
         }
@@ -582,6 +626,8 @@ def create_api_app() -> Any:
                 pool_date=req.pool_date,
                 factors=factors,
                 pool_filters=pool_filters,
+                market_regime=req.market_regime,
+                market_regime_symbol=req.market_regime_symbol,
                 top_n=req.top_n,
                 symbols=req.symbols,
             )
@@ -909,6 +955,8 @@ def create_api_app() -> Any:
             "timeframe": req.timeframe,
             "signal": req.signal,
             "pool_filters": req.pool_filters.model_dump(exclude_none=True, exclude_defaults=True),
+            "market_regime": req.market_regime,
+            "market_regime_symbol": req.market_regime_symbol,
             "top_n": req.top_n,
             "cash": req.cash,
             "symbols_count": len(req.symbols) if req.symbols is not None else None,
@@ -924,6 +972,8 @@ def create_api_app() -> Any:
                 "signal": req.signal,
                 "signal_params": req.signal_params,
                 "pool_filters": req.pool_filters.model_dump(exclude_none=True, exclude_defaults=True),
+                "market_regime": req.market_regime,
+                "market_regime_symbol": req.market_regime_symbol,
                 "top_n": req.top_n,
                 "cash": req.cash,
                 "symbols": req.symbols,

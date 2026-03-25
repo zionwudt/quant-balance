@@ -89,3 +89,35 @@ def test_run_factor_ranking_tracks_symbols_without_financial_snapshot():
 
     assert payload["rankings"] == []
     assert payload["run_context"]["skipped_symbols_no_financial"] == ["AAA"]
+
+
+def test_run_factor_ranking_skips_when_market_regime_filter_mismatches():
+    with (
+        patch(
+            "quant_balance.services.factor_service.resolve_market_regime_filter",
+            return_value={
+                "requested_regime": "BULL",
+                "actual_regime": "BEAR",
+                "matches": False,
+                "symbol": "000300.SH",
+                "date": "2024-01-15",
+            },
+        ) as mock_regime,
+        patch("quant_balance.services.factor_service.filter_pool_at_date") as mock_pool,
+        patch("quant_balance.services.factor_service.load_financial_at") as mock_financial,
+    ):
+        payload = run_factor_ranking(
+            pool_date="2024-01-15",
+            market_regime="BULL",
+        )
+
+    assert payload["rankings"] == []
+    assert payload["run_context"]["market_regime_actual"] == "BEAR"
+    assert payload["run_context"]["market_regime_match"] is False
+    mock_regime.assert_called_once_with(
+        "BULL",
+        as_of_date="2024-01-15",
+        symbol="000300.SH",
+    )
+    mock_pool.assert_not_called()
+    mock_financial.assert_not_called()
