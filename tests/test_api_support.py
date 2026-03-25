@@ -13,6 +13,7 @@ from quant_balance.api.app import create_api_app
 from quant_balance.api.schemas import (
     BacktestRunRequest,
     FactorsRankRequest,
+    NotifyTestRequest,
     OptimizeConstraintRequest,
     OptimizeRequest,
     PortfolioRunRequest,
@@ -46,6 +47,7 @@ def test_create_api_app_registers_expected_routes():
         ("/api/signals/today", "GET"),
         ("/api/signals/history", "GET"),
         ("/api/config/tushare-token", "POST"),
+        ("/api/notify/test", "POST"),
         ("/api/scheduler/run", "POST"),
         ("/api/signals/{signal_id}", "PATCH"),
         ("/api/strategies", "GET"),
@@ -102,6 +104,7 @@ def test_post_routes_expose_request_body_in_openapi():
     assert "requestBody" in schema["paths"]["/api/portfolio/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/screening/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/config/tushare-token"]["post"]
+    assert "requestBody" in schema["paths"]["/api/notify/test"]["post"]
     assert "requestBody" in schema["paths"]["/api/scheduler/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/signals/{signal_id}"]["patch"]
 
@@ -256,6 +259,29 @@ def test_signal_update_endpoint_delegates_to_store():
 
     assert result == payload
     mock_update.assert_called_once_with(12, status="executed")
+
+
+def test_notify_test_endpoint_delegates_to_notify_module():
+    payload = {
+        "items": [{"channel": "wecom", "status": "sent"}],
+        "success_count": 1,
+        "failure_count": 0,
+    }
+    with patch(
+        "quant_balance.notify.send_configured_notifications",
+        return_value=payload["items"],
+    ) as mock_send:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/notify/test", "POST")
+        request = NotifyTestRequest(
+            enabled=["wecom"],
+            wecom_webhook="https://example.com/wecom",
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_send.assert_called_once()
 
 
 def test_tushare_token_endpoint_validates_and_saves():
@@ -742,6 +768,19 @@ def test_signal_update_maps_lookup_error_to_http_404():
 
     assert excinfo.value.status_code == 404
     assert excinfo.value.detail == "signal missing"
+
+
+def test_notify_test_maps_value_error_to_http_400():
+    with patch("quant_balance.notify.send_configured_notifications", side_effect=ValueError("bad notify")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/notify/test", "POST")
+        request = NotifyTestRequest(enabled=["wecom"], wecom_webhook="https://example.com/wecom")
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint(request)
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "bad notify"
 
 
 def test_backtest_run_maps_unexpected_error_to_http_500(caplog: pytest.LogCaptureFixture):

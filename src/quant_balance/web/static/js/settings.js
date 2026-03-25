@@ -10,10 +10,27 @@ const DEFAULT_SETTINGS = {
   appearance: 'dark',
   rise_fall_style: 'international',
   notifications: {
-    wecom_webhook: '',
-    dingding_webhook: '',
-    serverchan_sendkey: '',
-    email_recipient: '',
+    enabled: [],
+    wecom: {
+      webhook: '',
+    },
+    dingtalk: {
+      webhook: '',
+      secret: '',
+    },
+    serverchan: {
+      sendkey: '',
+    },
+    email: {
+      receiver: '',
+      smtp_host: '',
+      smtp_port: 465,
+      sender: '',
+      password: '',
+      username: '',
+      use_ssl: true,
+      starttls: true,
+    },
   },
   trading_defaults: {
     cash: 100000,
@@ -152,20 +169,49 @@ function emitSettingsChanged(settings) {
 }
 
 function normalizeSettings(raw) {
-  return mergeSettings(DEFAULT_SETTINGS, raw || {});
+  return mergeSettings(DEFAULT_SETTINGS, {
+    ...(raw || {}),
+    notifications: normalizeNotificationSettings((raw || {}).notifications || {}),
+  });
 }
 
 function mergeSettings(base, patch) {
   return {
     ...base,
     ...patch,
-    notifications: {
-      ...base.notifications,
+    notifications: normalizeNotificationSettings({
+      ...(base.notifications || {}),
       ...(patch.notifications || {}),
-    },
+    }),
     trading_defaults: {
       ...base.trading_defaults,
       ...(patch.trading_defaults || {}),
+    },
+  };
+}
+
+function normalizeNotificationSettings(raw) {
+  return {
+    enabled: Array.isArray(raw.enabled) ? [...new Set(raw.enabled)] : [],
+    wecom: {
+      webhook: raw.wecom?.webhook || raw.wecom_webhook || '',
+    },
+    dingtalk: {
+      webhook: raw.dingtalk?.webhook || raw.dingding_webhook || '',
+      secret: raw.dingtalk?.secret || raw.dingding_secret || '',
+    },
+    serverchan: {
+      sendkey: raw.serverchan?.sendkey || raw.serverchan_sendkey || '',
+    },
+    email: {
+      receiver: raw.email?.receiver || raw.email_recipient || '',
+      smtp_host: raw.email?.smtp_host || '',
+      smtp_port: Number(raw.email?.smtp_port ?? 465),
+      sender: raw.email?.sender || '',
+      password: raw.email?.password || '',
+      username: raw.email?.username || '',
+      use_ssl: raw.email?.use_ssl ?? true,
+      starttls: raw.email?.starttls ?? true,
     },
   };
 }

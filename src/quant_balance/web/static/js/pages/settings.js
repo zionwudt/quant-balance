@@ -32,6 +32,11 @@ export async function initSettingsPage(container) {
 function buildHTML(settings, status) {
   const tradingDefaults = settings.trading_defaults || {};
   const notifications = settings.notifications || {};
+  const enabledChannels = new Set(notifications.enabled || []);
+  const wecom = notifications.wecom || {};
+  const dingtalk = notifications.dingtalk || {};
+  const serverchan = notifications.serverchan || {};
+  const email = notifications.email || {};
   return `
     <div class="settings-layout">
       <div class="results-overview">
@@ -99,27 +104,73 @@ function buildHTML(settings, status) {
           <div class="results-card-head">
             <div>
               <div class="card-title">通知渠道</div>
-              <p class="card-subtitle">当前先保存为本地偏好，后续可直接接到策略告警或定时任务。</p>
+              <p class="card-subtitle">本地偏好会保存在浏览器；“测试已启用渠道”会调用后端真实发送链路验证当前表单配置。</p>
             </div>
           </div>
           <div class="settings-section-grid">
+            <div class="advanced-field">
+              <span class="form-label">启用渠道</span>
+              <div class="choice-group">
+                ${buildCheckbox('notify-enabled', 'wecom', '企业微信', enabledChannels.has('wecom'))}
+                ${buildCheckbox('notify-enabled', 'dingtalk', '钉钉', enabledChannels.has('dingtalk'))}
+                ${buildCheckbox('notify-enabled', 'serverchan', 'Server酱', enabledChannels.has('serverchan'))}
+                ${buildCheckbox('notify-enabled', 'email', '邮件', enabledChannels.has('email'))}
+              </div>
+              <span class="field-help">只会测试勾选中的渠道；调度任务实际发送仍读取后端 <span class="mono">config/config.toml</span>。</span>
+            </div>
             <label class="advanced-field">
               <span class="form-label">企业微信 Webhook</span>
-              <input class="input mono" id="settings-wecom" type="text" value="${escapeAttr(notifications.wecom_webhook || '')}">
+              <input class="input mono" id="settings-wecom-webhook" type="text" value="${escapeAttr(wecom.webhook || '')}">
             </label>
             <label class="advanced-field">
               <span class="form-label">钉钉 Webhook</span>
-              <input class="input mono" id="settings-dingding" type="text" value="${escapeAttr(notifications.dingding_webhook || '')}">
+              <input class="input mono" id="settings-dingtalk-webhook" type="text" value="${escapeAttr(dingtalk.webhook || '')}">
+            </label>
+            <label class="advanced-field">
+              <span class="form-label">钉钉 Secret</span>
+              <input class="input mono" id="settings-dingtalk-secret" type="text" value="${escapeAttr(dingtalk.secret || '')}">
             </label>
             <label class="advanced-field">
               <span class="form-label">Server酱 SendKey</span>
-              <input class="input mono" id="settings-serverchan" type="text" value="${escapeAttr(notifications.serverchan_sendkey || '')}">
+              <input class="input mono" id="settings-serverchan-sendkey" type="text" value="${escapeAttr(serverchan.sendkey || '')}">
             </label>
             <label class="advanced-field">
-              <span class="form-label">Email</span>
-              <input class="input" id="settings-email" type="email" value="${escapeAttr(notifications.email_recipient || '')}">
+              <span class="form-label">SMTP Host</span>
+              <input class="input mono" id="settings-email-smtp-host" type="text" value="${escapeAttr(email.smtp_host || '')}">
             </label>
+            <label class="advanced-field">
+              <span class="form-label">SMTP Port</span>
+              <input class="input mono" id="settings-email-smtp-port" type="number" min="1" max="65535" step="1" value="${Number(email.smtp_port ?? 465)}">
+            </label>
+            <label class="advanced-field">
+              <span class="form-label">发件人</span>
+              <input class="input" id="settings-email-sender" type="text" value="${escapeAttr(email.sender || '')}">
+            </label>
+            <label class="advanced-field">
+              <span class="form-label">SMTP 用户名</span>
+              <input class="input" id="settings-email-username" type="text" value="${escapeAttr(email.username || '')}">
+            </label>
+            <label class="advanced-field">
+              <span class="form-label">SMTP 密码</span>
+              <input class="input" id="settings-email-password" type="password" value="${escapeAttr(email.password || '')}">
+            </label>
+            <label class="advanced-field">
+              <span class="form-label">收件人</span>
+              <input class="input" id="settings-email-receiver" type="email" value="${escapeAttr(email.receiver || '')}">
+            </label>
+            <div class="advanced-field">
+              <span class="form-label">邮件安全</span>
+              <div class="choice-group">
+                ${buildCheckbox('email-use-ssl', 'true', 'SSL', email.use_ssl !== false)}
+                ${buildCheckbox('email-starttls', 'true', 'STARTTLS', email.starttls !== false)}
+              </div>
+              <span class="field-help">使用 SSL 时通常端口为 465；不启用 SSL 时可保留 STARTTLS。</span>
+            </div>
           </div>
+          <div class="settings-actions">
+            <button class="btn btn-secondary" id="settings-notify-test">测试已启用渠道</button>
+          </div>
+          <div class="settings-inline-status" id="settings-notify-status"></div>
         </div>
 
         <div class="card">
@@ -228,6 +279,30 @@ function bindEvents(container) {
     toast.success('设置已导出');
   });
 
+  container.querySelector('#settings-notify-test')?.addEventListener('click', async () => {
+    const statusEl = container.querySelector('#settings-notify-status');
+    const payload = collectNotifyTestPayload(container);
+    if (!payload.enabled.length) {
+      toast.error('请先勾选至少一个通知渠道');
+      return;
+    }
+
+    statusEl.textContent = '正在测试通知连通性...';
+    try {
+      const result = await api.testNotifications(payload);
+      renderNotifyTestStatus(statusEl, result.items || []);
+      if ((result.failure_count || 0) > 0) {
+        toast.info(`通知测试完成：成功 ${result.success_count || 0}，失败 ${result.failure_count || 0}`);
+      } else {
+        toast.success(`通知测试成功：已发送 ${result.success_count || 0} 个渠道`);
+      }
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : '通知测试失败';
+      statusEl.innerHTML = `<span class="text-loss">${message}</span>`;
+      toast.error(message);
+    }
+  });
+
   container.querySelector('#settings-save')?.addEventListener('click', () => {
     const patch = collectSettingsPatch(container);
     updateAppSettings(patch);
@@ -239,12 +314,7 @@ function collectSettingsPatch(container) {
   return {
     appearance: container.querySelector('input[name="appearance"]:checked')?.value || 'dark',
     rise_fall_style: container.querySelector('input[name="rise-style"]:checked')?.value || 'international',
-    notifications: {
-      wecom_webhook: container.querySelector('#settings-wecom').value.trim(),
-      dingding_webhook: container.querySelector('#settings-dingding').value.trim(),
-      serverchan_sendkey: container.querySelector('#settings-serverchan').value.trim(),
-      email_recipient: container.querySelector('#settings-email').value.trim(),
-    },
+    notifications: collectNotificationSettings(container),
     trading_defaults: {
       cash: Number(container.querySelector('#settings-cash').value || 100000),
       commission: Number(container.querySelector('#settings-commission').value || 0.001),
@@ -253,6 +323,66 @@ function collectSettingsPatch(container) {
       take_profit_pct: Number(container.querySelector('#settings-take-profit').value || 0),
     },
   };
+}
+
+function collectNotificationSettings(container) {
+  return {
+    enabled: Array.from(container.querySelectorAll('input[name="notify-enabled"]:checked')).map((input) => input.value),
+    wecom: {
+      webhook: container.querySelector('#settings-wecom-webhook').value.trim(),
+    },
+    dingtalk: {
+      webhook: container.querySelector('#settings-dingtalk-webhook').value.trim(),
+      secret: container.querySelector('#settings-dingtalk-secret').value.trim(),
+    },
+    serverchan: {
+      sendkey: container.querySelector('#settings-serverchan-sendkey').value.trim(),
+    },
+    email: {
+      receiver: container.querySelector('#settings-email-receiver').value.trim(),
+      smtp_host: container.querySelector('#settings-email-smtp-host').value.trim(),
+      smtp_port: Number(container.querySelector('#settings-email-smtp-port').value || 465),
+      sender: container.querySelector('#settings-email-sender').value.trim(),
+      password: container.querySelector('#settings-email-password').value,
+      username: container.querySelector('#settings-email-username').value.trim(),
+      use_ssl: container.querySelector('input[name="email-use-ssl"]')?.checked ?? true,
+      starttls: container.querySelector('input[name="email-starttls"]')?.checked ?? true,
+    },
+  };
+}
+
+function collectNotifyTestPayload(container) {
+  const notifications = collectNotificationSettings(container);
+  return {
+    enabled: notifications.enabled,
+    title: '知衡通知测试',
+    content: `这是一条来自 QuantBalance 的测试通知。\n发送时间：${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+    wecom_webhook: notifications.wecom.webhook,
+    dingtalk_webhook: notifications.dingtalk.webhook,
+    dingtalk_secret: notifications.dingtalk.secret,
+    serverchan_sendkey: notifications.serverchan.sendkey,
+    email_receiver: notifications.email.receiver,
+    email_smtp_host: notifications.email.smtp_host,
+    email_smtp_port: notifications.email.smtp_port,
+    email_sender: notifications.email.sender,
+    email_password: notifications.email.password,
+    email_username: notifications.email.username,
+    email_use_ssl: notifications.email.use_ssl,
+    email_starttls: notifications.email.starttls,
+  };
+}
+
+function renderNotifyTestStatus(statusEl, items) {
+  if (!items.length) {
+    statusEl.innerHTML = '<span class="text-muted">未返回通知结果</span>';
+    return;
+  }
+
+  statusEl.innerHTML = items.map((item) => {
+    const isOk = item.status === 'sent';
+    const detail = item.detail ? `：${escapeHtml(item.detail)}` : '';
+    return `<div class="${isOk ? 'text-profit' : 'text-loss'}">${channelLabel(item.channel)} ${isOk ? '已发送' : '失败'}${detail}</div>`;
+  }).join('');
 }
 
 function renderConfigStatus(container, status) {
@@ -290,6 +420,23 @@ function buildRadio(name, value, label, checked) {
   `;
 }
 
+function buildCheckbox(name, value, label, checked) {
+  return `
+    <label class="choice-pill">
+      <input type="checkbox" name="${name}" value="${value}" ${checked ? 'checked' : ''}>
+      <span>${label}</span>
+    </label>
+  `;
+}
+
+function channelLabel(value) {
+  if (value === 'wecom') return '企业微信';
+  if (value === 'dingtalk') return '钉钉';
+  if (value === 'serverchan') return 'Server酱';
+  if (value === 'email') return '邮件';
+  return value || '未知渠道';
+}
+
 function rebalanceLabel(value) {
   if (value === 'daily') return '每日';
   if (value === 'weekly') return '每周';
@@ -303,4 +450,8 @@ function escapeAttr(value) {
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function escapeHtml(value) {
+  return escapeAttr(value).replace(/'/g, '&#39;');
 }

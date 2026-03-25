@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 AssetType = Literal["stock", "convertible_bond"]
+NotifyChannel = Literal["wecom", "dingtalk", "serverchan", "email"]
 
 
 class StockPoolFiltersRequest(BaseModel):
@@ -216,3 +217,60 @@ class SignalStatusUpdateRequest(BaseModel):
         ...,
         description="信号状态：pending / executed / ignored / expired",
     )
+
+
+class NotifyTestRequest(BaseModel):
+    """测试通知渠道连通性。"""
+
+    enabled: list[NotifyChannel] = Field(
+        ...,
+        min_length=1,
+        description="要测试的通知渠道列表",
+    )
+    title: str = Field(
+        "知衡通知测试",
+        description="测试通知标题",
+    )
+    content: str = Field(
+        "这是一条来自 QuantBalance 的测试通知，用于验证消息渠道连通性。",
+        description="测试通知正文",
+    )
+    wecom_webhook: str | None = Field(None, description="企业微信 Webhook")
+    dingtalk_webhook: str | None = Field(None, description="钉钉 Webhook")
+    dingtalk_secret: str | None = Field(None, description="钉钉加签 Secret")
+    serverchan_sendkey: str | None = Field(None, description="Server酱 SendKey")
+    email_receiver: str | None = Field(None, description="邮件接收人")
+    email_smtp_host: str | None = Field(None, description="SMTP Host")
+    email_smtp_port: int = Field(465, ge=1, le=65535, description="SMTP Port")
+    email_sender: str | None = Field(None, description="邮件发件人")
+    email_password: str | None = Field(None, description="SMTP 密码或授权码")
+    email_username: str | None = Field(None, description="SMTP 用户名；不传时默认使用 sender")
+    email_use_ssl: bool = Field(True, description="是否使用 SSL")
+    email_starttls: bool = Field(True, description="非 SSL 时是否启用 STARTTLS")
+
+    def to_notify_config(self) -> dict[str, object]:
+        return {
+            "notify": {
+                "enabled": list(self.enabled),
+                "wecom": {
+                    "webhook": self.wecom_webhook or "",
+                },
+                "dingtalk": {
+                    "webhook": self.dingtalk_webhook or "",
+                    "secret": self.dingtalk_secret or "",
+                },
+                "serverchan": {
+                    "sendkey": self.serverchan_sendkey or "",
+                },
+                "email": {
+                    "receiver": self.email_receiver or "",
+                    "smtp_host": self.email_smtp_host or "",
+                    "smtp_port": self.email_smtp_port,
+                    "sender": self.email_sender or "",
+                    "password": self.email_password or "",
+                    "username": self.email_username or "",
+                    "use_ssl": self.email_use_ssl,
+                    "starttls": self.email_starttls,
+                },
+            },
+        }

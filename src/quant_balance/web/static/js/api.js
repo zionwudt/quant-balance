@@ -109,6 +109,13 @@ export const api = {
       body: JSON.stringify({ token, validate_only: validateOnly }),
     });
   },
+
+  testNotifications(payload) {
+    return request('/api/notify/test', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
 };
 
 export { ApiError };

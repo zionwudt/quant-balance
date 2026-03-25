@@ -18,6 +18,7 @@
 - 报告增强：单股回测 `summary` 内置 Calmar、月度收益、滚动 Sharpe、分年统计，并支持可选 benchmark 对比（基准权益、超额收益、Beta、Alpha）
 - 定时调度：支持每个交易日盘后自动扫描策略、持久化信号、可选通知推送，并支持 API 手动触发
 - 信号管理：统一记录策略信号、状态流转与 1/5/10/20 日后跟踪收益，支持今日/历史查询
+- 消息推送：企业微信 / 钉钉 / Server酱 / SMTP 邮件 4 种渠道独立发送，支持设置页连通性测试
 - Web Dashboard：已包含 hash 路由侧栏、股票池研究页、多标的标签输入、组合回测月度热力图、信号中心、模拟盘和设置页；回测页支持策略卡切换、动态参数表单、代码搜索下拉、K 线 / 成交量 / 买卖点叠加、成交明细联动高亮，以及浅色 / 深色 / 跟随系统主题和 A 股 / 国际涨跌配色切换
 - 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
@@ -83,17 +84,28 @@ top_n = 20
 lookback_days = 365
 cash = 100000
 
-[notifications]
-wecom_webhook = ""
-dingding_webhook = ""
-serverchan_sendkey = ""
-email_recipient = ""
+[notify]
+enabled = ["wecom"]
+
+[notify.wecom]
+webhook = ""
+
+[notify.dingtalk]
+webhook = ""
+secret = ""
+
+[notify.serverchan]
+sendkey = ""
+
+[notify.email]
+receiver = ""
 smtp_host = ""
 smtp_port = 465
-smtp_username = ""
-smtp_password = ""
-smtp_sender = ""
-smtp_use_ssl = true
+sender = ""
+password = ""
+username = ""
+use_ssl = true
+starttls = true
 ```
 
 Tushare token 获取地址：[tushare.pro/register](https://tushare.pro/register)
@@ -104,7 +116,8 @@ Tushare token 获取地址：[tushare.pro/register](https://tushare.pro/register
 - 即使 `tushare` 放在兜底位，股票池和基本面快照当前仍然是 Tushare-first
 - 如果请求体显式传入 `data_provider`，会覆盖默认回退链
 - `scheduler.enabled=true` 后，服务启动时会自动恢复每日盘后扫描任务；非交易日会自动跳过
-- `notifications` 为可选配置；填写企业微信 / 钉钉 / Server酱 / SMTP 邮件参数后，盘后扫描完成会自动推送摘要
+- `notify.enabled` 控制启用哪些推送渠道；每个渠道只会读取各自子配置
+- 已兼容旧版 `[notifications]` 扁平配置，但后续建议统一迁移到 `[notify]`
 
 首次使用时，如果 `config/config.toml` 不存在或 `[tushare].token` 为空，CLI 会打印引导信息并退出，不再等到请求行情时才抛出错误。
 
@@ -149,6 +162,7 @@ Web Dashboard 当前说明：
 - `POST /api/factors/rank`
 - `POST /api/stock-pool/filter`
 - `POST /api/config/tushare-token`
+- `POST /api/notify/test`
 - `PATCH /api/signals/{signal_id}`
 - `POST /api/backtest/run`
 - `POST /api/backtest/optimize`
@@ -283,6 +297,22 @@ Web Dashboard 当前说明：
 - `expired`
 
 适合在人工复核、通知回执或模拟执行后，把单条信号标记为已执行 / 已忽略。
+
+### `POST /api/notify/test`
+
+```json
+{
+  "enabled": ["wecom", "serverchan"],
+  "wecom_webhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx",
+  "serverchan_sendkey": "SCTxxxx"
+}
+```
+
+用途：
+
+- 使用当前表单或脚本临时传入的配置测试消息渠道连通性
+- 返回每个渠道的 `status / detail`
+- 推送失败会记录日志，但不会中断调度主流程
 
 ### `POST /api/backtest/run`
 

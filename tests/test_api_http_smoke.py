@@ -295,6 +295,13 @@ def test_api_http_smoke_end_to_end():
             },
         ),
         patch(
+            "quant_balance.notify.send_configured_notifications",
+            return_value=[
+                {"channel": "wecom", "status": "sent"},
+                {"channel": "serverchan", "status": "failed", "detail": "bad webhook"},
+            ],
+        ),
+        patch(
             "quant_balance.services.symbol_search_service.search_symbol_candidates",
             return_value=[
                 {"symbol": "600519.SH", "name": "贵州茅台", "industry": "白酒", "market": "主板", "asset_type": "stock", "kind": "stock"},
@@ -381,6 +388,20 @@ def test_api_http_smoke_end_to_end():
         )
         assert signal_update_status == 200
         assert signal_update_payload["status"] == "executed"
+
+        notify_test_status, _, notify_test_payload = _request(
+            app,
+            "POST",
+            "/api/notify/test",
+            {
+                "enabled": ["wecom", "serverchan"],
+                "wecom_webhook": "https://example.com/wecom",
+                "serverchan_sendkey": "sendkey",
+            },
+        )
+        assert notify_test_status == 200
+        assert notify_test_payload["success_count"] == 1
+        assert notify_test_payload["failure_count"] == 1
 
         health_status, _, health_payload = _request(app, "GET", "/health")
         assert health_status == 200

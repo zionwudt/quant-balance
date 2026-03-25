@@ -4,15 +4,11 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
-from email.message import EmailMessage
 import json
 import logging
 from pathlib import Path
-import smtplib
 import sqlite3
 from typing import Any
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -29,6 +25,7 @@ from quant_balance.core.strategies import SIGNAL_REGISTRY
 from quant_balance.data import load_dataframe
 from quant_balance.data.common import CACHE_DB_PATH, DataLoadError, load_app_config, load_tushare_token
 from quant_balance.logging_utils import get_logger, log_event
+from quant_balance.notify import send_configured_notifications
 from quant_balance.services.screening_service import run_stock_screening
 
 logger = get_logger(__name__)
@@ -651,22 +648,13 @@ def send_scan_notifications(
 ) -> list[dict[str, object]]:
     """根据配置推送扫描结果通知。"""
 
-    app_config = config or load_app_config()
-    notify_cfg = dict(app_config.get("notifications") or {})
     title = f"QuantBalance 盘后扫描 {trade_date}"
     body = format_notification_body(trade_date=trade_date, strategy_runs=strategy_runs, signals=signals)
-    results: list[dict[str, object]] = []
-
-    if webhook := str(notify_cfg.get("wecom_webhook") or "").strip():
-        results.append(_send_wecom(webhook, title=title, body=body))
-    if webhook := str(notify_cfg.get("dingding_webhook") or "").strip():
-        results.append(_send_dingding(webhook, title=title, body=body))
-    if sendkey := str(notify_cfg.get("serverchan_sendkey") or "").strip():
-        results.append(_send_serverchan(sendkey, title=title, body=body))
-    if recipient := str(notify_cfg.get("email_recipient") or "").strip():
-        results.append(_send_email(recipient, title=title, body=body, config=notify_cfg))
-
-    return results
+    return send_configured_notifications(
+        title=title,
+        content=body,
+        config=config or load_app_config(),
+    )
 
 
 def format_notification_body(
@@ -758,109 +746,6 @@ def _optional_int(value: object) -> int | None:
     if value in (None, ""):
         return None
     return int(value)
-
-
-def _send_wecom(webhook: str, *, title: str, body: str) -> dict[str, object]:
-    payload = {
-        "msgtype": "markdown",
-        "markdown": {
-            "content": f"## {title}\n\n{body.replace(chr(10), '<br/>')}",
-        },
-    }
-    return _post_json(channel="wecom", url=webhook, payload=payload)
-
-
-def _send_dingding(webhook: str, *, title: str, body: str) -> dict[str, object]:
-    payload = {
-        "msgtype": "text",
-        "text": {
-            "content": f"{title}\n{body}",
-        },
-    }
-    return _post_json(channel="dingding", url=webhook, payload=payload)
-
-
-def _send_serverchan(sendkey: str, *, title: str, body: str) -> dict[str, object]:
-    url = f"https://sctapi.ftqq.com/{sendkey}.send"
-    data = urlencode({"title": title, "desp": body}).encode("utf-8")
-    request = Request(url, data=data, method="POST")
-    request.add_header("Content-Type", "application/x-www-form-urlencoded")
-    return _send_request(channel="serverchan", request=request)
-
-
-def _send_email(
-    recipient: str,
-    *,
-    title: str,
-    body: str,
-    config: dict[str, object],
-) -> dict[str, object]:
-    smtp_host = str(config.get("smtp_host") or "").strip()
-    sender = str(config.get("smtp_sender") or "").strip()
-    if not smtp_host or not sender:
-        return {
-            "channel": "email",
-            "status": "skipped",
-            "detail": "缺少 smtp_host 或 smtp_sender 配置",
-        }
-
-    smtp_port = int(config.get("smtp_port", 465))
-    username = str(config.get("smtp_username") or "").strip()
-    password = str(config.get("smtp_password") or "").strip()
-    use_ssl = bool(config.get("smtp_use_ssl", True))
-
-    message = EmailMessage()
-    message["Subject"] = title
-    message["From"] = sender
-    message["To"] = recipient
-    message.set_content(body)
-
-    try:
-        smtp_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-        with smtp_cls(smtp_host, smtp_port, timeout=10) as client:
-            if not use_ssl and bool(config.get("smtp_starttls", True)):
-                client.starttls()
-            if username:
-                client.login(username, password)
-            client.send_message(message)
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "channel": "email",
-            "status": "failed",
-            "detail": str(exc),
-        }
-    return {
-        "channel": "email",
-        "status": "sent",
-        "detail": recipient,
-    }
-
-
-def _post_json(*, channel: str, url: str, payload: dict[str, object]) -> dict[str, object]:
-    request = Request(
-        url,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    return _send_request(channel=channel, request=request)
-
-
-def _send_request(*, channel: str, request: Request) -> dict[str, object]:
-    try:
-        with urlopen(request, timeout=10) as response:  # noqa: S310
-            body = response.read().decode("utf-8", errors="ignore")
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "channel": channel,
-            "status": "failed",
-            "detail": str(exc),
-        }
-    return {
-        "channel": channel,
-        "status": "sent",
-        "detail": body[:200],
-    }
 
 
 def _load_apscheduler() -> tuple[type | None, type | None]:

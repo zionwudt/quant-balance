@@ -10,6 +10,7 @@ from quant_balance import __version__
 from quant_balance.api.schemas import (
     BacktestRunRequest,
     FactorsRankRequest,
+    NotifyTestRequest,
     OptimizeRequest,
     PortfolioRunRequest,
     SchedulerRunRequest,
@@ -71,6 +72,7 @@ def create_api_app() -> Any:
         list_today_signals,
         update_signal_status,
     )
+    from quant_balance.notify import send_configured_notifications
     from quant_balance.scheduler import DailyScanScheduler
     from quant_balance.services.backtest_service import run_optimize, run_single_backtest
     from quant_balance.services.factor_service import run_factor_ranking
@@ -267,6 +269,39 @@ def create_api_app() -> Any:
         except Exception as exc:  # noqa: BLE001
             _log_api_error(
                 endpoint="/api/signals/{signal_id}",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.post("/api/notify/test")
+    def notify_test(req: NotifyTestRequest) -> dict[str, object]:
+        """测试通知渠道连通性。"""
+
+        context = {"enabled": list(req.enabled)}
+        try:
+            items = send_configured_notifications(
+                title=req.title,
+                content=req.content,
+                config=req.to_notify_config(),
+            )
+            return {
+                "items": items,
+                "success_count": sum(1 for item in items if item.get("status") == "sent"),
+                "failure_count": sum(1 for item in items if item.get("status") != "sent"),
+            }
+        except ValueError as exc:
+            _log_api_error(
+                endpoint="/api/notify/test",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/notify/test",
                 status_code=500,
                 exc=exc,
                 context=context,

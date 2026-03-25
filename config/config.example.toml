@@ -24,14 +24,25 @@ top_n = 20
 lookback_days = 365
 cash = 100000
 
-[notifications]
-wecom_webhook = ""
-dingding_webhook = ""
-serverchan_sendkey = ""
-email_recipient = ""
+[notify]
+enabled = []
+
+[notify.wecom]
+webhook = ""
+
+[notify.dingtalk]
+webhook = ""
+secret = ""
+
+[notify.serverchan]
+sendkey = ""
+
+[notify.email]
+receiver = ""
 smtp_host = ""
 smtp_port = 465
-smtp_username = ""
-smtp_password = ""
-smtp_sender = ""
-smtp_use_ssl = true
+sender = ""
+password = ""
+username = ""
+use_ssl = true
+starttls = true
