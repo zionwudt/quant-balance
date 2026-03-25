@@ -96,6 +96,13 @@ function showOnboardingDialog(status) {
     const skipBtn = overlay.querySelector('#onboarding-skip');
 
     let validated = false;
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
 
     testBtn.onclick = async () => {
       const token = tokenInput.value.trim();
@@ -146,6 +153,7 @@ function showOnboardingDialog(status) {
     }
 
     function close() {
+      window.removeEventListener('keydown', handleEscape);
       overlay.classList.add('onboarding-leaving');
       overlay.addEventListener('animationend', () => {
         overlay.remove();

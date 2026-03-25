@@ -4,6 +4,7 @@
 
 import { api, ApiError } from '../api.js';
 import { toast } from '../components/toast.js';
+import { downloadCsv } from '../utils/download.js';
 
 let pageState = createInitialState();
 
@@ -22,6 +23,19 @@ export async function initStockPoolPage(container, routeContext = {}) {
   updateFactorDisplays(container);
   await ensureIndustryOptions(container, getPoolDate(container));
   await refreshStockPool(container);
+
+  return {
+    exportCurrent() {
+      exportRankings();
+    },
+    focusPrimary() {
+      container.querySelector('#sp-pool-date')?.focus();
+    },
+    dispose() {
+      clearTimeout(pageState.refreshTimer);
+      pageState.refreshTimer = null;
+    },
+  };
 }
 
 function createInitialState(routeContext = {}) {
@@ -318,6 +332,9 @@ async function refreshStockPool(container) {
     renderStats(container, rankingPayload);
     renderRankingsTable(container);
     syncSelectionStatus(container);
+    window.dispatchEvent(new CustomEvent('qb-status-message', {
+      detail: { text: `股票池研究 · 候选 ${pageState.filteredCount} / 已选 ${pageState.selectedSymbols.size}` },
+    }));
   } catch (error) {
     const message = error instanceof ApiError ? error.message : '股票池刷新失败';
     toast.error(message);
@@ -531,6 +548,35 @@ function launchPortfolioBacktest() {
     return;
   }
   window.location.hash = `#/backtest?symbols=${encodeURIComponent(params.symbols)}`;
+}
+
+function exportRankings() {
+  if (!pageState.rankings.length) {
+    toast.info('当前没有可导出的股票池结果');
+    return;
+  }
+
+  const rows = getSortedRankings().map((item) => ({
+    rank: item.rank,
+    symbol: item.symbol,
+    name: item.name,
+    industry: item.industry,
+    listing_days: item.listing_days,
+    total_score: Number(item.total_score || 0).toFixed(2),
+    factors: Object.entries(item.factors || {})
+      .map(([name, payload]) => `${name}:${Number(payload.raw_value || 0).toFixed(2)}`)
+      .join(' | '),
+  }));
+  downloadCsv(`stock-pool-${Date.now()}.csv`, rows, [
+    'rank',
+    'symbol',
+    'name',
+    'industry',
+    'listing_days',
+    'total_score',
+    'factors',
+  ]);
+  toast.success('股票池结果已导出');
 }
 
 function getPoolDate(container) {

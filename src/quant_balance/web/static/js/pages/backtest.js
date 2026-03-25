@@ -9,6 +9,8 @@ import { renderKlineChart, highlightKlineTrade, disposeKlineChart } from '../com
 import { renderMonthlyHeatmap, disposeMonthlyHeatmap } from '../components/chart-heatmap.js';
 import { renderTradesTable } from '../components/data-table.js';
 import { createMultiStockSearch } from '../components/stock-search.js';
+import { getAppSettings } from '../settings.js';
+import { downloadJson } from '../utils/download.js';
 
 const DEFAULT_STRATEGY_NAMES = [
   'sma_cross',
@@ -116,7 +118,6 @@ const REBALANCE_OPTIONS = [
 ];
 
 let strategies = [];
-let hotkeysBound = false;
 let lastSingleResult = null;
 let lastPortfolioResult = null;
 let pageState = createInitialState();
@@ -152,14 +153,39 @@ export async function initBacktestPage(container, routeContext = {}) {
   updateStrategyParams(container);
   syncAdvancedInputs(container);
   syncModeUI(container);
+
+  return {
+    runPrimary() {
+      void runBacktest(container);
+    },
+    exportCurrent() {
+      exportCurrentResult();
+    },
+    focusPrimary() {
+      pageState.symbolSearch?.focus();
+    },
+    dispose() {
+      disposeEquityChart();
+      disposeKlineChart();
+      disposeMonthlyHeatmap();
+    },
+  };
 }
 
 function createInitialState(params = {}) {
   const routeSymbols = parseSymbolsParam(params?.symbols);
+  const tradingDefaults = getAppSettings().trading_defaults || {};
   return {
     currentStrategy: 'sma_cross',
     strategyValues: {},
     symbolSearch: null,
+    tradingDefaults: {
+      cash: Number(tradingDefaults.cash || 100000),
+      commission: Number(tradingDefaults.commission || 0.001),
+      rebalance_frequency: tradingDefaults.rebalance_frequency || 'monthly',
+      stop_loss_pct: Number(tradingDefaults.stop_loss_pct || 0),
+      take_profit_pct: Number(tradingDefaults.take_profit_pct || 0),
+    },
     initialSymbols: routeSymbols.length
       ? routeSymbols.map(symbol => ({ symbol, name: '组合候选', market: '选股页带入' }))
       : [{ symbol: '600519.SH', name: '贵州茅台', market: '主板' }],
@@ -204,6 +230,7 @@ function buildHTML() {
   const today = new Date();
   const oneYearAgo = new Date(today);
   oneYearAgo.setFullYear(today.getFullYear() - 1);
+  const defaults = pageState.tradingDefaults || {};
 
   return `
     <div class="backtest-layout">
@@ -239,7 +266,7 @@ function buildHTML() {
 
           <div class="form-group" style="margin-bottom: var(--space-4)">
             <label class="form-label">初始资金</label>
-            <input class="input mono" id="bt-cash" type="number" value="100000" step="10000" min="1000">
+            <input class="input mono" id="bt-cash" type="number" value="${defaults.cash || 100000}" step="10000" min="1000">
           </div>
 
           <div class="strategy-section" id="bt-strategy-section">
@@ -282,14 +309,14 @@ function buildHTML() {
 
                   <label class="advanced-field">
                     <span class="form-label">手续费</span>
-                    <input class="input mono" id="bt-commission" type="number" value="0.001" step="0.0005" min="0">
+                    <input class="input mono" id="bt-commission" type="number" value="${defaults.commission || 0.001}" step="0.0005" min="0">
                     <span class="field-help">默认 0.001，即 0.1%。</span>
                   </label>
 
                   <label class="advanced-field hidden" id="bt-rebalance-field">
                     <span class="form-label">再平衡频率</span>
                     <select class="input" id="bt-rebalance-frequency">
-                      ${REBALANCE_OPTIONS.map(item => `<option value="${item.value}"${item.value === 'monthly' ? ' selected' : ''}>${item.label}</option>`).join('')}
+                      ${REBALANCE_OPTIONS.map(item => `<option value="${item.value}"${item.value === defaults.rebalance_frequency ? ' selected' : ''}>${item.label}</option>`).join('')}
                     </select>
                     <span class="field-help">组合模式下使用等权重，再按该频率调仓。</span>
                   </label>
@@ -313,20 +340,20 @@ function buildHTML() {
                   <label class="advanced-field toggle-field" id="bt-stop-loss-field">
                     <span class="form-label">止损</span>
                     <label class="toggle-row">
-                      <input type="checkbox" id="bt-stop-loss-enabled">
+                      <input type="checkbox" id="bt-stop-loss-enabled" ${defaults.stop_loss_pct > 0 ? 'checked' : ''}>
                       <span>启用止损</span>
                     </label>
-                    <input class="input mono" id="bt-stop-loss" type="number" value="0.08" step="0.01" min="0">
+                    <input class="input mono" id="bt-stop-loss" type="number" value="${defaults.stop_loss_pct || 0.08}" step="0.01" min="0">
                     <span class="field-help">例如 0.08 代表回撤 8% 止损。</span>
                   </label>
 
                   <label class="advanced-field toggle-field" id="bt-take-profit-field">
                     <span class="form-label">止盈</span>
                     <label class="toggle-row">
-                      <input type="checkbox" id="bt-take-profit-enabled">
+                      <input type="checkbox" id="bt-take-profit-enabled" ${defaults.take_profit_pct > 0 ? 'checked' : ''}>
                       <span>启用止盈</span>
                     </label>
-                    <input class="input mono" id="bt-take-profit" type="number" value="0.15" step="0.01" min="0">
+                    <input class="input mono" id="bt-take-profit" type="number" value="${defaults.take_profit_pct || 0.15}" step="0.01" min="0">
                     <span class="field-help">例如 0.15 代表盈利 15% 止盈。</span>
                   </label>
 
@@ -369,20 +396,6 @@ function bindEvents(container) {
   runButton.addEventListener('click', () => {
     void runBacktest(container);
   });
-
-  if (!hotkeysBound) {
-    document.addEventListener('keydown', (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        const currentContainer = document.querySelector('.main-content');
-        if (!currentContainer?.querySelector('#bt-run')) {
-          return;
-        }
-        event.preventDefault();
-        void runBacktest(currentContainer);
-      }
-    });
-    hotkeysBound = true;
-  }
 
   container.querySelectorAll('[data-range]').forEach(button => {
     button.addEventListener('click', () => {
@@ -650,7 +663,24 @@ async function runBacktest(container) {
     runButton.disabled = false;
     runButton.classList.remove('btn-loading');
     document.querySelector('.progress-bar')?.classList.remove('active');
+    window.dispatchEvent(new CustomEvent('qb-status-message', {
+      detail: {
+        text: isPortfolio ? '回测中心 · 组合结果已更新' : '回测中心 · 单股结果已更新',
+      },
+    }));
   }
+}
+
+function exportCurrentResult() {
+  const payload = lastSingleResult || lastPortfolioResult;
+  if (!payload) {
+    toast.info('当前还没有可导出的回测结果');
+    return;
+  }
+
+  const suffix = lastSingleResult ? 'backtest' : 'portfolio';
+  downloadJson(`quant-balance-${suffix}-${Date.now()}.json`, payload);
+  toast.success('回测结果已导出');
 }
 
 function collectStrategyParams(container) {

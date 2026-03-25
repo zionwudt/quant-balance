@@ -239,7 +239,15 @@ def test_api_http_smoke_end_to_end():
         assert "/static/vendor/echarts.min.js" in root_payload
         assert "cdn.jsdelivr.net" not in root_payload
         assert 'data-page="stock-pool"' in root_payload
+        assert 'data-page="paper-trading"' in root_payload
+        assert 'data-page="signals"' in root_payload
+        assert 'data-page="settings"' in root_payload
         assert "股票池筛选" in root_payload
+        assert "模拟盘" in root_payload
+        assert "信号中心" in root_payload
+        assert "偏好与配置" in root_payload
+        assert "qb-appearance" in root_payload
+        assert "qb-rise-fall-style" in root_payload
 
         favicon_status, favicon_headers, favicon_payload = _request(app, "GET", "/favicon.svg")
         assert favicon_status == 200

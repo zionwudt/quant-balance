@@ -6,6 +6,7 @@
   --bg-surface:   #12121a;
   --bg-elevated:  #1a1a28;
   --bg-input:     #0f0f18;
+  --bg-overlay:   rgba(3, 7, 18, 0.78);
 
   --text-primary:   #e8e8ed;
   --text-secondary: #8888a0;
@@ -17,10 +18,27 @@
   /* 语义色 */
   --profit:       #22c55e;
   --loss:         #ef4444;
+  --profit-soft:  #86efac;
+  --loss-soft:    #fca5a5;
+  --profit-strong:#14532d;
+  --loss-strong:  #7f1d1d;
   --accent:       #6366f1;
   --accent-hover: #818cf8;
   --warning:      #f59e0b;
   --info:         #3b82f6;
+
+  /* 图表 */
+  --chart-axis:        #8888a0;
+  --chart-grid:        #1e1e2e;
+  --chart-grid-subtle: #16161f;
+  --chart-tooltip-bg:  #101726;
+  --chart-tooltip-border: #243148;
+  --chart-focus-bg:    #22304a;
+  --chart-accent:      #6366f1;
+  --chart-accent-soft: rgba(99, 102, 241, 0.18);
+  --chart-benchmark:   #94a3b8;
+  --chart-volume-up:   #22c55e;
+  --chart-volume-down: #ef4444;
 
   /* 字体 */
   --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", monospace;
@@ -66,6 +84,7 @@
   --bg-surface:     #ffffff;
   --bg-elevated:    #f0f1f5;
   --bg-input:       #f5f6fa;
+  --bg-overlay:     rgba(248, 250, 252, 0.72);
   --text-primary:   #1a1a2e;
   --text-secondary: #6b7280;
   --text-muted:     #9ca3af;
@@ -73,4 +92,25 @@
   --border-subtle:  #f0f1f5;
   --shadow-card: 0 0 0 1px var(--border);
   --shadow-elevated: 0 4px 24px rgba(0, 0, 0, 0.08);
+  --chart-axis:        #64748b;
+  --chart-grid:        #dbe4f0;
+  --chart-grid-subtle: #eef2f7;
+  --chart-tooltip-bg:  #ffffff;
+  --chart-tooltip-border: #d6deeb;
+  --chart-focus-bg:    #dbeafe;
+  --chart-accent-soft: rgba(99, 102, 241, 0.12);
+  --chart-benchmark:   #64748b;
+  --chart-volume-up:   var(--profit);
+  --chart-volume-down: var(--loss);
+}
+
+[data-rise-style="ashare"] {
+  --profit:        #ef4444;
+  --loss:          #22c55e;
+  --profit-soft:   #fca5a5;
+  --loss-soft:     #86efac;
+  --profit-strong: #7f1d1d;
+  --loss-strong:   #14532d;
+  --chart-volume-up:   var(--profit);
+  --chart-volume-down: var(--loss);
 }

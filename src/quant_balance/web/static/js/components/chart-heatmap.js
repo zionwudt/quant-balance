@@ -2,12 +2,25 @@
  * 知衡 QuantBalance — 月度收益热力图
  */
 
+import { getVisualPalette } from '../settings.js';
+
 let chartInstance = null;
 let resizeObserver = null;
+let chartState = {
+  container: null,
+  monthlyReturns: [],
+};
+let visualSyncBound = false;
 
 const MONTH_LABELS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 
 export function renderMonthlyHeatmap(container, monthlyReturns) {
+  chartState = {
+    container,
+    monthlyReturns: monthlyReturns || [],
+  };
+  ensureVisualSync();
+
   if (!monthlyReturns || monthlyReturns.length === 0) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🗓</div><p>暂无可用于绘制月度热力图的数据</p></div>';
     disposeMonthlyHeatmap();
@@ -21,15 +34,32 @@ export function renderMonthlyHeatmap(container, monthlyReturns) {
 
   disposeMonthlyHeatmap();
 
-  const { years, values } = normalizeHeatmapData(monthlyReturns);
   chartInstance = echarts.init(container, null, { renderer: 'canvas' });
-  chartInstance.setOption({
+  chartInstance.setOption(buildOption(monthlyReturns), true);
+
+  resizeObserver = new ResizeObserver(() => chartInstance?.resize());
+  resizeObserver.observe(container);
+}
+
+export function disposeMonthlyHeatmap() {
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+  if (chartInstance) {
+    chartInstance.dispose();
+    chartInstance = null;
+  }
+}
+
+function buildOption(monthlyReturns) {
+  const palette = getVisualPalette();
+  const { years, values } = normalizeHeatmapData(monthlyReturns);
+  return {
     backgroundColor: 'transparent',
     tooltip: {
       position: 'top',
-      backgroundColor: '#151827',
-      borderColor: '#243041',
-      textStyle: { color: '#e5e7eb', fontSize: 12 },
+      backgroundColor: palette.tooltipBg,
+      borderColor: palette.tooltipBorder,
+      textStyle: { color: palette.textPrimary, fontSize: 12 },
       formatter(params) {
         const [monthIndex, yearIndex, returnPct] = params.data;
         const year = years[yearIndex];
@@ -47,15 +77,15 @@ export function renderMonthlyHeatmap(container, monthlyReturns) {
       type: 'category',
       data: MONTH_LABELS,
       splitArea: { show: true },
-      axisLine: { lineStyle: { color: '#223045' } },
-      axisLabel: { color: '#94a3b8', fontSize: 11 },
+      axisLine: { lineStyle: { color: palette.chartGrid } },
+      axisLabel: { color: palette.chartAxis, fontSize: 11 },
     },
     yAxis: {
       type: 'category',
       data: years,
       splitArea: { show: true },
-      axisLine: { lineStyle: { color: '#223045' } },
-      axisLabel: { color: '#94a3b8', fontSize: 11 },
+      axisLine: { lineStyle: { color: palette.chartGrid } },
+      axisLabel: { color: palette.chartAxis, fontSize: 11 },
     },
     visualMap: {
       min: -5,
@@ -65,9 +95,9 @@ export function renderMonthlyHeatmap(container, monthlyReturns) {
       left: 'center',
       bottom: 6,
       text: ['+5%', '-5%'],
-      textStyle: { color: '#94a3b8', fontSize: 11 },
+      textStyle: { color: palette.chartAxis, fontSize: 11 },
       inRange: {
-        color: ['#7f1d1d', '#fca5a5', '#f8fafc', '#86efac', '#14532d'],
+        color: [palette.lossStrong, palette.lossSoft, '#f8fafc', palette.profitSoft, palette.profitStrong],
       },
     },
     series: [
@@ -91,19 +121,19 @@ export function renderMonthlyHeatmap(container, monthlyReturns) {
         },
       },
     ],
-  });
-
-  resizeObserver = new ResizeObserver(() => chartInstance?.resize());
-  resizeObserver.observe(container);
+  };
 }
 
-export function disposeMonthlyHeatmap() {
-  resizeObserver?.disconnect();
-  resizeObserver = null;
-  if (chartInstance) {
-    chartInstance.dispose();
-    chartInstance = null;
+function ensureVisualSync() {
+  if (visualSyncBound) {
+    return;
   }
+  visualSyncBound = true;
+  window.addEventListener('qb-settings-changed', () => {
+    if (chartInstance && chartState.monthlyReturns.length) {
+      chartInstance.setOption(buildOption(chartState.monthlyReturns), true);
+    }
+  });
 }
 
 function normalizeHeatmapData(monthlyReturns) {

@@ -4,6 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>知衡 QuantBalance</title>
+  <script>
+    (function applyInitialPreferences() {
+      const appearance = localStorage.getItem('qb-appearance') || 'dark';
+      const riseStyle = localStorage.getItem('qb-rise-fall-style') || 'international';
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const resolvedTheme = appearance === 'system'
+        ? (prefersDark ? 'dark' : 'light')
+        : appearance;
+      document.documentElement.setAttribute('data-theme', resolvedTheme);
+      document.documentElement.setAttribute('data-appearance', appearance);
+      document.documentElement.setAttribute('data-rise-style', riseStyle);
+    }());
+  </script>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/css/variables.css">
   <link rel="stylesheet" href="/static/css/base.css">
@@ -44,10 +57,21 @@
         </div>
       </div>
       <div class="sidebar-section">
-        <div class="sidebar-section-title">概览</div>
-        <div class="sidebar-item">
-          <span class="sidebar-item-icon">🧭</span>
-          <span>策略与组合</span>
+        <div class="sidebar-section-title">执行与信号</div>
+        <div class="sidebar-item" data-page="paper-trading">
+          <span class="sidebar-item-icon">💼</span>
+          <span>模拟盘</span>
+        </div>
+        <div class="sidebar-item" data-page="signals">
+          <span class="sidebar-item-icon">📡</span>
+          <span>信号中心</span>
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">设置</div>
+        <div class="sidebar-item" data-page="settings">
+          <span class="sidebar-item-icon">⚙</span>
+          <span>偏好与配置</span>
         </div>
       </div>
     </nav>
@@ -62,9 +86,13 @@
 
     <!-- 状态栏 -->
     <footer class="statusbar">
-      <span><span class="statusbar-dot"></span>就绪</span>
+      <span><span class="statusbar-dot"></span><span id="statusbar-state">就绪</span></span>
       <span class="statusbar-separator">|</span>
-      <span>知衡 QuantBalance</span>
+      <span id="statusbar-theme">主题：深色</span>
+      <span class="statusbar-separator">|</span>
+      <span id="statusbar-rise-style">涨跌色：国际</span>
+      <span class="statusbar-separator">|</span>
+      <span id="statusbar-brand">知衡 QuantBalance</span>
     </footer>
   </div>
 
