@@ -86,7 +86,13 @@ def normalize_bt_stats(
     return report
 
 
-def normalize_vbt_stats(stats: pd.Series) -> dict:
+def normalize_vbt_stats(
+    stats: pd.Series,
+    equity_series: pd.Series | pd.DataFrame | None = None,
+    *,
+    initial_equity: float | None = None,
+    rolling_sharpe_window: int = 60,
+) -> dict:
     """将 vectorbt 的 pf.stats() 转为标准化字典。"""
     def _safe(key: str, default=None):
         try:
@@ -97,16 +103,52 @@ def normalize_vbt_stats(stats: pd.Series) -> dict:
         except (KeyError, TypeError):
             return default
 
-    return {
+    normalized_equity = _normalize_equity_series(equity_series)
+    resolved_initial_equity = initial_equity
+    if resolved_initial_equity is None and normalized_equity is not None and not normalized_equity.empty:
+        resolved_initial_equity = float(normalized_equity.iloc[0])
+
+    max_drawdown_pct = _safe("Max Drawdown [%]")
+    if max_drawdown_pct is not None:
+        max_drawdown_pct = abs(max_drawdown_pct)
+
+    report = {
+        "initial_equity": _rounded(resolved_initial_equity),
+        "annualized_return_pct": _rounded(_annualized_return_pct(normalized_equity)),
         "total_return_pct": _safe("Total Return [%]"),
         "sharpe_ratio": _safe("Sharpe Ratio"),
-        "max_drawdown_pct": _safe("Max Drawdown [%]"),
+        "max_drawdown_pct": _rounded(max_drawdown_pct),
         "total_trades": _safe("Total Trades", 0),
         "win_rate_pct": _safe("Win Rate [%]"),
         "profit_factor": _safe("Profit Factor"),
         "expectancy": _safe("Expectancy"),
-        "final_value": _safe("End Value"),
+        "final_value": _rounded(
+            float(normalized_equity.iloc[-1])
+            if normalized_equity is not None and not normalized_equity.empty
+            else _safe("End Value")
+        ),
+        "final_equity": _rounded(
+            float(normalized_equity.iloc[-1])
+            if normalized_equity is not None and not normalized_equity.empty
+            else _safe("End Value")
+        ),
+        "calmar_ratio": None,
+        "monthly_returns": [],
+        "rolling_sharpe_window_bars": rolling_sharpe_window,
+        "rolling_sharpe": [],
+        "yearly_stats": [],
     }
+    report["calmar_ratio"] = _rounded(_calmar_ratio(
+        report.get("annualized_return_pct"),
+        report.get("max_drawdown_pct"),
+    ))
+    report["monthly_returns"] = _monthly_return_table(normalized_equity)
+    report["rolling_sharpe"] = _rolling_sharpe_series(
+        normalized_equity,
+        window=rolling_sharpe_window,
+    )
+    report["yearly_stats"] = _yearly_stats(normalized_equity)
+    return report
 
 
 def bt_trades_to_dicts(
@@ -248,6 +290,28 @@ def _equity_series(equity_df: pd.DataFrame | None) -> pd.Series | None:
     series = equity_df["Equity"].astype(float).copy()
     series.index = pd.to_datetime(series.index)
     return series.sort_index()
+
+
+def _normalize_equity_series(equity_series: pd.Series | pd.DataFrame | None) -> pd.Series | None:
+    if equity_series is None:
+        return None
+    if isinstance(equity_series, pd.DataFrame):
+        if equity_series.empty:
+            return None
+        if "Equity" in equity_series:
+            series = equity_series["Equity"]
+        elif equity_series.shape[1] == 1:
+            series = equity_series.iloc[:, 0]
+        else:
+            return None
+    else:
+        series = equity_series
+
+    if series is None or len(series) == 0:
+        return None
+    normalized = series.astype(float).copy()
+    normalized.index = pd.to_datetime(normalized.index)
+    return normalized.sort_index()
 
 
 def _monthly_return_table(equity_series: pd.Series | None) -> list[dict[str, object]]:

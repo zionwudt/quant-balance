@@ -71,6 +71,7 @@ def test_run_portfolio_research_returns_api_ready_payload():
         )
 
     assert result["summary"]["final_equity"] == 105_000.0
+    assert result["summary"]["rebalance_count"] == 1
     assert result["equity_curve"][0]["equity"] == 100_000.0
     assert result["weights"][0]["weights"]["AAA"] == 0.5
     assert result["rebalances"][0]["turnover_pct"] == 100.0

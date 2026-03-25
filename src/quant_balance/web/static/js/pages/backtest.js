@@ -6,8 +6,9 @@ import { api, ApiError } from '../api.js';
 import { toast } from '../components/toast.js';
 import { renderEquityChart, disposeEquityChart } from '../components/chart-equity.js';
 import { renderKlineChart, highlightKlineTrade, disposeKlineChart } from '../components/chart-kline.js';
+import { renderMonthlyHeatmap, disposeMonthlyHeatmap } from '../components/chart-heatmap.js';
 import { renderTradesTable } from '../components/data-table.js';
-import { createStockSearch } from '../components/stock-search.js';
+import { createMultiStockSearch } from '../components/stock-search.js';
 
 const DEFAULT_STRATEGY_NAMES = [
   'sma_cross',
@@ -107,15 +108,24 @@ const BENCHMARK_OPTIONS = [
   { symbol: '000001.SH', name: '上证指数' },
 ];
 
+const REBALANCE_OPTIONS = [
+  { value: 'daily', label: '每日' },
+  { value: 'weekly', label: '每周' },
+  { value: 'monthly', label: '每月' },
+  { value: 'quarterly', label: '每季度' },
+];
+
 let strategies = [];
 let hotkeysBound = false;
-let lastBacktestResult = null;
+let lastSingleResult = null;
+let lastPortfolioResult = null;
 let pageState = createInitialState();
 
-export async function initBacktestPage(container) {
+export async function initBacktestPage(container, routeContext = {}) {
   disposeEquityChart();
   disposeKlineChart();
-  pageState = createInitialState();
+  disposeMonthlyHeatmap();
+  pageState = createInitialState(routeContext.params);
 
   try {
     const response = await api.getStrategies();
@@ -128,21 +138,31 @@ export async function initBacktestPage(container) {
 
   container.innerHTML = buildHTML();
   pageState.currentStrategy = strategies[0]?.name || 'sma_cross';
-  pageState.symbolSearch = createStockSearch(container.querySelector('#bt-symbol-search'), {
-    initialSelection: { symbol: '600519.SH', name: '贵州茅台', market: '主板' },
+  pageState.symbolSearch = createMultiStockSearch(container.querySelector('#bt-symbol-search'), {
+    initialSelection: pageState.initialSymbols,
     filterItem: item => item.kind !== 'benchmark',
+    caption: '支持多选与标签删除；输入多只股票时将自动切换为等权组合回测。',
+    onChange: () => {
+      syncModeUI(container);
+    },
   });
+
   bindEvents(container);
   syncStrategyCardSelection(container);
   updateStrategyParams(container);
   syncAdvancedInputs(container);
+  syncModeUI(container);
 }
 
-function createInitialState() {
+function createInitialState(params = {}) {
+  const routeSymbols = parseSymbolsParam(params?.symbols);
   return {
     currentStrategy: 'sma_cross',
     strategyValues: {},
     symbolSearch: null,
+    initialSymbols: routeSymbols.length
+      ? routeSymbols.map(symbol => ({ symbol, name: '组合候选', market: '选股页带入' }))
+      : [{ symbol: '600519.SH', name: '贵州茅台', market: '主板' }],
   };
 }
 
@@ -190,10 +210,17 @@ function buildHTML() {
       <div class="backtest-params">
         <div class="card backtest-workbench">
           <div class="card-title">回测工作台</div>
+          <div class="mode-banner" id="bt-mode-banner"></div>
 
           <div class="form-group" style="margin-bottom: var(--space-4)">
             <label class="form-label">股票代码</label>
             <div id="bt-symbol-search"></div>
+          </div>
+
+          <div class="portfolio-mode-panel hidden" id="bt-portfolio-panel">
+            <div class="portfolio-mode-title">组合回测说明</div>
+            <p class="portfolio-mode-note">当你选择 2 只及以上股票时，系统会自动切换为等权组合回测，并支持按日/周/月/季度再平衡。</p>
+            <div class="portfolio-mode-list" id="bt-portfolio-list"></div>
           </div>
 
           <div class="form-group" style="margin-bottom: var(--space-4)">
@@ -215,11 +242,11 @@ function buildHTML() {
             <input class="input mono" id="bt-cash" type="number" value="100000" step="10000" min="1000">
           </div>
 
-          <div class="strategy-section">
+          <div class="strategy-section" id="bt-strategy-section">
             <div class="section-heading">
               <div>
                 <div class="form-label">策略切换</div>
-                <p class="section-note">切换策略后，参数表单和描述会自动更新。</p>
+                <p class="section-note">单股模式下可自由切换策略；组合模式使用等权再平衡，不再应用单标的择时策略。</p>
               </div>
             </div>
             <div class="strategy-radio-grid">
@@ -239,13 +266,13 @@ function buildHTML() {
           <div class="advanced-panel" id="bt-advanced-panel">
             <button type="button" class="advanced-panel-toggle" id="bt-advanced-toggle" aria-expanded="false">
               <span>高级设置</span>
-              <span class="advanced-panel-meta">滑点 / 风控 / 基准</span>
+              <span class="advanced-panel-meta">滑点 / 风控 / 基准 / 再平衡</span>
               <span class="advanced-panel-caret">⌄</span>
             </button>
             <div class="advanced-panel-body">
               <div class="advanced-panel-inner">
                 <div class="advanced-settings-grid">
-                  <label class="advanced-field">
+                  <label class="advanced-field" id="bt-benchmark-field">
                     <span class="form-label">基准指数</span>
                     <select class="input" id="bt-benchmark-symbol">
                       ${BENCHMARK_OPTIONS.map(item => `<option value="${item.symbol}">${item.name}${item.symbol ? ` (${item.symbol})` : ''}</option>`).join('')}
@@ -259,7 +286,15 @@ function buildHTML() {
                     <span class="field-help">默认 0.001，即 0.1%。</span>
                   </label>
 
-                  <label class="advanced-field">
+                  <label class="advanced-field hidden" id="bt-rebalance-field">
+                    <span class="form-label">再平衡频率</span>
+                    <select class="input" id="bt-rebalance-frequency">
+                      ${REBALANCE_OPTIONS.map(item => `<option value="${item.value}"${item.value === 'monthly' ? ' selected' : ''}>${item.label}</option>`).join('')}
+                    </select>
+                    <span class="field-help">组合模式下使用等权重，再按该频率调仓。</span>
+                  </label>
+
+                  <label class="advanced-field" id="bt-slippage-mode-field">
                     <span class="form-label">滑点模式</span>
                     <select class="input" id="bt-slippage-mode">
                       <option value="off">关闭</option>
@@ -295,13 +330,13 @@ function buildHTML() {
                     <span class="field-help">例如 0.15 代表盈利 15% 止盈。</span>
                   </label>
 
-                  <label class="advanced-field">
+                  <label class="advanced-field" id="bt-max-position-field">
                     <span class="form-label">最大仓位</span>
                     <input class="input mono" id="bt-max-position" type="number" value="1" step="0.05" min="0.05" max="1">
                     <span class="field-help"><span class="mono">1</span> 表示满仓，<span class="mono">0.5</span> 表示单次最多 50% 仓位。</span>
                   </label>
 
-                  <label class="advanced-field">
+                  <label class="advanced-field" id="bt-max-holdings-field">
                     <span class="form-label">最大持仓笔数</span>
                     <input class="input mono" id="bt-max-holdings" type="number" value="20" step="1" min="1">
                     <span class="field-help">对 <span class="mono">dca</span> 这类允许分批加仓的策略更有意义。</span>
@@ -320,8 +355,9 @@ function buildHTML() {
       <div class="backtest-results" id="bt-results">
         <div class="empty-state backtest-empty">
           <div class="empty-state-icon">⚖</div>
-          <p>选择标的、策略和高级设置后运行回测。</p>
-          <p class="text-muted" style="font-size:var(--text-xs)">支持 K 线、成交量、买卖点标记和交易区间联动。快捷键 Ctrl+Enter 运行。</p>
+          <p>单股模式支持 K 线、成交量、买卖点和交易区间联动。</p>
+          <p>多股模式会切换为组合回测，并自动展示月度热力图与调仓记录。</p>
+          <p class="text-muted" style="font-size:var(--text-xs)">支持 Ctrl+Enter 运行；从股票池页跳转后会自动带入选中的股票列表。</p>
         </div>
       </div>
     </div>
@@ -379,6 +415,37 @@ function bindEvents(container) {
   ].forEach((selector) => {
     container.querySelector(selector)?.addEventListener('change', () => syncAdvancedInputs(container));
   });
+}
+
+function syncModeUI(container) {
+  const selectedSymbols = getSelectedSymbols();
+  const isPortfolio = selectedSymbols.length > 1;
+
+  container.querySelector('#bt-mode-banner').innerHTML = isPortfolio
+    ? `<strong>组合模式</strong> · 已选 <span class="mono">${selectedSymbols.length}</span> 只股票，将按等权方式执行组合回测。`
+    : `<strong>单股模式</strong> · 支持策略切换、K 线成交联动和可选 benchmark 对比。`;
+
+  container.querySelector('#bt-strategy-section')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-params-section')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-benchmark-field')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-slippage-mode-field')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-slippage-rate-field')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-stop-loss-field')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-take-profit-field')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-max-position-field')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-max-holdings-field')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-rebalance-field')?.classList.toggle('hidden', !isPortfolio);
+
+  const portfolioPanel = container.querySelector('#bt-portfolio-panel');
+  portfolioPanel?.classList.toggle('hidden', !isPortfolio);
+  if (portfolioPanel) {
+    const listEl = container.querySelector('#bt-portfolio-list');
+    listEl.innerHTML = selectedSymbols.map(symbol => `<span class="result-tag mono">${symbol}</span>`).join('');
+  }
+
+  const runButton = container.querySelector('#bt-run');
+  runButton.textContent = isPortfolio ? '▶ 运行组合回测' : '▶ 运行回测';
+  syncAdvancedInputs(container);
 }
 
 function updateStrategyParams(container) {
@@ -450,18 +517,19 @@ function syncAdvancedInputs(container) {
   const takeProfitEnabled = container.querySelector('#bt-take-profit-enabled')?.checked;
   const stopLossInput = container.querySelector('#bt-stop-loss');
   const takeProfitInput = container.querySelector('#bt-take-profit');
+  const isPortfolio = getSelectedSymbols().length > 1;
 
   if (slippageInput) {
-    slippageInput.disabled = slippageMode === 'off';
-    slippageInput.closest('.advanced-field')?.classList.toggle('is-disabled', slippageMode === 'off');
+    slippageInput.disabled = slippageMode === 'off' || isPortfolio;
+    slippageInput.closest('.advanced-field')?.classList.toggle('is-disabled', slippageMode === 'off' || isPortfolio);
   }
   if (stopLossInput) {
-    stopLossInput.disabled = !stopLossEnabled;
-    stopLossInput.closest('.advanced-field')?.classList.toggle('is-disabled', !stopLossEnabled);
+    stopLossInput.disabled = !stopLossEnabled || isPortfolio;
+    stopLossInput.closest('.advanced-field')?.classList.toggle('is-disabled', !stopLossEnabled || isPortfolio);
   }
   if (takeProfitInput) {
-    takeProfitInput.disabled = !takeProfitEnabled;
-    takeProfitInput.closest('.advanced-field')?.classList.toggle('is-disabled', !takeProfitEnabled);
+    takeProfitInput.disabled = !takeProfitEnabled || isPortfolio;
+    takeProfitInput.closest('.advanced-field')?.classList.toggle('is-disabled', !takeProfitEnabled || isPortfolio);
   }
 }
 
@@ -473,21 +541,17 @@ function syncStrategyCardSelection(container) {
 }
 
 async function runBacktest(container) {
+  const selectedSymbols = getSelectedSymbols();
   const runButton = container.querySelector('#bt-run');
   const resultsEl = container.querySelector('#bt-results');
-
-  const symbol = pageState.symbolSearch?.getValue() || '';
+  const isPortfolio = selectedSymbols.length > 1;
   const startDate = container.querySelector('#bt-start').value;
   const endDate = container.querySelector('#bt-end').value;
-  const strategy = getSelectedStrategyName(container);
   const cash = Number(container.querySelector('#bt-cash').value);
   const commission = Number(container.querySelector('#bt-commission').value);
-  const slippageMode = container.querySelector('#bt-slippage-mode').value;
-  const slippageRate = Number(container.querySelector('#bt-slippage-rate').value || 0);
-  const benchmarkSymbol = container.querySelector('#bt-benchmark-symbol').value;
 
-  if (!symbol) {
-    toast.error('请输入或选择股票代码');
+  if (!selectedSymbols.length) {
+    toast.error('请输入或选择至少 1 只股票');
     return;
   }
   if (!startDate || !endDate) {
@@ -508,52 +572,71 @@ async function runBacktest(container) {
   }
 
   saveCurrentStrategyValues(container);
-  const params = collectStrategyParams(container);
-  if (!params) {
+  const params = isPortfolio ? null : collectStrategyParams(container);
+  if (!isPortfolio && !params) {
     return;
   }
 
   runButton.disabled = true;
   runButton.classList.add('btn-loading');
-  runButton.textContent = '⏳ 回测中...';
-  resultsEl.innerHTML = buildSkeleton();
+  runButton.textContent = isPortfolio ? '⏳ 组合回测中...' : '⏳ 回测中...';
+  resultsEl.innerHTML = buildSkeleton(isPortfolio ? 4 : 5);
   document.querySelector('.progress-bar')?.classList.add('active');
 
   try {
-    const payload = {
-      symbol,
-      start_date: startDate,
-      end_date: endDate,
-      strategy,
-      cash,
-      commission,
-      params,
-    };
-    if (benchmarkSymbol) {
-      payload.benchmark_symbol = benchmarkSymbol;
-    }
-    if (slippageMode !== 'off') {
-      payload.slippage_mode = slippageMode;
-    }
-    if (slippageRate > 0) {
-      payload.slippage_rate = slippageRate;
+    if (isPortfolio) {
+      const result = await api.runPortfolio({
+        symbols: selectedSymbols,
+        start_date: startDate,
+        end_date: endDate,
+        allocation: 'equal',
+        rebalance_frequency: container.querySelector('#bt-rebalance-frequency').value,
+        cash,
+        commission,
+      });
+      lastPortfolioResult = result;
+      renderPortfolioResults(resultsEl, result);
+    } else {
+      const slippageMode = container.querySelector('#bt-slippage-mode').value;
+      const slippageRate = Number(container.querySelector('#bt-slippage-rate').value || 0);
+      const benchmarkSymbol = container.querySelector('#bt-benchmark-symbol').value;
+      const payload = {
+        symbol: selectedSymbols[0],
+        start_date: startDate,
+        end_date: endDate,
+        strategy: getSelectedStrategyName(container),
+        cash,
+        commission,
+        params,
+      };
+      if (benchmarkSymbol) {
+        payload.benchmark_symbol = benchmarkSymbol;
+      }
+      if (slippageMode !== 'off') {
+        payload.slippage_mode = slippageMode;
+      }
+      if (slippageRate > 0) {
+        payload.slippage_rate = slippageRate;
+      }
+
+      const result = await api.runBacktest(payload);
+      lastSingleResult = result;
+      renderSingleResults(resultsEl, result);
     }
 
-    const result = await api.runBacktest(payload);
     runButton.textContent = '✓ 完成';
     runButton.style.background = 'var(--profit)';
     window.setTimeout(() => {
-      runButton.textContent = '▶ 运行回测';
+      runButton.textContent = isPortfolio ? '▶ 运行组合回测' : '▶ 运行回测';
       runButton.style.background = '';
     }, 1500);
-
-    lastBacktestResult = result;
-    renderResults(resultsEl, result);
   } catch (error) {
     const message = error instanceof ApiError ? error.message : '回测失败，请检查参数和行情配置';
     toast.error(message);
-    if (lastBacktestResult) {
-      renderResults(resultsEl, lastBacktestResult);
+    if (isPortfolio && lastPortfolioResult) {
+      renderPortfolioResults(resultsEl, lastPortfolioResult);
+    } else if (!isPortfolio && lastSingleResult) {
+      renderSingleResults(resultsEl, lastSingleResult);
     } else {
       resultsEl.innerHTML = `
         <div class="empty-state backtest-empty">
@@ -614,7 +697,8 @@ function collectStrategyParams(container) {
   return params;
 }
 
-function renderResults(container, result) {
+function renderSingleResults(container, result) {
+  disposeMonthlyHeatmap();
   const summary = result.summary || {};
   const trades = (result.trades || []).map((trade, index) => ({
     ...trade,
@@ -668,6 +752,16 @@ function renderResults(container, result) {
     <div class="card">
       <div class="results-card-head">
         <div>
+          <div class="card-title">月度收益热力图</div>
+          <p class="card-subtitle">悬浮可查看精确月收益，颜色从深绿到深红映射收益强弱。</p>
+        </div>
+      </div>
+      <div class="chart-container chart-container-heatmap" id="bt-heatmap-chart"></div>
+    </div>
+
+    <div class="card">
+      <div class="results-card-head">
+        <div>
           <div class="card-title">成交明细 <span class="text-secondary" style="font-size:var(--text-sm);font-weight:400">(${trades.length} 笔交易)</span></div>
           <p class="card-subtitle">支持排序；点击任意一行，会同步高亮 K 线上的入场到离场区间。</p>
         </div>
@@ -688,12 +782,155 @@ function renderResults(container, result) {
     equityCurve,
     summary.initial_equity,
   );
+  renderMonthlyHeatmap(
+    container.querySelector('#bt-heatmap-chart'),
+    summary.monthly_returns || [],
+  );
   renderTradesTable(container.querySelector('#bt-trades-table'), trades, {
     onRowSelect: (trade) => {
       highlightKlineTrade(trade);
       renderTradeFocus(container.querySelector('#bt-trade-focus'), trade);
     },
   });
+}
+
+function renderPortfolioResults(container, result) {
+  disposeKlineChart();
+  disposeMonthlyHeatmap();
+  const summary = result.summary || {};
+  const equityCurve = result.equity_curve || [];
+  const weights = result.weights || [];
+  const rebalances = result.rebalances || [];
+  const context = result.run_context || {};
+  const loadedSymbols = context.loaded_symbols || context.symbols || [];
+  const latestWeights = weights[weights.length - 1]?.weights || {};
+
+  container.innerHTML = `
+    <div class="results-overview">
+      <div>
+        <div class="results-title">组合回测 · ${loadedSymbols.length} 只股票</div>
+        <p class="results-subtitle">
+          ${context.start_date || '-'} ~ ${context.end_date || '-'} · 等权配置 · ${formatRebalanceLabel(summary.rebalance_frequency || context.rebalance_frequency)}
+        </p>
+      </div>
+      <div class="results-tags">
+        ${loadedSymbols.slice(0, 6).map(symbol => `<span class="result-tag mono">${symbol}</span>`).join('')}
+        ${loadedSymbols.length > 6 ? `<span class="result-tag mono">+${loadedSymbols.length - 6}</span>` : ''}
+      </div>
+    </div>
+
+    <div class="metrics-grid" id="bt-metrics"></div>
+
+    <div class="card">
+      <div class="results-card-head">
+        <div>
+          <div class="card-title">月度收益热力图</div>
+          <p class="card-subtitle">年 x 月矩阵视图，便于识别收益分布、回撤月份和风格切换。</p>
+        </div>
+      </div>
+      <div class="chart-container chart-container-heatmap" id="bt-heatmap-chart"></div>
+    </div>
+
+    <div class="card">
+      <div class="results-card-head">
+        <div>
+          <div class="card-title">组合权益曲线</div>
+          <p class="card-subtitle">组合净值与回撤同步展示，可快速判断再平衡后的净值平滑度。</p>
+        </div>
+      </div>
+      <div class="chart-container" id="bt-equity-chart"></div>
+    </div>
+
+    <div class="portfolio-results-grid">
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">最新持仓权重</div>
+            <p class="card-subtitle">展示最后一个有效调仓节点的目标权重。</p>
+          </div>
+        </div>
+        <div class="portfolio-table-wrapper">
+          ${renderWeightsSnapshot(latestWeights)}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">调仓记录</div>
+            <p class="card-subtitle">按时间列出每次再平衡的换手率和目标股票数。</p>
+          </div>
+        </div>
+        <div class="portfolio-table-wrapper">
+          ${renderRebalanceRows(rebalances)}
+        </div>
+      </div>
+    </div>
+  `;
+
+  renderMetrics(container.querySelector('#bt-metrics'), summary, equityCurve);
+  renderEquityChart(
+    container.querySelector('#bt-equity-chart'),
+    equityCurve,
+    summary.initial_equity,
+  );
+  renderMonthlyHeatmap(
+    container.querySelector('#bt-heatmap-chart'),
+    summary.monthly_returns || [],
+  );
+}
+
+function renderWeightsSnapshot(weights) {
+  const entries = Object.entries(weights || {}).sort((left, right) => right[1] - left[1]);
+  if (!entries.length) {
+    return '<div class="empty-state"><div class="empty-state-icon">📦</div><p>暂无权重快照</p></div>';
+  }
+
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>股票</th>
+          <th data-align="right">权重</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${entries.map(([symbol, weight]) => `
+          <tr>
+            <td class="mono">${symbol}</td>
+            <td data-align="right" class="mono">${formatPctAbs(Number(weight) * 100)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderRebalanceRows(rebalances) {
+  if (!rebalances.length) {
+    return '<div class="empty-state"><div class="empty-state-icon">🔁</div><p>暂无调仓记录</p></div>';
+  }
+
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>日期</th>
+          <th data-align="right">换手率</th>
+          <th data-align="right">持仓数</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rebalances.map(item => `
+          <tr>
+            <td>${formatDate(item.date)}</td>
+            <td data-align="right" class="mono">${formatPctAbs(item.turnover_pct)}</td>
+            <td data-align="right" class="mono">${Object.values(item.weights || {}).filter(value => Number(value) > 0).length}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
 }
 
 function renderTradeFocus(container, trade) {
@@ -720,7 +957,7 @@ function renderMetrics(container, summary, equityCurve) {
     { label: '最大回撤', value: summary.max_drawdown_pct == null ? '-' : `-${formatPctAbs(summary.max_drawdown_pct)}`, color: 'var(--loss)' },
     { label: 'Sharpe', value: formatNum(summary.sharpe_ratio), color: sharpeColor(summary.sharpe_ratio) },
     { label: '胜率', value: formatPctAbs(summary.win_rate_pct), color: winRateColor(summary.win_rate_pct) },
-    { label: '交易次数', value: summary.trades_count ?? '-', color: 'var(--text-primary)' },
+    { label: '交易次数', value: summary.trades_count ?? summary.total_trades ?? '-', color: 'var(--text-primary)' },
     { label: '年化波动', value: formatPctAbs(annualizedVolatilityPct), color: volatilityColor(annualizedVolatilityPct) },
   ];
 
@@ -732,19 +969,21 @@ function renderMetrics(container, summary, equityCurve) {
   `).join('');
 }
 
-function buildSkeleton() {
+function buildSkeleton(cardCount) {
   return `
     <div class="metrics-grid">
       ${Array(6).fill('<div class="metric-card"><div class="skeleton" style="height:16px;width:60px;margin-bottom:8px"></div><div class="skeleton" style="height:32px;width:100px"></div></div>').join('')}
     </div>
-    <div class="card"><div class="skeleton" style="height:440px"></div></div>
-    <div class="card"><div class="skeleton" style="height:350px"></div></div>
-    <div class="card">${Array(5).fill('<div class="skeleton" style="height:20px;margin-bottom:8px"></div>').join('')}</div>
+    ${Array(cardCount).fill('<div class="card"><div class="skeleton" style="height:280px"></div></div>').join('')}
   `;
 }
 
 function getSelectedStrategyName(container) {
   return container.querySelector('input[name="bt-strategy"]:checked')?.value || strategies[0]?.name || 'sma_cross';
+}
+
+function getSelectedSymbols() {
+  return pageState.symbolSearch?.getValues().map(symbol => String(symbol).toUpperCase()) || [];
 }
 
 function parseValue(value, parser) {
@@ -784,6 +1023,10 @@ function formatNum(value) {
 function formatMoney(value) {
   if (value == null || !Number.isFinite(Number(value))) return '-';
   return Number(value).toFixed(2);
+}
+
+function formatRebalanceLabel(value) {
+  return REBALANCE_OPTIONS.find(item => item.value === value)?.label || value || '-';
 }
 
 function pctColor(value) {
@@ -827,4 +1070,11 @@ function computeAnnualizedVolatilityPct(equityCurve) {
   const mean = returns.reduce((sum, item) => sum + item, 0) / returns.length;
   const variance = returns.reduce((sum, item) => sum + ((item - mean) ** 2), 0) / returns.length;
   return Math.sqrt(variance) * Math.sqrt(252) * 100;
+}
+
+function parseSymbolsParam(value) {
+  return String(value || '')
+    .split(',')
+    .map(item => item.trim().toUpperCase())
+    .filter(Boolean);
 }

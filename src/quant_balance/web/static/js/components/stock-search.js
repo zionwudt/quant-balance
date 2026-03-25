@@ -5,6 +5,20 @@
 import { api } from '../api.js';
 
 export function createStockSearch(container, options = {}) {
+  return createSearchInstance(container, {
+    ...options,
+    multiple: false,
+  });
+}
+
+export function createMultiStockSearch(container, options = {}) {
+  return createSearchInstance(container, {
+    ...options,
+    multiple: true,
+  });
+}
+
+function createSearchInstance(container, options) {
   const {
     placeholder = '输入代码或名称，如 600519 / 茅台',
     caption = '支持按代码或名称模糊搜索，回车可直接使用手动输入代码',
@@ -12,18 +26,21 @@ export function createStockSearch(container, options = {}) {
     initialSelection = null,
     filterItem = () => true,
     onChange = null,
+    multiple = false,
   } = options;
 
-  let selectedItem = normalizeItem(initialSelection);
+  let selectedItems = multiple
+    ? normalizeItems(initialSelection)
+    : normalizeItems(initialSelection).slice(0, 1);
   let results = [];
   let activeIndex = -1;
   let searchTimer = null;
   let requestSerial = 0;
 
   container.innerHTML = `
-    <div class="symbol-search">
-      <div class="symbol-search-selected hidden"></div>
+    <div class="symbol-search${multiple ? ' symbol-search-multiple' : ''}">
       <div class="symbol-search-input-row">
+        <div class="symbol-search-selected"></div>
         <input class="input symbol-search-input" autocomplete="off" spellcheck="false" placeholder="${placeholder}">
       </div>
       <div class="symbol-search-dropdown hidden"></div>
@@ -36,33 +53,42 @@ export function createStockSearch(container, options = {}) {
   const input = container.querySelector('.symbol-search-input');
   const dropdown = container.querySelector('.symbol-search-dropdown');
 
+  function emitChange() {
+    onChange?.(multiple ? [...selectedItems] : selectedItems[0] || null);
+  }
+
   function renderSelected() {
-    if (!selectedItem) {
+    if (!selectedItems.length) {
+      selectedEl.innerHTML = '';
       selectedEl.classList.add('hidden');
-      inputRow.classList.remove('hidden');
+      input.classList.remove('hidden');
+      input.placeholder = placeholder;
       return;
     }
 
     selectedEl.classList.remove('hidden');
-    inputRow.classList.add('hidden');
-    selectedEl.innerHTML = `
-      <div class="symbol-pill">
+    selectedEl.innerHTML = selectedItems.map(item => `
+      <div class="symbol-pill" data-symbol="${item.symbol}">
         <div class="symbol-pill-main">
-          <span class="symbol-pill-code mono">${selectedItem.symbol}</span>
-          <span class="symbol-pill-name">${selectedItem.name || '手动输入'}</span>
+          <span class="symbol-pill-code mono">${item.symbol}</span>
+          <span class="symbol-pill-name">${item.name || '手动输入'}</span>
         </div>
-        <button type="button" class="symbol-pill-clear" aria-label="重新选择">×</button>
+        <button type="button" class="symbol-pill-clear" aria-label="移除 ${item.symbol}">×</button>
       </div>
-    `;
-    selectedEl.querySelector('.symbol-pill-clear')?.addEventListener('click', () => {
-      selectedItem = null;
-      results = [];
-      activeIndex = -1;
-      input.value = '';
-      renderDropdown();
-      renderSelected();
-      input.focus();
-      onChange?.(null);
+    `).join('');
+
+    if (!multiple) {
+      input.classList.add('hidden');
+    } else {
+      input.classList.remove('hidden');
+      input.placeholder = '继续添加股票代码';
+    }
+
+    selectedEl.querySelectorAll('.symbol-pill-clear').forEach((button) => {
+      button.addEventListener('click', () => {
+        const symbol = button.closest('.symbol-pill')?.dataset.symbol || '';
+        removeItem(symbol);
+      });
     });
   }
 
@@ -105,14 +131,31 @@ export function createStockSearch(container, options = {}) {
     });
   }
 
+  function removeItem(symbol) {
+    selectedItems = selectedItems.filter(item => item.symbol !== symbol);
+    renderSelected();
+    emitChange();
+    input.focus();
+  }
+
   function selectItem(item) {
-    selectedItem = normalizeItem(item);
+    const normalized = normalizeItem(item);
+    if (!normalized) {
+      return;
+    }
+
+    if (!multiple) {
+      selectedItems = [normalized];
+    } else if (!selectedItems.some(entry => entry.symbol === normalized.symbol)) {
+      selectedItems = [...selectedItems, normalized];
+    }
+
     results = [];
     activeIndex = -1;
     input.value = '';
     renderSelected();
     renderDropdown();
-    onChange?.(selectedItem);
+    emitChange();
   }
 
   function commitManualValue() {
@@ -147,7 +190,12 @@ export function createStockSearch(container, options = {}) {
       if (currentRequest !== requestSerial) {
         return;
       }
-      results = (response.items || []).filter(filterItem);
+      results = (response.items || []).filter(item => {
+        if (!filterItem(item)) {
+          return false;
+        }
+        return multiple || !selectedItems.some(selected => selected.symbol === item.symbol);
+      });
       activeIndex = results.length ? 0 : -1;
       renderDropdown('未找到匹配结果，可直接回车使用输入代码');
     } catch {
@@ -166,16 +214,19 @@ export function createStockSearch(container, options = {}) {
       void runSearch(input.value);
     }, 180);
   });
+
   input.addEventListener('focus', () => {
     if (input.value.trim()) {
       void runSearch(input.value);
     }
   });
+
   input.addEventListener('blur', () => {
     window.setTimeout(() => {
       dropdown.classList.add('hidden');
     }, 120);
   });
+
   input.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowDown' && results.length) {
       event.preventDefault();
@@ -198,6 +249,10 @@ export function createStockSearch(container, options = {}) {
       }
       return;
     }
+    if (event.key === 'Backspace' && multiple && !input.value && selectedItems.length) {
+      removeItem(selectedItems[selectedItems.length - 1].symbol);
+      return;
+    }
     if (event.key === 'Escape') {
       dropdown.classList.add('hidden');
     }
@@ -207,7 +262,7 @@ export function createStockSearch(container, options = {}) {
 
   return {
     clear() {
-      selectedItem = null;
+      selectedItems = [];
       input.value = '';
       results = [];
       activeIndex = -1;
@@ -215,26 +270,56 @@ export function createStockSearch(container, options = {}) {
       renderDropdown();
     },
     focus() {
-      if (selectedItem) {
+      if (!multiple && selectedItems.length) {
         selectedEl.querySelector('.symbol-pill-clear')?.focus();
       } else {
         input.focus();
       }
     },
     getSelectedItem() {
-      return selectedItem;
+      return selectedItems[0] || null;
+    },
+    getSelectedItems() {
+      return [...selectedItems];
     },
     getValue() {
-      return selectedItem?.symbol || input.value.trim().toUpperCase();
+      return multiple
+        ? selectedItems.map(item => item.symbol)
+        : selectedItems[0]?.symbol || input.value.trim().toUpperCase();
+    },
+    getValues() {
+      const value = this.getValue();
+      return Array.isArray(value) ? value : (value ? [value] : []);
     },
     setSelection(item) {
-      if (!item) {
-        this.clear();
-        return;
-      }
-      selectItem(item);
+      selectedItems = normalizeItems(item).slice(0, 1);
+      renderSelected();
+      emitChange();
+    },
+    setSelections(items) {
+      selectedItems = multiple
+        ? normalizeItems(items)
+        : normalizeItems(items).slice(0, 1);
+      renderSelected();
+      emitChange();
     },
   };
+}
+
+function normalizeItems(items) {
+  const raw = Array.isArray(items) ? items : (items ? [items] : []);
+  const normalized = [];
+  const seen = new Set();
+
+  raw.forEach((item) => {
+    const entry = normalizeItem(item);
+    if (!entry || seen.has(entry.symbol)) {
+      return;
+    }
+    seen.add(entry.symbol);
+    normalized.push(entry);
+  });
+  return normalized;
 }
 
 function normalizeItem(item) {

@@ -238,6 +238,8 @@ def test_api_http_smoke_end_to_end():
         assert "text/html" in root_headers.get("content-type", "")
         assert "/static/vendor/echarts.min.js" in root_payload
         assert "cdn.jsdelivr.net" not in root_payload
+        assert 'data-page="stock-pool"' in root_payload
+        assert "股票池筛选" in root_payload
 
         favicon_status, favicon_headers, favicon_payload = _request(app, "GET", "/favicon.svg")
         assert favicon_status == 200
@@ -377,6 +379,9 @@ def test_api_http_smoke_end_to_end():
         assert portfolio_payload["summary"]["symbols_count"] == 2
         assert portfolio_payload["summary"]["allocation"] == "custom"
         assert portfolio_payload["summary"]["rebalance_frequency"] == "monthly"
+        assert len(portfolio_payload["summary"]["monthly_returns"]) > 0
+        assert len(portfolio_payload["summary"]["yearly_stats"]) > 0
+        assert isinstance(portfolio_payload["summary"]["rolling_sharpe"], list)
         assert len(portfolio_payload["equity_curve"]) > 0
         assert len(portfolio_payload["weights"]) > 0
         assert len(portfolio_payload["rebalances"]) > 0

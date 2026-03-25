@@ -4,68 +4,125 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { initBacktestPage } from './pages/backtest.js';
+import { initStockPoolPage } from './pages/stock-pool.js';
 import { checkOnboarding } from './components/onboarding.js';
 
-// 初始化
+const pages = {
+  backtest: { title: '回测中心', init: initBacktestPage },
+  'stock-pool': { title: '股票池研究', init: initStockPoolPage },
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
   initTheme();
   initSidebar();
   initTopbar();
 
-  // 首次使用引导
   await checkOnboarding();
-
-  // 默认加载回测页面
-  await navigateTo('backtest');
+  await syncRoute({ normalizeHash: true });
 });
 
-// ── 侧栏 ──
+window.addEventListener('hashchange', () => {
+  void syncRoute();
+});
+
 function initSidebar() {
   document.querySelectorAll('.sidebar-item[data-page]').forEach(item => {
-    item.onclick = () => navigateTo(item.dataset.page);
+    item.onclick = () => {
+      void navigateTo(item.dataset.page);
+    };
   });
 }
 
-// ── 顶栏 ──
 function initTopbar() {
-  // 主题切换
   const themeBtn = document.getElementById('theme-toggle');
-  if (themeBtn) themeBtn.onclick = toggleTheme;
-
-  // 汉堡菜单
-  const hamburger = document.querySelector('.topbar-hamburger');
-  if (hamburger) {
-    hamburger.onclick = () => {
-      document.querySelector('.sidebar').classList.toggle('open');
-    };
+  if (themeBtn) {
+    themeBtn.onclick = toggleTheme;
   }
 }
 
-// ── 路由 ──
-const pages = {
-  backtest: { title: '回测中心', init: initBacktestPage },
-};
+async function syncRoute(options = {}) {
+  const { normalizeHash = false } = options;
+  let route = parseRoute(window.location.hash);
 
-async function navigateTo(page) {
-  const config = pages[page];
-  if (!config) return;
+  if (!pages[route.page]) {
+    route = { page: 'backtest', params: {} };
+  }
+  if (normalizeHash || window.location.hash !== buildHash(route.page, route.params)) {
+    window.history.replaceState(null, '', buildHash(route.page, route.params));
+  }
 
-  // 更新侧栏激活状态
-  document.querySelectorAll('.sidebar-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.page === page);
-  });
-
-  // 渲染页面
-  const main = document.querySelector('.main-content');
-  main.innerHTML = '';
-  await config.init(main);
+  await renderPage(route.page, route.params);
 }
 
-// ── 全局快捷键 ──
-document.addEventListener('keydown', (e) => {
-  // Ctrl+K 聚焦搜索
-  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-    e.preventDefault();
+export async function navigateTo(page, params = {}, options = {}) {
+  if (!pages[page]) {
+    return;
+  }
+
+  const hash = buildHash(page, params);
+  const replace = options.replace === true;
+  if (replace) {
+    window.history.replaceState(null, '', hash);
+    await renderPage(page, params);
+    return;
+  }
+
+  if (window.location.hash !== hash) {
+    window.location.hash = hash;
+    return;
+  }
+  await renderPage(page, params);
+}
+
+async function renderPage(page, params) {
+  const config = pages[page];
+  if (!config) {
+    return;
+  }
+
+  document.title = `知衡 QuantBalance · ${config.title}`;
+  document.querySelectorAll('.sidebar-item').forEach((element) => {
+    element.classList.toggle('active', element.dataset.page === page);
+  });
+
+  const main = document.querySelector('.main-content');
+  main.innerHTML = '';
+  await config.init(main, {
+    page,
+    params,
+    navigateTo,
+  });
+}
+
+function parseRoute(hash) {
+  const normalized = String(hash || '').replace(/^#\/?/, '');
+  if (!normalized) {
+    return { page: 'backtest', params: {} };
+  }
+
+  const [page, query = ''] = normalized.split('?');
+  return {
+    page: page || 'backtest',
+    params: Object.fromEntries(new URLSearchParams(query)),
+  };
+}
+
+function buildHash(page, params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value == null || value === '') {
+      return;
+    }
+    query.set(key, String(value));
+  });
+
+  const queryText = query.toString();
+  return `#/${page}${queryText ? `?${queryText}` : ''}`;
+}
+
+document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+    event.preventDefault();
     const searchInput = document.querySelector('.symbol-search-input');
     const clearButton = document.querySelector('.symbol-pill-clear');
     if (searchInput && searchInput.offsetParent !== null) {
@@ -73,10 +130,5 @@ document.addEventListener('keydown', (e) => {
     } else if (clearButton) {
       clearButton.focus();
     }
-  }
-
-  // Escape 关闭侧栏
-  if (e.key === 'Escape') {
-    document.querySelector('.sidebar')?.classList.remove('open');
   }
 });

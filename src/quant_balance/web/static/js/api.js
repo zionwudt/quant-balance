@@ -78,6 +78,13 @@ export const api = {
     });
   },
 
+  runPortfolio(params) {
+    return request('/api/portfolio/run', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
+
   runOptimize(params) {
     return request('/api/backtest/optimize', {
       method: 'POST',

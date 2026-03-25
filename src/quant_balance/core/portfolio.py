@@ -67,11 +67,14 @@ def run_portfolio_backtest(
         call_seq="auto",
         freq="1D",
     )
+    equity_curve = pf.value()
     stats = pf.stats()
-    report = normalize_vbt_stats(stats)
+    report = normalize_vbt_stats(
+        stats,
+        equity_curve,
+        initial_equity=cash,
+    )
     report.update({
-        "initial_equity": cash,
-        "final_equity": report.get("final_value"),
         "symbols_count": len(close_matrix.columns),
         "allocation": allocation,
         "rebalance_frequency": rebalance_frequency,
@@ -92,7 +95,7 @@ def run_portfolio_backtest(
     log_event(logger, "PORTFOLIO_RUN", **log_fields)
     return PortfolioBacktestResult(
         stats=stats,
-        equity_curve=pf.value(),
+        equity_curve=equity_curve,
         weights=effective_weights,
         rebalances=rebalances,
         report=report,
