@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Literal
 
 from quant_balance.core import signals as signal_store
+from quant_balance.execution.adapters.qmt import QmtAdapter
+from quant_balance.execution.models import ExecutionSignal
 
 SignalExportFormat = Literal["csv", "qmt", "json"]
 SUPPORTED_SIGNAL_EXPORT_FORMATS = frozenset({"csv", "qmt", "json"})
@@ -91,7 +93,7 @@ def _build_json_artifact(items: list[dict[str, object]], *, trade_date: str) -> 
 
 
 def _build_qmt_artifact(items: list[dict[str, object]], *, trade_date: str) -> SignalExportArtifact:
-    orders = [_qmt_order_payload(item) for item in items]
+    orders = [QmtAdapter.build_signal_payload(ExecutionSignal.from_signal_payload(item)) for item in items]
     script = f'''"""QuantBalance 自动生成的 miniQMT 交易指令。
 
 交易日期: {trade_date}
@@ -173,34 +175,6 @@ if __name__ == "__main__":
         trade_date=trade_date,
         total=len(items),
     )
-
-
-def _qmt_order_payload(item: dict[str, object]) -> dict[str, object]:
-    return {
-        "symbol": str(item.get("symbol") or "").upper(),
-        "side": str(item.get("side") or "BUY").upper(),
-        "quantity": int(item.get("suggested_qty") or 0),
-        "price": float(item.get("signal_price") or 0.0),
-        "strategy": str(item.get("strategy") or ""),
-        "strategy_name": str(item.get("strategy") or "").upper(),
-        "reason": str(item.get("trigger_reason") or item.get("reason") or ""),
-        "remark": _truncate_remark(
-            f"{str(item.get('strategy') or '').upper()} | "
-            f"{str(item.get('trigger_reason') or item.get('reason') or '')}"
-        ),
-        "signal_id": item.get("id"),
-        "trade_date": str(item.get("trade_date") or ""),
-        "asset_type": str(item.get("asset_type") or "stock"),
-        "status": str(item.get("status") or "pending"),
-        "generated_at": item.get("generated_at"),
-    }
-
-
-def _truncate_remark(value: str, limit: int = 120) -> str:
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3] + "..."
 
 
 def _format_price(value: object) -> str:
