@@ -67,6 +67,7 @@ def create_api_app() -> Any:
     from quant_balance.services.factor_service import run_factor_ranking
     from quant_balance.services.portfolio_service import run_portfolio_research
     from quant_balance.services.screening_service import run_stock_screening
+    from quant_balance.services.symbol_search_service import search_symbol_candidates
     from quant_balance.services.stock_pool_service import run_stock_pool_filter
 
     app = FastAPI(
@@ -166,6 +167,32 @@ def create_api_app() -> Any:
             ],
         }
 
+    @app.get("/api/symbols/search")
+    def symbols_search(q: str, limit: int = 8) -> dict[str, object]:
+        """按代码或名称搜索股票/基准指数候选。"""
+        context = {"query": q, "limit": limit}
+        try:
+            return {
+                "query": q,
+                "items": search_symbol_candidates(q, limit=limit),
+            }
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/symbols/search",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/symbols/search",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
     @app.post("/api/factors/rank")
     def factors_rank(req: FactorsRankRequest) -> dict:
         """多因子打分与排名。"""
@@ -251,6 +278,8 @@ def create_api_app() -> Any:
             "strategy": req.strategy,
             "cash": req.cash,
             "commission": req.commission,
+            "slippage_mode": req.slippage_mode,
+            "slippage_rate": req.slippage_rate,
             "data_provider": req.data_provider,
             "benchmark_data_provider": req.benchmark_data_provider,
         }
@@ -265,6 +294,10 @@ def create_api_app() -> Any:
                 "commission": req.commission,
                 "params": req.params,
             }
+            if req.slippage_mode != "off":
+                kwargs["slippage_mode"] = req.slippage_mode
+            if req.slippage_rate > 0:
+                kwargs["slippage_rate"] = req.slippage_rate
             if req.benchmark_symbol is not None:
                 kwargs["benchmark_symbol"] = req.benchmark_symbol
             if req.benchmark_asset_type is not None:

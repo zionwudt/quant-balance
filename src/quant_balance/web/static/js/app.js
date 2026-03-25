@@ -66,8 +66,13 @@ document.addEventListener('keydown', (e) => {
   // Ctrl+K 聚焦搜索
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
     e.preventDefault();
-    const searchInput = document.querySelector('#bt-symbol');
-    if (searchInput) searchInput.focus();
+    const searchInput = document.querySelector('.symbol-search-input');
+    const clearButton = document.querySelector('.symbol-pill-clear');
+    if (searchInput && searchInput.offsetParent !== null) {
+      searchInput.focus();
+    } else if (clearButton) {
+      clearButton.focus();
+    }
   }
 
   // Escape 关闭侧栏

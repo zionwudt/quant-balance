@@ -41,6 +41,7 @@ def test_create_api_app_registers_expected_routes():
         ("/api/config/status", "GET"),
         ("/api/config/tushare-token", "POST"),
         ("/api/strategies", "GET"),
+        ("/api/symbols/search", "GET"),
         ("/api/factors/rank", "POST"),
         ("/api/stock-pool/filter", "POST"),
         ("/api/backtest/run", "POST"),
@@ -108,6 +109,24 @@ def test_backtest_schema_rejects_orphan_benchmark_options():
             "end_date": "2024-06-30",
             "benchmark_asset_type": "stock",
         })
+
+
+def test_symbols_search_delegates_to_service():
+    payload = {
+        "query": "茅台",
+        "items": [{"symbol": "600519.SH", "name": "贵州茅台", "kind": "stock"}],
+    }
+    with patch(
+        "quant_balance.services.symbol_search_service.search_symbol_candidates",
+        return_value=payload["items"],
+    ) as mock_search:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/symbols/search", "GET")
+
+        result = endpoint("茅台", 5)
+
+    assert result == payload
+    mock_search.assert_called_once_with("茅台", limit=5)
 
 
 def test_optimize_constraint_schema_requires_single_right_operand():
@@ -312,6 +331,36 @@ def test_backtest_run_delegates_benchmark_fields_to_service():
         benchmark_symbol="000300.SH",
         benchmark_asset_type="stock",
         benchmark_data_provider="baostock",
+    )
+
+
+def test_backtest_run_delegates_slippage_fields_to_service():
+    payload = {"summary": {"final_equity": 123456.0}}
+    with patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/run", "POST")
+        request = BacktestRunRequest(
+            symbol="600519.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            slippage_mode="spread",
+            slippage_rate=0.002,
+        )
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(
+        symbol="600519.SH",
+        start_date="2024-01-01",
+        end_date="2024-06-30",
+        asset_type="stock",
+        strategy="sma_cross",
+        cash=100_000.0,
+        commission=0.001,
+        params={},
+        slippage_mode="spread",
+        slippage_rate=0.002,
     )
 
 

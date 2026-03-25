@@ -109,16 +109,21 @@ def test_run_single_backtest_returns_api_ready_payload():
             symbol="600519.SH",
             start_date="2024-01-01",
             end_date="2024-06-30",
-            strategy="buy_and_hold",
+            strategy="sma_cross",
             cash=100_000.0,
             commission=0.001,
-            params={"foo": "bar"},
+            params={"fast_period": 3, "slow_period": 5},
         )
 
     assert result["summary"]["final_equity"] == 102_000.0
     assert result["run_context"]["bars_count"] == len(sample_df)
     assert result["trades"][0]["pnl"] == 20.0
     assert result["equity_curve"][0]["equity"] == 100_000.0
+    assert len(result["price_bars"]) == len(sample_df)
+    assert result["price_bars"][0]["date"] == "2024-01-01"
+    assert len(result["chart_overlays"]["line_series"]) == 2
+    assert len(result["chart_overlays"]["trade_markers"]) == 2
+    assert result["chart_overlays"]["trade_markers"][0]["side"] == "buy"
     mock_load.assert_called_once()
     mock_run.assert_called_once()
 
@@ -288,6 +293,73 @@ def test_run_single_backtest_passes_convertible_bond_asset_type():
         asset_type="convertible_bond",
         adjust="qfq",
     )
+
+
+def test_run_single_backtest_maps_slippage_to_engine_costs():
+    sample_df = _make_sample_df()
+    with (
+        patch("quant_balance.services.backtest_service.load_dataframe", return_value=sample_df),
+        patch("quant_balance.services.backtest_service.run_backtest", return_value=_fake_backtest_result()) as mock_run,
+    ):
+        result = run_single_backtest(
+            symbol="600519.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            commission=0.001,
+            slippage_mode="commission",
+            slippage_rate=0.002,
+        )
+
+    assert result["run_context"]["commission"] == 0.001
+    assert result["run_context"]["effective_commission"] == 0.003
+    assert result["run_context"]["spread"] == 0.0
+    assert result["run_context"]["slippage_mode"] == "commission"
+    mock_run.assert_called_once()
+    assert mock_run.call_args.kwargs["commission"] == 0.003
+    assert mock_run.call_args.kwargs["spread"] == 0.0
+
+
+def test_run_single_backtest_uses_stock_index_defaults_for_benchmark_presets():
+    sample_df = _make_sample_df()
+    sample_df.attrs["data_provider"] = "tushare"
+    sample_df.attrs["asset_type"] = "convertible_bond"
+    benchmark_df = _make_sample_df()
+    benchmark_df.attrs["data_provider"] = "tushare"
+    benchmark_df.attrs["asset_type"] = "stock"
+    with (
+        patch(
+            "quant_balance.services.backtest_service.load_dataframe",
+            side_effect=[sample_df, benchmark_df],
+        ) as mock_load,
+        patch("quant_balance.services.backtest_service.run_backtest", return_value=_fake_backtest_result()),
+    ):
+        result = run_single_backtest(
+            symbol="110043.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            asset_type="convertible_bond",
+            benchmark_symbol="000300.SH",
+        )
+
+    assert result["run_context"]["benchmark_asset_type"] == "stock"
+    assert result["run_context"]["benchmark_data_provider"] == "tushare"
+    assert mock_load.call_args_list == [
+        call(
+            "110043.SH",
+            "2024-01-01",
+            "2024-06-30",
+            asset_type="convertible_bond",
+            adjust="qfq",
+        ),
+        call(
+            "000300.SH",
+            "2024-01-01",
+            "2024-06-30",
+            asset_type="stock",
+            adjust="none",
+            provider="tushare",
+        ),
+    ]
 
 
 def test_run_single_backtest_includes_benchmark_payload():

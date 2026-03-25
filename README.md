@@ -16,6 +16,7 @@
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
 - 可转债研究：`asset_type=convertible_bond` 时支持日线加载、单标回测/优化、显式列表筛选，并附带转股价值 / 转股溢价率 / 纯债溢价率 / 推导转股价等字段
 - 报告增强：单股回测 `summary` 内置 Calmar、月度收益、滚动 Sharpe、分年统计，并支持可选 benchmark 对比（基准权益、超额收益、Beta、Alpha）
+- Web Dashboard：回测页支持策略卡切换、动态参数表单、代码搜索下拉、K 线 / 成交量 / 买卖点叠加，以及成交明细联动高亮
 - 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
 - 历史股票池：`get_pool_at_date()` + 行业 / 市值 / PE / ST / 次新过滤，避免幸存者偏差
@@ -100,6 +101,7 @@ quant-balance
 - `GET /api/meta`
 - `GET /api/config/status`
 - `GET /api/strategies`
+- `GET /api/symbols/search`
 - `POST /api/factors/rank`
 - `POST /api/stock-pool/filter`
 - `POST /api/config/tushare-token`
@@ -166,21 +168,56 @@ quant-balance
   "strategy": "sma_cross",
   "cash": 100000,
   "commission": 0.001,
+  "slippage_mode": "spread",
+  "slippage_rate": 0.001,
   "benchmark_symbol": "000300.SH",
   "params": {
     "fast_period": 5,
     "slow_period": 20,
     "stop_loss_pct": 0.08,
-    "take_profit_pct": 0.2
+    "take_profit_pct": 0.2,
+    "max_position_pct": 0.8,
+    "max_holdings": 2
   }
 }
 ```
 
 说明：
 
-- 响应顶层结构继续保持 `summary`、`trades`、`equity_curve`、`run_context`
+- 响应顶层结构继续保持 `summary`、`trades`、`equity_curve`、`run_context`，并新增 `price_bars`、`chart_overlays`
 - `summary` 会额外返回 `calmar_ratio`、`monthly_returns`、`rolling_sharpe`、`yearly_stats`
 - 传入 `benchmark_symbol` 后，`summary` 和 `equity_curve` 会同步返回基准相关字段；如需单独指定基准资产类型或数据源，可额外传 `benchmark_asset_type`、`benchmark_data_provider`
+- `slippage_mode` 支持 `off / spread / commission`；`slippage_rate` 与 `commission` 使用同一比例口径
+- `params.max_position_pct / max_holdings` 用于控制单次建仓比例和允许同时持有的持仓笔数，尤其适合 `dca`
+- `price_bars` 返回 OHLCV，`chart_overlays.line_series / trade_markers` 适合前端直接渲染 K 线、均线和买卖标记
+
+### `GET /api/symbols/search`
+
+按股票代码或名称搜索候选项，并内置常见 benchmark 指数预设。
+
+示例：
+
+```bash
+curl "http://127.0.0.1:8765/api/symbols/search?q=茅台&limit=5"
+```
+
+返回结构：
+
+```json
+{
+  "query": "茅台",
+  "items": [
+    {
+      "symbol": "600519.SH",
+      "name": "贵州茅台",
+      "industry": "白酒",
+      "market": "主板",
+      "asset_type": "stock",
+      "kind": "stock"
+    }
+  ]
+}
+```
 
 可转债示例：
 

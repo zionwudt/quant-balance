@@ -74,12 +74,21 @@ class RiskManagedStrategy(Strategy):
 
     stop_loss_pct = 0.0
     take_profit_pct = 0.0
+    max_position_pct = 1.0
+    max_holdings = 1
 
     def _buy_with_risk_controls(self, *, size: float | None = None) -> None:
         self._validate_risk_params()
+        if len(self.trades) >= int(self.max_holdings):
+            return
         kwargs: dict[str, float] = {}
-        if size is not None:
-            kwargs["size"] = size
+        resolved_size = size
+        if resolved_size is None and 0 < float(self.max_position_pct) < 1:
+            resolved_size = float(self.max_position_pct)
+        elif resolved_size is not None and 0 < float(self.max_position_pct) < 1:
+            resolved_size = min(float(resolved_size), float(self.max_position_pct))
+        if resolved_size is not None:
+            kwargs["size"] = float(resolved_size)
         self.buy(**kwargs)
 
     def _sync_risk_orders(self) -> None:
@@ -95,6 +104,10 @@ class RiskManagedStrategy(Strategy):
             raise ValueError("stop_loss_pct 必须位于 [0, 1) 区间")
         if self.take_profit_pct < 0:
             raise ValueError("take_profit_pct 必须 >= 0")
+        if self.max_position_pct <= 0 or self.max_position_pct > 1:
+            raise ValueError("max_position_pct 必须位于 (0, 1] 区间")
+        if self.max_holdings < 1:
+            raise ValueError("max_holdings 必须 >= 1")
 
 
 class SmaCross(RiskManagedStrategy):
@@ -242,6 +255,7 @@ class DcaStrategy(RiskManagedStrategy):
 
     interval_days = 20
     trade_fraction = 0.2
+    max_holdings = 20
     qb_exclusive_orders = False
 
     def init(self):

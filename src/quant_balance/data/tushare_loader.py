@@ -122,6 +122,8 @@ def _fetch_from_tushare(
 
     df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
     if df is None or df.empty:
+        df = pro.index_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+    if df is None or df.empty:
         return []
 
     rows: list[tuple] = []

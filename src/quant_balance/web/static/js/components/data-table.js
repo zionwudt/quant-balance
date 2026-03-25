@@ -2,14 +2,21 @@
  * 知衡 QuantBalance — 成交明细表组件
  */
 
-export function renderTradesTable(container, trades) {
+export function renderTradesTable(container, trades, options = {}) {
   if (!trades || trades.length === 0) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><p>运行回测后，成交明细将在这里展示</p></div>';
     return;
   }
 
+  const { onRowSelect = null } = options;
+  const normalizedTrades = trades.map((trade, index) => ({
+    ...trade,
+    trade_index: trade.trade_index ?? index + 1,
+  }));
+
   let sortKey = null;
   let sortAsc = true;
+  let selectedTradeIndex = null;
 
   function render(data) {
     container.innerHTML = `
@@ -17,7 +24,7 @@ export function renderTradesTable(container, trades) {
         <table class="data-table" id="trades-table">
           <thead>
             <tr>
-              <th data-sort="index">#</th>
+              <th data-sort="trade_index">#</th>
               <th data-sort="entry_time">入场日期</th>
               <th data-sort="exit_time">出场日期</th>
               <th data-sort="entry_price" data-align="right">入场价</th>
@@ -29,20 +36,21 @@ export function renderTradesTable(container, trades) {
             </tr>
           </thead>
           <tbody>
-            ${data.map((t, i) => {
-              const pnlType = t.return_pct >= 0 ? 'profit' : 'loss';
-              const pnlClass = t.return_pct >= 0 ? 'text-profit' : 'text-loss';
+            ${data.map((trade) => {
+              const pnlType = trade.return_pct >= 0 ? 'profit' : 'loss';
+              const pnlClass = trade.return_pct >= 0 ? 'text-profit' : 'text-loss';
+              const selectedClass = trade.trade_index === selectedTradeIndex ? ' is-selected' : '';
               return `
-                <tr data-pnl="${pnlType}">
-                  <td>${i + 1}</td>
-                  <td>${formatDate(t.entry_time)}</td>
-                  <td>${formatDate(t.exit_time)}</td>
-                  <td data-align="right" class="mono">${formatNum(t.entry_price)}</td>
-                  <td data-align="right" class="mono">${formatNum(t.exit_price)}</td>
-                  <td data-align="right" class="mono">${t.size}</td>
-                  <td data-align="right" class="mono ${pnlClass}">${formatPct(t.return_pct)}</td>
-                  <td data-align="right" class="mono ${pnlClass}">${formatMoney(t.pnl)}</td>
-                  <td>${t.duration}</td>
+                <tr class="${selectedClass.trim()}" data-pnl="${pnlType}" data-trade-index="${trade.trade_index}">
+                  <td>${trade.trade_index}</td>
+                  <td>${formatDate(trade.entry_time)}</td>
+                  <td>${formatDate(trade.exit_time)}</td>
+                  <td data-align="right" class="mono">${formatNum(trade.entry_price)}</td>
+                  <td data-align="right" class="mono">${formatNum(trade.exit_price)}</td>
+                  <td data-align="right" class="mono">${trade.size}</td>
+                  <td data-align="right" class="mono ${pnlClass}">${formatPct(trade.return_pct)}</td>
+                  <td data-align="right" class="mono ${pnlClass}">${formatMoney(trade.pnl)}</td>
+                  <td>${trade.duration}</td>
                 </tr>`;
             }).join('')}
           </tbody>
@@ -50,28 +58,48 @@ export function renderTradesTable(container, trades) {
       </div>
     `;
 
-    // 排序点击
-    container.querySelectorAll('th[data-sort]').forEach(th => {
-      th.onclick = () => {
-        const key = th.dataset.sort;
-        if (key === 'index') return;
+    container.querySelectorAll('th[data-sort]').forEach(header => {
+      header.addEventListener('click', () => {
+        const key = header.dataset.sort;
         if (sortKey === key) {
           sortAsc = !sortAsc;
         } else {
           sortKey = key;
           sortAsc = true;
         }
-        const sorted = [...trades].sort((a, b) => {
-          const va = a[key] ?? 0;
-          const vb = b[key] ?? 0;
-          return sortAsc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
-        });
-        render(sorted);
-      };
+        render(sortTrades());
+      });
+    });
+
+    container.querySelectorAll('tbody tr[data-trade-index]').forEach(row => {
+      row.addEventListener('click', () => {
+        const tradeIndex = Number(row.dataset.tradeIndex);
+        const nextSelectedIndex = selectedTradeIndex === tradeIndex ? null : tradeIndex;
+        selectedTradeIndex = nextSelectedIndex;
+        render(data);
+        onRowSelect?.(normalizedTrades.find(item => item.trade_index === nextSelectedIndex) || null);
+      });
     });
   }
 
-  render(trades);
+  function sortTrades() {
+    if (!sortKey) {
+      return [...normalizedTrades];
+    }
+    return [...normalizedTrades].sort((left, right) => compareValues(left[sortKey], right[sortKey], sortAsc));
+  }
+
+  render(sortTrades());
+}
+
+function compareValues(left, right, asc) {
+  const leftValue = left ?? 0;
+  const rightValue = right ?? 0;
+  if (leftValue === rightValue) {
+    return 0;
+  }
+  const result = leftValue > rightValue ? 1 : -1;
+  return asc ? result : -result;
 }
 
 function formatDate(str) {

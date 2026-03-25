@@ -4,6 +4,7 @@ from quant_balance.services.backtest_service import run_optimize, run_single_bac
 from quant_balance.services.factor_service import run_factor_ranking
 from quant_balance.services.portfolio_service import run_portfolio_research
 from quant_balance.services.screening_service import run_stock_screening
+from quant_balance.services.symbol_search_service import search_symbol_candidates
 from quant_balance.services.stock_pool_service import run_stock_pool_filter
 
 __all__ = [
@@ -12,5 +13,6 @@ __all__ = [
     "run_portfolio_research",
     "run_single_backtest",
     "run_stock_screening",
+    "search_symbol_candidates",
     "run_stock_pool_filter",
 ]

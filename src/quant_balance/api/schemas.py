@@ -68,6 +68,11 @@ class BacktestRunRequest(BaseModel):
     strategy: str = Field("sma_cross", description="策略名称")
     cash: float = Field(100_000.0, gt=0, description="初始资金")
     commission: float = Field(0.001, ge=0, description="佣金比例")
+    slippage_mode: Literal["off", "spread", "commission"] = Field(
+        "off",
+        description="滑点模式：off / spread / commission",
+    )
+    slippage_rate: float = Field(0.0, ge=0, description="滑点比例")
     params: dict = Field(default_factory=dict, description="策略参数")
     benchmark_symbol: str | None = Field(
         None,

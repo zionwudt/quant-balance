@@ -10,10 +10,12 @@ from time import perf_counter
 import pandas as pd
 
 from quant_balance.core.backtest import optimize, run_backtest
+from quant_balance.core.indicators import bollinger, ema, sma
 from quant_balance.core.report import bt_trades_to_dicts, equity_curve_to_dicts, normalize_bt_stats
 from quant_balance.core.strategies import STRATEGY_REGISTRY
 from quant_balance.data import load_dataframe
 from quant_balance.logging_utils import get_logger, log_event
+from quant_balance.services.symbol_search_service import BENCHMARK_INDEX_SYMBOLS
 
 logger = get_logger(__name__)
 
@@ -37,6 +39,8 @@ def run_single_backtest(
     strategy: str = "sma_cross",
     cash: float = 100_000.0,
     commission: float = 0.001,
+    slippage_mode: str = "off",
+    slippage_rate: float = 0.0,
     params: dict | None = None,
     data_provider: str | None = None,
     benchmark_symbol: str | None = None,
@@ -48,6 +52,11 @@ def run_single_backtest(
     if strategy_cls is None:
         raise ValueError(f"未知策略: {strategy}，可用: {list(STRATEGY_REGISTRY)}")
 
+    effective_commission, spread = _resolve_execution_costs(
+        commission=commission,
+        slippage_mode=slippage_mode,
+        slippage_rate=slippage_rate,
+    )
     started_at = perf_counter()
     df = _load_market_dataframe(
         symbol,
@@ -55,11 +64,24 @@ def run_single_backtest(
         end_date,
         asset_type=asset_type,
         data_provider=data_provider,
+        adjust="qfq",
     )
     benchmark_df = None
-    resolved_benchmark_asset_type = benchmark_asset_type or asset_type
+    resolved_benchmark_asset_type = benchmark_asset_type or (
+        "stock" if benchmark_symbol in BENCHMARK_INDEX_SYMBOLS else asset_type
+    )
     resolved_benchmark_data_provider = (
-        benchmark_data_provider if benchmark_data_provider is not None else data_provider
+        benchmark_data_provider if benchmark_data_provider is not None else (
+            "tushare" if benchmark_symbol in BENCHMARK_INDEX_SYMBOLS else data_provider
+        )
+    )
+    resolved_benchmark_adjust = (
+        "none"
+        if (
+            benchmark_symbol in BENCHMARK_INDEX_SYMBOLS
+            and resolved_benchmark_data_provider == "tushare"
+        )
+        else "qfq"
     )
     if benchmark_symbol is not None:
         benchmark_df = _load_market_dataframe(
@@ -68,11 +90,12 @@ def run_single_backtest(
             end_date,
             asset_type=resolved_benchmark_asset_type,
             data_provider=resolved_benchmark_data_provider,
+            adjust=resolved_benchmark_adjust,
         )
 
     result = run_backtest(
         df, strategy_cls,
-        cash=cash, commission=commission,
+        cash=cash, spread=spread, commission=effective_commission,
         strategy_params=params,
         log_context={
             "symbol": symbol,
@@ -89,11 +112,18 @@ def run_single_backtest(
         benchmark_df=benchmark_df,
         benchmark_symbol=benchmark_symbol,
     )
+    chart_payload = _build_chart_payload(
+        df,
+        result.trades,
+        strategy=strategy,
+        params=params,
+    )
 
     payload = {
         "summary": summary,
         "trades": bt_trades_to_dicts(result.trades, params),
         "equity_curve": equity_curve_to_dicts(result.equity_curve, benchmark_df=benchmark_df),
+        **chart_payload,
         "run_context": {
             "symbol": symbol,
             "start_date": start_date,
@@ -102,6 +132,10 @@ def run_single_backtest(
             "strategy": strategy,
             "cash": cash,
             "commission": commission,
+            "effective_commission": effective_commission,
+            "spread": spread,
+            "slippage_mode": slippage_mode,
+            "slippage_rate": slippage_rate,
             "params": params or {},
             "bars_count": len(df),
             "data_provider": df.attrs.get("data_provider", data_provider),
@@ -127,6 +161,10 @@ def run_single_backtest(
         strategy=strategy,
         cash=cash,
         commission=commission,
+        effective_commission=effective_commission,
+        spread=spread,
+        slippage_mode=slippage_mode,
+        slippage_rate=slippage_rate,
         params=params or {},
         bars_count=len(df),
         trades_count=len(result.trades),
@@ -143,6 +181,23 @@ def run_single_backtest(
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )
     return payload
+
+
+def _resolve_execution_costs(
+    *,
+    commission: float,
+    slippage_mode: str,
+    slippage_rate: float,
+) -> tuple[float, float]:
+    if slippage_rate < 0:
+        raise ValueError("slippage_rate 必须 >= 0")
+    if slippage_mode == "off":
+        return commission, 0.0
+    if slippage_mode == "spread":
+        return commission, slippage_rate
+    if slippage_mode == "commission":
+        return commission + slippage_rate, 0.0
+    raise ValueError("slippage_mode 必须是 off / spread / commission")
 
 
 def run_optimize(
@@ -181,6 +236,7 @@ def run_optimize(
         end_date,
         asset_type=asset_type,
         data_provider=data_provider,
+        adjust="qfq",
     )
     walk_forward_windows = _count_walk_forward_windows(len(df), walk_forward_config)
 
@@ -274,11 +330,145 @@ def _load_market_dataframe(
     *,
     asset_type: str,
     data_provider: str | None,
+    adjust: str,
 ) -> pd.DataFrame:
-    load_kwargs = {"asset_type": asset_type, "adjust": "qfq"}
+    load_kwargs = {"asset_type": asset_type, "adjust": adjust}
     if data_provider is not None:
         load_kwargs["provider"] = data_provider
     return load_dataframe(symbol, start_date, end_date, **load_kwargs)
+
+
+def _build_chart_payload(
+    df: pd.DataFrame,
+    trades_df: pd.DataFrame,
+    *,
+    strategy: str,
+    params: dict | None,
+) -> dict[str, object]:
+    return {
+        "price_bars": _price_bars_to_dicts(df),
+        "chart_overlays": {
+            "line_series": _chart_line_series(df, strategy=strategy, params=params),
+            "trade_markers": _trade_markers_to_dicts(trades_df),
+        },
+    }
+
+
+def _price_bars_to_dicts(df: pd.DataFrame) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    for index, row in df.iterrows():
+        records.append({
+            "date": pd.Timestamp(index).date().isoformat(),
+            "open": float(row.get("Open", 0.0)),
+            "high": float(row.get("High", 0.0)),
+            "low": float(row.get("Low", 0.0)),
+            "close": float(row.get("Close", 0.0)),
+            "volume": float(row.get("Volume", 0.0)),
+        })
+    return records
+
+
+def _trade_markers_to_dicts(trades_df: pd.DataFrame | None) -> list[dict[str, object]]:
+    if trades_df is None or trades_df.empty:
+        return []
+
+    markers: list[dict[str, object]] = []
+    for trade_index, (_, row) in enumerate(trades_df.iterrows(), start=1):
+        entry_bar = int(row.get("EntryBar", 0))
+        exit_bar = int(row.get("ExitBar", 0))
+        entry_time = str(row.get("EntryTime", "")).split(" ")[0]
+        exit_time = str(row.get("ExitTime", "")).split(" ")[0]
+        markers.append({
+            "trade_index": trade_index,
+            "side": "buy",
+            "label": f"B{trade_index}",
+            "date": entry_time,
+            "price": float(row.get("EntryPrice", 0.0)),
+            "bar_index": entry_bar,
+        })
+        markers.append({
+            "trade_index": trade_index,
+            "side": "sell",
+            "label": f"S{trade_index}",
+            "date": exit_time,
+            "price": float(row.get("ExitPrice", 0.0)),
+            "bar_index": exit_bar,
+        })
+    return markers
+
+
+def _chart_line_series(
+    df: pd.DataFrame,
+    *,
+    strategy: str,
+    params: dict | None,
+) -> list[dict[str, object]]:
+    close = df["Close"]
+    resolved_params = _resolve_chart_params(strategy, params)
+
+    if strategy == "sma_cross":
+        return [
+            _line_series(f"SMA {resolved_params['fast_period']}", sma(close, int(resolved_params["fast_period"])), "#34d399"),
+            _line_series(f"SMA {resolved_params['slow_period']}", sma(close, int(resolved_params["slow_period"])), "#f59e0b"),
+        ]
+    if strategy == "ema_cross":
+        return [
+            _line_series(f"EMA {resolved_params['fast_period']}", ema(close, int(resolved_params["fast_period"])), "#22c55e"),
+            _line_series(f"EMA {resolved_params['slow_period']}", ema(close, int(resolved_params["slow_period"])), "#f59e0b"),
+        ]
+    if strategy == "macd":
+        return [
+            _line_series(f"EMA {resolved_params['fast_period']}", ema(close, int(resolved_params["fast_period"])), "#22c55e"),
+            _line_series(f"EMA {resolved_params['slow_period']}", ema(close, int(resolved_params["slow_period"])), "#f59e0b"),
+        ]
+    if strategy == "bollinger":
+        upper, middle, lower = bollinger(
+            close,
+            int(resolved_params["period"]),
+            float(resolved_params["num_std"]),
+        )
+        return [
+            _line_series("BOLL Upper", upper, "#60a5fa", "dashed"),
+            _line_series("BOLL Mid", middle, "#f59e0b"),
+            _line_series("BOLL Lower", lower, "#60a5fa", "dashed"),
+        ]
+    if strategy == "grid":
+        anchor = sma(close, int(resolved_params["anchor_period"]))
+        grid_pct = float(resolved_params["grid_pct"])
+        return [
+            _line_series(f"Anchor {resolved_params['anchor_period']}", anchor, "#f59e0b"),
+            _line_series("Grid Upper", anchor * (1 + grid_pct), "#60a5fa", "dashed"),
+            _line_series("Grid Lower", anchor * (1 - grid_pct), "#60a5fa", "dashed"),
+        ]
+    if strategy == "ma_rsi_filter":
+        return [
+            _line_series(f"SMA {resolved_params['fast_period']}", sma(close, int(resolved_params["fast_period"])), "#34d399"),
+            _line_series(f"SMA {resolved_params['slow_period']}", sma(close, int(resolved_params["slow_period"])), "#f59e0b"),
+        ]
+    return []
+
+
+def _resolve_chart_params(strategy: str, params: dict | None) -> dict[str, object]:
+    strategy_cls = STRATEGY_REGISTRY[strategy]
+    defaults = _strategy_param_defaults(strategy_cls)
+    return {**defaults, **(params or {})}
+
+
+def _line_series(
+    name: str,
+    values: pd.Series,
+    color: str,
+    style: str = "solid",
+) -> dict[str, object]:
+    return {
+        "name": name,
+        "color": color,
+        "style": style,
+        "values": [
+            None if pd.isna(value) else round(float(value), 6)
+            for value in pd.Series(values).tolist()
+        ],
+    }
 
 
 def _normalize_param_ranges(

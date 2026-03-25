@@ -6,6 +6,7 @@ import asyncio
 import json
 import math
 from unittest.mock import patch
+from urllib.parse import urlencode
 
 import pandas as pd
 
@@ -26,6 +27,7 @@ def _make_sample_df(days: int = 240) -> pd.DataFrame:
 
 
 async def _asgi_request(app, method: str, path: str, payload: dict | None = None) -> tuple[int, dict[str, str], object]:
+    path_only, _, query_string = path.partition("?")
     body = json.dumps(payload).encode("utf-8") if payload is not None else b""
     headers = [
         (b"host", b"testserver"),
@@ -40,9 +42,9 @@ async def _asgi_request(app, method: str, path: str, payload: dict | None = None
         "http_version": "1.1",
         "method": method,
         "scheme": "http",
-        "path": path,
-        "raw_path": path.encode("ascii"),
-        "query_string": b"",
+        "path": path_only,
+        "raw_path": path_only.encode("ascii"),
+        "query_string": query_string.encode("ascii"),
         "headers": headers,
         "client": ("127.0.0.1", 12345),
         "server": ("testserver", 80),
@@ -218,6 +220,13 @@ def test_api_http_smoke_end_to_end():
                 },
             },
         ),
+        patch(
+            "quant_balance.services.symbol_search_service.search_symbol_candidates",
+            return_value=[
+                {"symbol": "600519.SH", "name": "贵州茅台", "industry": "白酒", "market": "主板", "asset_type": "stock", "kind": "stock"},
+                {"symbol": "000300.SH", "name": "沪深300", "market": "指数", "asset_type": "stock", "kind": "benchmark"},
+            ],
+        ),
         patch("quant_balance.services.portfolio_service.load_multi_dataframes", side_effect=fake_load_multi_dataframes),
         patch("quant_balance.services.screening_service.load_multi_dataframes", side_effect=fake_load_multi_dataframes),
         patch("quant_balance.services.screening_service.get_pool_at_date", return_value=["AAA", "BBB"]),
@@ -257,6 +266,16 @@ def test_api_http_smoke_end_to_end():
         assert {"sma_cross", "macd", "dca", "ma_rsi_filter"}.issubset(strategy_names)
         assert {"sma_cross", "macd", "dca", "ma_rsi_filter"}.issubset(signal_names)
 
+        search_status, _, search_payload = _request(
+            app,
+            "GET",
+            f"/api/symbols/search?{urlencode({'q': '茅台', 'limit': 5})}",
+        )
+        assert search_status == 200
+        assert search_payload["query"] == "茅台"
+        assert search_payload["items"][0]["symbol"] == "600519.SH"
+        assert search_payload["items"][1]["kind"] == "benchmark"
+
         backtest_status, _, backtest_payload = _request(
             app,
             "POST",
@@ -291,6 +310,10 @@ def test_api_http_smoke_end_to_end():
         assert "stop_loss_price" in backtest_payload["trades"][0]
         assert "exit_reason" in backtest_payload["trades"][0]
         assert len(backtest_payload["equity_curve"]) > 0
+        assert len(backtest_payload["price_bars"]) == len(sample_df)
+        assert backtest_payload["price_bars"][0]["date"] == "2024-01-01"
+        assert len(backtest_payload["chart_overlays"]["line_series"]) == 2
+        assert len(backtest_payload["chart_overlays"]["trade_markers"]) >= 2
         assert "benchmark_equity" in backtest_payload["equity_curve"][0]
         assert "excess_return_pct" in backtest_payload["equity_curve"][0]
         assert backtest_payload["run_context"]["asset_type"] == "stock"

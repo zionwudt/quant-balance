@@ -189,8 +189,14 @@ select.input {
   border-bottom: 1px solid var(--border-subtle);
   height: 36px;
 }
+.data-table tbody tr {
+  cursor: pointer;
+}
 .data-table tr:hover td {
   background: var(--bg-elevated);
+}
+.data-table tr.is-selected td {
+  background: rgba(99, 102, 241, 0.14);
 }
 
 /* 盈亏行左侧色条 */

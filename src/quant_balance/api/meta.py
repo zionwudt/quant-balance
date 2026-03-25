@@ -18,6 +18,8 @@ def build_api_meta() -> dict:
                 "strategy": "sma_cross",
                 "cash": 100_000.0,
                 "commission": 0.001,
+                "slippage_mode": "off",
+                "slippage_rate": 0.0,
                 "benchmark_symbol": None,
                 "benchmark_asset_type": None,
                 "data_provider": None,

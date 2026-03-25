@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
 
 import quant_balance.data.stock_pool as stock_pool
+from quant_balance.data.common import DataLoadError
 from quant_balance.data.fundamental_loader import FinancialSnapshot
 from quant_balance.data.stock_pool import (
     StockPoolRecord,
@@ -16,6 +18,7 @@ from quant_balance.data.stock_pool import (
     _CREATE_NAME_CHANGE_SQL,
     filter_pool_at_date,
     get_pool_at_date,
+    search_stock_candidates,
 )
 
 
@@ -217,3 +220,38 @@ class TestFilterPoolAtDate:
                 filters={"min_pe": 20.0, "max_pe": 10.0},
                 db_path=db_path,
             )
+
+
+class TestSearchStockCandidates:
+    def test_matches_code_and_name(self, db_path: Path) -> None:
+        code_matches = search_stock_candidates("600519", db_path=db_path)
+        name_matches = search_stock_candidates("平安", db_path=db_path)
+
+        assert code_matches[0]["symbol"] == "600519.SH"
+        assert code_matches[0]["name"] == "贵州茅台"
+        assert name_matches[0]["symbol"] == "000001.SZ"
+        assert name_matches[0]["name"] == "平安银行"
+
+    def test_returns_empty_when_query_blank(self, db_path: Path) -> None:
+        assert search_stock_candidates("", db_path=db_path) == []
+
+    def test_raises_data_load_error_when_stock_list_fetch_fails(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        db_path = tmp_path / "empty_cache.db"
+
+        class FakePro:
+            def stock_basic(self, **kwargs):
+                raise Exception("bad token")
+
+        monkeypatch.setattr(stock_pool, "load_tushare_token", lambda: "token")
+        monkeypatch.setitem(
+            sys.modules,
+            "tushare",
+            type("FakeTushare", (), {"pro_api": staticmethod(lambda token: FakePro())})(),
+        )
+
+        with pytest.raises(DataLoadError, match="获取股票列表失败"):
+            search_stock_candidates("600519", db_path=db_path)

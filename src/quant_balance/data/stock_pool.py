@@ -95,24 +95,27 @@ def _fetch_and_cache_stock_list(conn: sqlite3.Connection) -> None:
     pro = ts.pro_api(token)
 
     rows: list[tuple] = []
-    for status in ("L", "D", "P"):
-        df = pro.stock_basic(
-            list_status=status,
-            fields="ts_code,name,list_date,delist_date,industry,market",
-        )
-        if df is None or df.empty:
-            continue
-        for _, record in df.iterrows():
-            rows.append(
-                (
-                    record["ts_code"],
-                    record.get("name", "") or "",
-                    record.get("list_date", "") or "",
-                    _normalize_date(record.get("delist_date")),
-                    record.get("industry", "") or "",
-                    record.get("market", "") or "",
-                )
+    try:
+        for status in ("L", "D", "P"):
+            df = pro.stock_basic(
+                list_status=status,
+                fields="ts_code,name,list_date,delist_date,industry,market",
             )
+            if df is None or df.empty:
+                continue
+            for _, record in df.iterrows():
+                rows.append(
+                    (
+                        record["ts_code"],
+                        record.get("name", "") or "",
+                        record.get("list_date", "") or "",
+                        _normalize_date(record.get("delist_date")),
+                        record.get("industry", "") or "",
+                        record.get("market", "") or "",
+                    )
+                )
+    except Exception as exc:  # noqa: BLE001
+        raise DataLoadError(f"获取股票列表失败：{exc}") from exc
 
     conn.executemany(
         "INSERT OR REPLACE INTO stock_list "
@@ -228,10 +231,13 @@ def _fetch_and_cache_name_changes(conn: sqlite3.Connection, ts_code: str) -> Non
     token = load_tushare_token()
     pro = ts.pro_api(token)
 
-    df = pro.namechange(
-        ts_code=ts_code,
-        fields="ts_code,name,start_date,end_date",
-    )
+    try:
+        df = pro.namechange(
+            ts_code=ts_code,
+            fields="ts_code,name,start_date,end_date",
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise DataLoadError(f"获取股票更名信息失败：{exc}") from exc
     rows: list[tuple] = []
     if df is not None and not df.empty:
         for _, record in df.iterrows():
@@ -334,6 +340,57 @@ def get_pool_at_date(
         if not _is_cache_populated(conn):
             _fetch_and_cache_stock_list(conn)
         return [row["ts_code"] for row in _query_pool_rows(conn, date=yyyymmdd)]
+    finally:
+        conn.close()
+
+
+def search_stock_candidates(
+    query: str,
+    *,
+    limit: int = 10,
+    db_path: Path | None = None,
+) -> list[dict[str, str]]:
+    """按代码/名称模糊搜索股票候选。"""
+
+    normalized = str(query).strip()
+    if not normalized or limit < 1:
+        return []
+
+    conn = _get_connection(db_path)
+    try:
+        if not _is_cache_populated(conn):
+            _fetch_and_cache_stock_list(conn)
+
+        code_exact = normalized.upper()
+        code_prefix = f"{code_exact}%"
+        code_like = f"%{code_exact}%"
+        name_prefix = f"{normalized}%"
+        name_like = f"%{normalized}%"
+        rows = conn.execute(
+            "SELECT ts_code, name, industry, market "
+            "FROM stock_list "
+            "WHERE UPPER(ts_code) LIKE ? OR name LIKE ? "
+            "ORDER BY "
+            "CASE "
+            "  WHEN UPPER(ts_code) = ? THEN 0 "
+            "  WHEN UPPER(ts_code) LIKE ? THEN 1 "
+            "  WHEN name = ? THEN 2 "
+            "  WHEN name LIKE ? THEN 3 "
+            "  ELSE 4 "
+            "END, ts_code "
+            "LIMIT ?",
+            (code_like, name_like, code_exact, code_prefix, normalized, name_prefix, limit),
+        ).fetchall()
+        return [
+            {
+                "symbol": str(row["ts_code"]),
+                "name": str(row["name"] or ""),
+                "industry": str(row["industry"] or ""),
+                "market": str(row["market"] or ""),
+                "asset_type": "stock",
+            }
+            for row in rows
+        ]
     finally:
         conn.close()
 

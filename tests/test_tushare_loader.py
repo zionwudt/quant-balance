@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from quant_balance.data.tushare_loader import (
     _CREATE_ADJ_FACTOR_SQL,
     _CREATE_TABLE_SQL,
+    _fetch_from_tushare,
     load_dataframe,
 )
 
@@ -70,3 +74,35 @@ def test_load_dataframe_emits_cache_hit_logs(tmp_path: Path, caplog: pytest.LogC
 
     assert any(payload["dataset"] == "daily_bars" for payload in payloads)
     assert any(payload["dataset"] == "daily_adj_factors" for payload in payloads)
+
+
+def test_fetch_from_tushare_falls_back_to_index_daily(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakePro:
+        def daily(self, **kwargs):
+            return pd.DataFrame()
+
+        def index_daily(self, **kwargs):
+            return pd.DataFrame([
+                {
+                    "ts_code": "000300.SH",
+                    "trade_date": "20260106",
+                    "open": 10.0,
+                    "high": 10.5,
+                    "low": 9.8,
+                    "close": 10.2,
+                    "vol": 123456.0,
+                }
+            ])
+
+    monkeypatch.setattr("quant_balance.data.tushare_loader.load_tushare_token", lambda: "token")
+    monkeypatch.setitem(
+        sys.modules,
+        "tushare",
+        SimpleNamespace(pro_api=lambda token: FakePro()),
+    )
+
+    rows = _fetch_from_tushare("000300.SH", "20260101", "20260131")
+
+    assert rows == [
+        ("000300.SH", "20260106", 10.0, 10.5, 9.8, 10.2, 123456.0)
+    ]

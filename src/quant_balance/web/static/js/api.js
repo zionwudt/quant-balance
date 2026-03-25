@@ -50,6 +50,13 @@ export const api = {
     return request('/api/strategies');
   },
 
+  searchSymbols(query, limit = 8) {
+    const url = new URL('/api/symbols/search', window.location.origin);
+    url.searchParams.set('q', query);
+    url.searchParams.set('limit', String(limit));
+    return request(url.pathname + url.search);
+  },
+
   runFactorRanking(params) {
     return request('/api/factors/rank', {
       method: 'POST',
