@@ -207,3 +207,12 @@ class SchedulerRunRequest(BaseModel):
         True,
         description="非交易日时是否回退到最近一个交易日继续执行",
     )
+
+
+class SignalStatusUpdateRequest(BaseModel):
+    """更新信号处理状态。"""
+
+    status: Literal["pending", "executed", "ignored", "expired"] = Field(
+        ...,
+        description="信号状态：pending / executed / ignored / expired",
+    )

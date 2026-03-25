@@ -104,6 +104,7 @@ def build_api_meta() -> dict:
             "多因子打分引擎支持因子标准化、加权总分与排名，可直接用于筛选研究与组合候选池构建。",
             "组合回测基于 vectorbt 目标权重矩阵，适合做多标的轮动与再平衡研究。",
             "scheduler.enabled=true 时，服务启动后会自动恢复盘后扫描调度；也可通过 API 手动触发。",
+            "signals/today、signals/history 和 signals/{id} 支持信号查询、状态流转与后续表现跟踪。",
             "数据默认使用前复权价格（qfq）。",
             "行情数据默认按 akshare -> baostock -> tushare 顺序回退，也可在请求中显式指定。",
             "backtest / optimize / screening 支持 asset_type=convertible_bond；当前可转债仅支持 tushare，并沿用简化版股票化撮合规则。",

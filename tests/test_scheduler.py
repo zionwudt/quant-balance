@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
+
+import pandas as pd
 
 from quant_balance.scheduler import (
     DailyScanScheduler,
@@ -80,14 +81,28 @@ def test_run_daily_scan_persists_signals_and_notifications(tmp_path: Path):
         "total_screened": 2,
         "run_context": {"signal": "rsi"},
     }
+    tracking_df = pd.DataFrame(
+        {
+            "Open": [10.0 + index for index in range(30)],
+            "High": [10.0 + index for index in range(30)],
+            "Low": [10.0 + index for index in range(30)],
+            "Close": [10.0 + index for index in range(30)],
+            "Volume": [1_000_000] * 30,
+        },
+        index=pd.date_range("2024-03-29", periods=30, freq="B"),
+    )
 
     with (
         patch("quant_balance.scheduler.resolve_scan_trade_date", return_value=("2024-03-29", True)),
         patch("quant_balance.scheduler.run_stock_screening", side_effect=[macd_result, rsi_result]),
+        patch("quant_balance.scheduler.resolve_signal_name", side_effect=["测试A", "测试B", "测试C"]),
+        patch("quant_balance.scheduler._resolve_signal_price", side_effect=[11.0, 12.0, 13.0]),
         patch(
             "quant_balance.scheduler.send_scan_notifications",
             return_value=[{"channel": "wecom", "status": "sent"}],
         ),
+        patch("quant_balance.core.signals.current_signal_date", return_value=date(2024, 4, 30)),
+        patch("quant_balance.core.signals.load_dataframe", return_value=tracking_df),
     ):
         payload = run_daily_scan(
             trade_date="2024-03-29",
@@ -103,6 +118,7 @@ def test_run_daily_scan_persists_signals_and_notifications(tmp_path: Path):
     items = list_recent_signals(limit=10, db_path=db_path)
     assert len(items) == 3
     assert items[0]["source"] == "scheduler"
+    assert items[0]["name"].startswith("测试")
     assert {item["strategy"] for item in items} == {"macd", "rsi"}
 
     last_scan = load_last_scan_record(db_path=db_path)

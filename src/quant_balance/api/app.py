@@ -13,6 +13,7 @@ from quant_balance.api.schemas import (
     OptimizeRequest,
     PortfolioRunRequest,
     SchedulerRunRequest,
+    SignalStatusUpdateRequest,
     ScreeningRunRequest,
     StockPoolFilterRequest,
     TushareTokenRequest,
@@ -64,7 +65,13 @@ def create_api_app() -> Any:
         save_tushare_token,
         validate_tushare_token,
     )
-    from quant_balance.scheduler import DailyScanScheduler, list_recent_signals
+    from quant_balance.core.signals import (
+        list_recent_signals,
+        list_signal_history,
+        list_today_signals,
+        update_signal_status,
+    )
+    from quant_balance.scheduler import DailyScanScheduler
     from quant_balance.services.backtest_service import run_optimize, run_single_backtest
     from quant_balance.services.factor_service import run_factor_ranking
     from quant_balance.services.portfolio_service import run_portfolio_research
@@ -180,6 +187,86 @@ def create_api_app() -> Any:
         except Exception as exc:  # noqa: BLE001
             _log_api_error(
                 endpoint="/api/signals/recent",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.get("/api/signals/today")
+    def signals_today(limit: int = 200, date: str | None = None) -> dict[str, object]:
+        """返回当天生成的信号列表。"""
+
+        context = {"limit": limit, "date": date}
+        try:
+            return list_today_signals(limit=limit, as_of_date=date)
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/signals/today",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/signals/today",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.get("/api/signals/history")
+    def signals_history(days: int = 30, page: int = 1, page_size: int = 20) -> dict[str, object]:
+        """按时间窗口查询历史信号。"""
+
+        context = {"days": days, "page": page, "page_size": page_size}
+        try:
+            return list_signal_history(days=days, page=page, page_size=page_size)
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/signals/history",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/signals/history",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.patch("/api/signals/{signal_id}")
+    def signal_update(signal_id: int, req: SignalStatusUpdateRequest) -> dict[str, object]:
+        """更新单条信号的状态。"""
+
+        context = {"signal_id": signal_id, "status": req.status}
+        try:
+            return update_signal_status(signal_id, status=req.status)
+        except LookupError as exc:
+            _log_api_error(
+                endpoint="/api/signals/{signal_id}",
+                status_code=404,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/signals/{signal_id}",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/signals/{signal_id}",
                 status_code=500,
                 exc=exc,
                 context=context,

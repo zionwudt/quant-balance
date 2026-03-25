@@ -16,7 +16,17 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from quant_balance.core.signals import (
+    Signal,
+    default_signal_reason,
+    list_recent_signals,
+    persist_signals,
+    resolve_signal_name,
+    serialize_signal,
+    suggest_signal_quantity,
+)
 from quant_balance.core.strategies import SIGNAL_REGISTRY
+from quant_balance.data import load_dataframe
 from quant_balance.data.common import CACHE_DB_PATH, DataLoadError, load_app_config, load_tushare_token
 from quant_balance.logging_utils import get_logger, log_event
 from quant_balance.services.screening_service import run_stock_screening
@@ -47,35 +57,6 @@ CREATE TABLE IF NOT EXISTS signal_scans (
 );
 """
 
-_CREATE_SIGNALS_SQL = """
-CREATE TABLE IF NOT EXISTS signals (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    scan_id TEXT NOT NULL,
-    trade_date TEXT NOT NULL,
-    generated_at TEXT NOT NULL,
-    strategy TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    asset_type TEXT NOT NULL,
-    side TEXT NOT NULL,
-    rank INTEGER,
-    score REAL,
-    total_return REAL,
-    sharpe_ratio REAL,
-    max_drawdown REAL,
-    total_trades INTEGER,
-    win_rate REAL,
-    profit_factor REAL,
-    final_value REAL,
-    source TEXT NOT NULL,
-    raw_payload TEXT NOT NULL
-);
-"""
-
-_CREATE_SIGNALS_INDEX_SQL = """
-CREATE INDEX IF NOT EXISTS idx_signals_trade_date
-ON signals (trade_date, strategy, generated_at DESC);
-"""
-
 
 @dataclass(slots=True)
 class SchedulerConfig:
@@ -91,28 +72,6 @@ class SchedulerConfig:
     data_provider: str | None = None
     pool_filters: dict[str, object] = field(default_factory=dict)
     signal_params: dict[str, dict[str, object]] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class ScanSignal:
-    scan_id: str
-    trade_date: str
-    generated_at: str
-    strategy: str
-    symbol: str
-    asset_type: str
-    side: str
-    rank: int
-    score: float | None
-    total_return: float | None
-    sharpe_ratio: float | None
-    max_drawdown: float | None
-    total_trades: int | None
-    win_rate: float | None
-    profit_factor: float | None
-    final_value: float | None
-    source: str = "scheduler"
-    raw_payload: dict[str, object] = field(default_factory=dict)
 
 
 class DailyScanScheduler:
@@ -345,8 +304,8 @@ def run_daily_scan(
         lookback_start = (
             datetime.fromisoformat(effective_trade_date) - timedelta(days=scheduler_config.lookback_days)
         ).date().isoformat()
-        generated_at = shanghai_now().isoformat()
-        signals: list[ScanSignal] = []
+        generated_at = shanghai_now()
+        signals: list[Signal] = []
         strategy_runs: list[dict[str, object]] = []
 
         for strategy in scheduler_config.strategies:
@@ -370,7 +329,10 @@ def run_daily_scan(
                 generated_at=generated_at,
                 strategy=strategy,
                 asset_type=scheduler_config.asset_type,
+                cash=scheduler_config.cash,
+                data_provider=scheduler_config.data_provider,
                 rankings=result.get("rankings") or [],
+                db_path=db_path,
             )
             signals.extend(strategy_signals)
             strategy_runs.append({
@@ -381,7 +343,6 @@ def run_daily_scan(
             })
 
         persist_scan_signals(
-            scan_id=scan_id,
             trade_date=effective_trade_date,
             strategies=scheduler_config.strategies,
             signals=signals,
@@ -466,24 +427,52 @@ def build_scan_signals(
     *,
     scan_id: str,
     trade_date: str,
-    generated_at: str,
+    generated_at: datetime,
     strategy: str,
     asset_type: str,
+    cash: float,
+    data_provider: str | None,
     rankings: list[dict[str, object]],
-) -> list[ScanSignal]:
+    db_path: Path | None = None,
+) -> list[Signal]:
     """把筛选排名结果转换成可持久化 Signal。"""
 
-    signals: list[ScanSignal] = []
+    signals: list[Signal] = []
+    slots = max(1, len(rankings))
     for index, item in enumerate(rankings, start=1):
+        symbol = str(item.get("symbol", "")).upper()
+        signal_price = _resolve_signal_price(
+            symbol=symbol,
+            trade_date=trade_date,
+            asset_type=asset_type,
+            data_provider=data_provider,
+            fallback_price=_optional_float(item.get("price") or item.get("signal_price")),
+            db_path=db_path,
+        )
         signals.append(
-            ScanSignal(
+            Signal(
                 scan_id=scan_id,
                 trade_date=trade_date,
-                generated_at=generated_at,
+                timestamp=generated_at,
                 strategy=strategy,
-                symbol=str(item.get("symbol", "")).upper(),
+                symbol=symbol,
+                name=resolve_signal_name(
+                    symbol,
+                    trade_date=trade_date,
+                    asset_type=asset_type,
+                    fallback_name=str(item.get("name") or ""),
+                    db_path=db_path,
+                ),
                 asset_type=asset_type,
-                side="buy",
+                side="BUY",
+                reason=str(item.get("reason") or default_signal_reason(strategy, rank=index, score=_pick_signal_score(item))),
+                price=signal_price or 0.0,
+                suggested_qty=suggest_signal_quantity(
+                    price=signal_price,
+                    cash=cash,
+                    asset_type=asset_type,
+                    slots=slots,
+                ),
                 rank=index,
                 score=_pick_signal_score(item),
                 total_return=_optional_float(item.get("total_return")),
@@ -497,32 +486,6 @@ def build_scan_signals(
             )
         )
     return signals
-
-
-def list_recent_signals(
-    *,
-    limit: int = 20,
-    trade_date: str | None = None,
-    db_path: Path | None = None,
-) -> list[dict[str, object]]:
-    """读取最近持久化的信号列表。"""
-
-    limit = max(1, min(int(limit), 200))
-    query = (
-        "SELECT id, scan_id, trade_date, generated_at, strategy, symbol, asset_type, side, rank, score, "
-        "total_return, sharpe_ratio, max_drawdown, total_trades, win_rate, profit_factor, final_value, source, raw_payload "
-        "FROM signals "
-    )
-    params: list[object] = []
-    if trade_date:
-        query += "WHERE trade_date = ? "
-        params.append(normalize_trade_date(trade_date))
-    query += "ORDER BY generated_at DESC, id DESC LIMIT ?"
-    params.append(limit)
-
-    with get_scheduler_connection(db_path=db_path) as conn:
-        rows = conn.execute(query, params).fetchall()
-    return [deserialize_signal_row(row) for row in rows]
 
 
 def load_last_scan_record(*, db_path: Path | None = None) -> dict[str, object] | None:
@@ -561,8 +524,6 @@ def get_scheduler_connection(*, db_path: Path | None = None) -> sqlite3.Connecti
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.execute(_CREATE_SCAN_RUNS_SQL)
-    conn.execute(_CREATE_SIGNALS_SQL)
-    conn.execute(_CREATE_SIGNALS_INDEX_SQL)
     return conn
 
 
@@ -596,50 +557,20 @@ def persist_scan_record(payload: dict[str, object], *, db_path: Path | None = No
 
 def persist_scan_signals(
     *,
-    scan_id: str,
     trade_date: str,
     strategies: list[str],
-    signals: list[ScanSignal],
+    signals: list[Signal],
     db_path: Path | None = None,
 ) -> None:
     """持久化一次扫描生成的信号。"""
 
-    with get_scheduler_connection(db_path=db_path) as conn:
-        placeholders = ", ".join("?" for _ in strategies)
-        conn.execute(
-            f"DELETE FROM signals WHERE trade_date = ? AND strategy IN ({placeholders}) AND source = ?",
-            [trade_date, *strategies, "scheduler"],
-        )
-        conn.executemany(
-            "INSERT INTO signals "
-            "(scan_id, trade_date, generated_at, strategy, symbol, asset_type, side, rank, score, total_return, "
-            "sharpe_ratio, max_drawdown, total_trades, win_rate, profit_factor, final_value, source, raw_payload) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    item.scan_id,
-                    item.trade_date,
-                    item.generated_at,
-                    item.strategy,
-                    item.symbol,
-                    item.asset_type,
-                    item.side,
-                    item.rank,
-                    item.score,
-                    item.total_return,
-                    item.sharpe_ratio,
-                    item.max_drawdown,
-                    item.total_trades,
-                    item.win_rate,
-                    item.profit_factor,
-                    item.final_value,
-                    item.source,
-                    json.dumps(item.raw_payload, ensure_ascii=False, sort_keys=True),
-                )
-                for item in signals
-            ],
-        )
-        conn.commit()
+    persist_signals(
+        signals,
+        replace_trade_date=trade_date,
+        replace_strategies=strategies,
+        replace_source="scheduler",
+        db_path=db_path,
+    )
 
 
 def resolve_scan_trade_date(trade_date: str, *, force: bool = False) -> tuple[str, bool]:
@@ -715,7 +646,7 @@ def send_scan_notifications(
     *,
     trade_date: str,
     strategy_runs: list[dict[str, object]],
-    signals: list[ScanSignal],
+    signals: list[Signal],
     config: dict[str, object] | None = None,
 ) -> list[dict[str, object]]:
     """根据配置推送扫描结果通知。"""
@@ -742,12 +673,12 @@ def format_notification_body(
     *,
     trade_date: str,
     strategy_runs: list[dict[str, object]],
-    signals: list[ScanSignal],
+    signals: list[Signal],
 ) -> str:
     """构造通知正文。"""
 
     lines = [f"{trade_date} 盘后扫描完成，共生成 {len(signals)} 条信号。"]
-    by_strategy: dict[str, list[ScanSignal]] = {}
+    by_strategy: dict[str, list[Signal]] = {}
     for signal in signals:
         by_strategy.setdefault(signal.strategy, []).append(signal)
 
@@ -765,34 +696,32 @@ def format_notification_body(
     return "\n".join(lines)
 
 
-def serialize_signal(signal: ScanSignal) -> dict[str, object]:
-    payload = asdict(signal)
-    payload["raw_payload"] = dict(signal.raw_payload)
-    return payload
+def _resolve_signal_price(
+    *,
+    symbol: str,
+    trade_date: str,
+    asset_type: str,
+    data_provider: str | None,
+    fallback_price: float | None,
+    db_path: Path | None = None,
+) -> float | None:
+    if fallback_price is not None and fallback_price > 0:
+        return fallback_price
 
-
-def deserialize_signal_row(row: sqlite3.Row) -> dict[str, object]:
-    return {
-        "id": row["id"],
-        "scan_id": row["scan_id"],
-        "trade_date": row["trade_date"],
-        "generated_at": row["generated_at"],
-        "strategy": row["strategy"],
-        "symbol": row["symbol"],
-        "asset_type": row["asset_type"],
-        "side": row["side"],
-        "rank": row["rank"],
-        "score": row["score"],
-        "total_return": row["total_return"],
-        "sharpe_ratio": row["sharpe_ratio"],
-        "max_drawdown": row["max_drawdown"],
-        "total_trades": row["total_trades"],
-        "win_rate": row["win_rate"],
-        "profit_factor": row["profit_factor"],
-        "final_value": row["final_value"],
-        "source": row["source"],
-        "raw_payload": json.loads(row["raw_payload"] or "{}"),
-    }
+    try:
+        frame = load_dataframe(
+            symbol,
+            trade_date,
+            trade_date,
+            asset_type=asset_type,  # type: ignore[arg-type]
+            provider=data_provider,
+            db_path=db_path,
+        )
+    except Exception:  # noqa: BLE001
+        return fallback_price
+    if frame.empty:
+        return fallback_price
+    return _optional_float(frame.iloc[-1]["Close"]) or fallback_price
 
 
 def normalize_trade_date(value: str) -> str:

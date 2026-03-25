@@ -254,11 +254,45 @@ def test_api_http_smoke_end_to_end():
             },
         ),
         patch(
-            "quant_balance.scheduler.list_recent_signals",
+            "quant_balance.core.signals.list_recent_signals",
             return_value=[
                 {"symbol": "AAA", "strategy": "macd", "trade_date": "2024-03-29"},
                 {"symbol": "BBB", "strategy": "rsi", "trade_date": "2024-03-29"},
             ],
+        ),
+        patch(
+            "quant_balance.core.signals.list_today_signals",
+            return_value={
+                "date": "2024-03-29",
+                "total": 2,
+                "items": [
+                    {"id": 1, "symbol": "AAA", "strategy": "macd", "status": "pending"},
+                    {"id": 2, "symbol": "BBB", "strategy": "rsi", "status": "pending"},
+                ],
+            },
+        ),
+        patch(
+            "quant_balance.core.signals.list_signal_history",
+            return_value={
+                "days": 30,
+                "page": 1,
+                "page_size": 2,
+                "total": 2,
+                "has_more": False,
+                "items": [
+                    {"id": 1, "symbol": "AAA", "strategy": "macd", "return_5d_pct": 3.2},
+                    {"id": 2, "symbol": "BBB", "strategy": "rsi", "return_5d_pct": -1.4},
+                ],
+            },
+        ),
+        patch(
+            "quant_balance.core.signals.update_signal_status",
+            return_value={
+                "id": 1,
+                "symbol": "AAA",
+                "strategy": "macd",
+                "status": "executed",
+            },
         ),
         patch(
             "quant_balance.services.symbol_search_service.search_symbol_candidates",
@@ -320,6 +354,33 @@ def test_api_http_smoke_end_to_end():
         assert recent_signals_status == 200
         assert len(recent_signals_payload["items"]) == 2
         assert recent_signals_payload["items"][0]["strategy"] == "macd"
+
+        today_signals_status, _, today_signals_payload = _request(
+            app,
+            "GET",
+            f"/api/signals/today?{urlencode({'limit': 20, 'date': '2024-03-29'})}",
+        )
+        assert today_signals_status == 200
+        assert today_signals_payload["total"] == 2
+        assert today_signals_payload["items"][0]["status"] == "pending"
+
+        history_signals_status, _, history_signals_payload = _request(
+            app,
+            "GET",
+            f"/api/signals/history?{urlencode({'days': 30, 'page': 1, 'page_size': 2})}",
+        )
+        assert history_signals_status == 200
+        assert history_signals_payload["total"] == 2
+        assert history_signals_payload["items"][1]["strategy"] == "rsi"
+
+        signal_update_status, _, signal_update_payload = _request(
+            app,
+            "PATCH",
+            "/api/signals/1",
+            {"status": "executed"},
+        )
+        assert signal_update_status == 200
+        assert signal_update_payload["status"] == "executed"
 
         health_status, _, health_payload = _request(app, "GET", "/health")
         assert health_status == 200

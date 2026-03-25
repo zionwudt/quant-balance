@@ -17,6 +17,7 @@ from quant_balance.api.schemas import (
     OptimizeRequest,
     PortfolioRunRequest,
     SchedulerRunRequest,
+    SignalStatusUpdateRequest,
     ScreeningRunRequest,
     StockPoolFilterRequest,
     TushareTokenRequest,
@@ -42,8 +43,11 @@ def test_create_api_app_registers_expected_routes():
         ("/api/config/status", "GET"),
         ("/api/scheduler/status", "GET"),
         ("/api/signals/recent", "GET"),
+        ("/api/signals/today", "GET"),
+        ("/api/signals/history", "GET"),
         ("/api/config/tushare-token", "POST"),
         ("/api/scheduler/run", "POST"),
+        ("/api/signals/{signal_id}", "PATCH"),
         ("/api/strategies", "GET"),
         ("/api/symbols/search", "GET"),
         ("/api/factors/rank", "POST"),
@@ -99,6 +103,7 @@ def test_post_routes_expose_request_body_in_openapi():
     assert "requestBody" in schema["paths"]["/api/screening/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/config/tushare-token"]["post"]
     assert "requestBody" in schema["paths"]["/api/scheduler/run"]["post"]
+    assert "requestBody" in schema["paths"]["/api/signals/{signal_id}"]["patch"]
 
 
 def test_backtest_schema_requires_core_fields():
@@ -195,7 +200,7 @@ def test_scheduler_run_endpoint_delegates_to_manager():
 
 def test_signals_recent_endpoint_delegates_to_store():
     payload = [{"symbol": "AAA", "strategy": "macd"}]
-    with patch("quant_balance.scheduler.list_recent_signals", return_value=payload) as mock_list:
+    with patch("quant_balance.core.signals.list_recent_signals", return_value=payload) as mock_list:
         app = create_api_app()
         endpoint = _get_route_endpoint(app, "/api/signals/recent", "GET")
 
@@ -203,6 +208,54 @@ def test_signals_recent_endpoint_delegates_to_store():
 
     assert result == {"items": payload}
     mock_list.assert_called_once_with(limit=10, trade_date="2024-03-29")
+
+
+def test_signals_today_endpoint_delegates_to_store():
+    payload = {
+        "date": "2024-03-29",
+        "total": 1,
+        "items": [{"symbol": "AAA", "strategy": "macd"}],
+    }
+    with patch("quant_balance.core.signals.list_today_signals", return_value=payload) as mock_list:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/signals/today", "GET")
+
+        result = endpoint(50, "2024-03-29")
+
+    assert result == payload
+    mock_list.assert_called_once_with(limit=50, as_of_date="2024-03-29")
+
+
+def test_signals_history_endpoint_delegates_to_store():
+    payload = {
+        "days": 30,
+        "page": 2,
+        "page_size": 10,
+        "total": 12,
+        "has_more": False,
+        "items": [{"symbol": "AAA", "strategy": "macd"}],
+    }
+    with patch("quant_balance.core.signals.list_signal_history", return_value=payload) as mock_list:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/signals/history", "GET")
+
+        result = endpoint(30, 2, 10)
+
+    assert result == payload
+    mock_list.assert_called_once_with(days=30, page=2, page_size=10)
+
+
+def test_signal_update_endpoint_delegates_to_store():
+    payload = {"id": 12, "status": "executed"}
+    with patch("quant_balance.core.signals.update_signal_status", return_value=payload) as mock_update:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/signals/{signal_id}", "PATCH")
+        request = SignalStatusUpdateRequest(status="executed")
+
+        result = endpoint(12, request)
+
+    assert result == payload
+    mock_update.assert_called_once_with(12, status="executed")
 
 
 def test_tushare_token_endpoint_validates_and_saves():
@@ -676,6 +729,19 @@ def test_scheduler_run_maps_value_error_to_http_400():
 
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "bad scan"
+
+
+def test_signal_update_maps_lookup_error_to_http_404():
+    with patch("quant_balance.core.signals.update_signal_status", side_effect=LookupError("signal missing")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/signals/{signal_id}", "PATCH")
+        request = SignalStatusUpdateRequest(status="ignored")
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint(99, request)
+
+    assert excinfo.value.status_code == 404
+    assert excinfo.value.detail == "signal missing"
 
 
 def test_backtest_run_maps_unexpected_error_to_http_500(caplog: pytest.LogCaptureFixture):

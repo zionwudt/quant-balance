@@ -17,6 +17,7 @@
 - 可转债研究：`asset_type=convertible_bond` 时支持日线加载、单标回测/优化、显式列表筛选，并附带转股价值 / 转股溢价率 / 纯债溢价率 / 推导转股价等字段
 - 报告增强：单股回测 `summary` 内置 Calmar、月度收益、滚动 Sharpe、分年统计，并支持可选 benchmark 对比（基准权益、超额收益、Beta、Alpha）
 - 定时调度：支持每个交易日盘后自动扫描策略、持久化信号、可选通知推送，并支持 API 手动触发
+- 信号管理：统一记录策略信号、状态流转与 1/5/10/20 日后跟踪收益，支持今日/历史查询
 - Web Dashboard：已包含 hash 路由侧栏、股票池研究页、多标的标签输入、组合回测月度热力图、信号中心、模拟盘和设置页；回测页支持策略卡切换、动态参数表单、代码搜索下拉、K 线 / 成交量 / 买卖点叠加、成交明细联动高亮，以及浅色 / 深色 / 跟随系统主题和 A 股 / 国际涨跌配色切换
 - 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
@@ -128,7 +129,8 @@ Web Dashboard 当前说明：
 
 说明：
 
-- 模拟盘、信号中心和外观偏好当前基于浏览器本地存储持久化，便于单机研究和原型验证
+- 模拟盘和外观偏好当前仍基于浏览器本地存储持久化，便于单机研究和原型验证
+- 后端已提供信号管理 API；调度扫描生成的信号会持久化到 SQLite，可用于推送、复盘和后续前端接入
 - Tushare Token 保存仍会写入后端 `config/config.toml`
 
 ## API 概览
@@ -141,10 +143,13 @@ Web Dashboard 当前说明：
 - `GET /api/scheduler/status`
 - `GET /api/strategies`
 - `GET /api/signals/recent`
+- `GET /api/signals/today`
+- `GET /api/signals/history`
 - `GET /api/symbols/search`
 - `POST /api/factors/rank`
 - `POST /api/stock-pool/filter`
 - `POST /api/config/tushare-token`
+- `PATCH /api/signals/{signal_id}`
 - `POST /api/backtest/run`
 - `POST /api/backtest/optimize`
 - `POST /api/portfolio/run`
@@ -230,6 +235,54 @@ Web Dashboard 当前说明：
 
 - `limit`
 - `trade_date`
+
+### `GET /api/signals/today`
+
+返回当天生成的信号列表，可选参数：
+
+- `limit`
+- `date`
+
+响应会附带：
+
+- `items`
+- `total`
+- `date`
+
+每条信号默认包含 `symbol / name / side / strategy / reason / price / suggested_qty / status`，以及 `return_5d_pct / return_10d_pct / return_20d_pct` 和按方向折算后的 `performance_*_pct`。
+
+### `GET /api/signals/history`
+
+按时间窗口分页查询历史信号，可选参数：
+
+- `days`
+- `page`
+- `page_size`
+
+响应会附带：
+
+- `items`
+- `total`
+- `page`
+- `page_size`
+- `has_more`
+
+### `PATCH /api/signals/{signal_id}`
+
+```json
+{
+  "status": "executed"
+}
+```
+
+支持的状态：
+
+- `pending`
+- `executed`
+- `ignored`
+- `expired`
+
+适合在人工复核、通知回执或模拟执行后，把单条信号标记为已执行 / 已忽略。
 
 ### `POST /api/backtest/run`
 
