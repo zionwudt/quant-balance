@@ -55,6 +55,10 @@ def test_create_api_app_registers_expected_routes():
         ("/api/factors/rank", "POST"),
         ("/api/stock-pool/filter", "POST"),
         ("/api/backtest/run", "POST"),
+        ("/api/backtest/history", "GET"),
+        ("/api/backtest/history/{run_id}", "GET"),
+        ("/api/backtest/history/{run_id}", "DELETE"),
+        ("/api/backtest/compare", "GET"),
         ("/api/backtest/optimize", "POST"),
         ("/api/portfolio/run", "POST"),
         ("/api/screening/run", "POST"),
@@ -346,7 +350,10 @@ def test_tushare_token_endpoint_supports_validate_only():
 
 def test_backtest_run_delegates_to_service():
     payload = {"summary": {"final_equity": 123456.0}}
-    with patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run:
+    with (
+        patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run,
+        patch("quant_balance.data.result_store.save_backtest_run") as mock_save,
+    ):
         app = create_api_app()
         endpoint = _get_route_endpoint(app, "/api/backtest/run", "POST")
         request = BacktestRunRequest(
@@ -372,6 +379,9 @@ def test_backtest_run_delegates_to_service():
         commission=0.001,
         params={"fast_period": 5},
     )
+    mock_save.assert_called_once()
+    assert mock_save.call_args.kwargs["result_payload"] == payload
+    assert mock_save.call_args.kwargs["request_payload"]["symbol"] == "600519.SH"
 
 
 def test_backtest_run_maps_value_error_to_http_400(caplog: pytest.LogCaptureFixture):
@@ -404,7 +414,10 @@ def test_backtest_run_maps_value_error_to_http_400(caplog: pytest.LogCaptureFixt
 
 def test_backtest_run_delegates_convertible_bond_asset_type():
     payload = {"summary": {"final_equity": 123456.0}}
-    with patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run:
+    with (
+        patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run,
+        patch("quant_balance.data.result_store.save_backtest_run") as mock_save,
+    ):
         app = create_api_app()
         endpoint = _get_route_endpoint(app, "/api/backtest/run", "POST")
         request = BacktestRunRequest(
@@ -427,11 +440,15 @@ def test_backtest_run_delegates_convertible_bond_asset_type():
         commission=0.001,
         params={},
     )
+    mock_save.assert_called_once()
 
 
 def test_backtest_run_delegates_benchmark_fields_to_service():
     payload = {"summary": {"final_equity": 123456.0}}
-    with patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run:
+    with (
+        patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run,
+        patch("quant_balance.data.result_store.save_backtest_run") as mock_save,
+    ):
         app = create_api_app()
         endpoint = _get_route_endpoint(app, "/api/backtest/run", "POST")
         request = BacktestRunRequest(
@@ -459,11 +476,15 @@ def test_backtest_run_delegates_benchmark_fields_to_service():
         benchmark_asset_type="stock",
         benchmark_data_provider="baostock",
     )
+    mock_save.assert_called_once()
 
 
 def test_backtest_run_delegates_slippage_fields_to_service():
     payload = {"summary": {"final_equity": 123456.0}}
-    with patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run:
+    with (
+        patch("quant_balance.services.backtest_service.run_single_backtest", return_value=payload) as mock_run,
+        patch("quant_balance.data.result_store.save_backtest_run") as mock_save,
+    ):
         app = create_api_app()
         endpoint = _get_route_endpoint(app, "/api/backtest/run", "POST")
         request = BacktestRunRequest(
@@ -489,6 +510,93 @@ def test_backtest_run_delegates_slippage_fields_to_service():
         slippage_mode="spread",
         slippage_rate=0.002,
     )
+    mock_save.assert_called_once()
+
+
+def test_backtest_history_delegates_to_result_store():
+    payload = {
+        "items": [],
+        "page": 2,
+        "page_size": 10,
+        "total": 0,
+        "total_pages": 0,
+        "filters": {
+            "symbol": "600519.SH",
+            "strategy": "sma_cross",
+            "date_from": "2024-01-01",
+            "date_to": "2024-01-31",
+        },
+    }
+    with patch("quant_balance.data.result_store.list_backtest_runs", return_value=payload) as mock_list:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/history", "GET")
+
+        result = endpoint(
+            page=2,
+            page_size=10,
+            symbol="600519.SH",
+            strategy="sma_cross",
+            date_from="2024-01-01",
+            date_to="2024-01-31",
+        )
+
+    assert result == payload
+    mock_list.assert_called_once_with(
+        page=2,
+        page_size=10,
+        symbol="600519.SH",
+        strategy="sma_cross",
+        date_from="2024-01-01",
+        date_to="2024-01-31",
+    )
+
+
+def test_backtest_history_detail_delegates_to_result_store():
+    payload = {
+        "run_id": "run-1",
+        "summary": {"final_equity": 123456.0},
+        "trades": [],
+        "equity_curve": [],
+        "run_context": {"symbol": "600519.SH"},
+    }
+    with patch("quant_balance.data.result_store.get_backtest_run", return_value=payload) as mock_get:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/history/{run_id}", "GET")
+
+        result = endpoint("run-1")
+
+    assert result == payload
+    mock_get.assert_called_once_with("run-1")
+
+
+def test_backtest_compare_delegates_to_result_store():
+    payload = {
+        "items": [{"run_id": "run-1"}, {"run_id": "run-2"}],
+        "metrics": [],
+        "largest_spread_metric": None,
+        "equity_curves": [],
+        "param_diffs": {"rows": [], "all_keys": [], "changed_keys": []},
+    }
+    with patch("quant_balance.data.result_store.compare_backtest_runs", return_value=payload) as mock_compare:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/compare", "GET")
+
+        result = endpoint("run-1, run-2")
+
+    assert result == payload
+    mock_compare.assert_called_once_with(["run-1", "run-2"])
+
+
+def test_backtest_history_delete_delegates_to_result_store():
+    payload = {"run_id": "run-1", "deleted": True}
+    with patch("quant_balance.data.result_store.delete_backtest_run", return_value=payload) as mock_delete:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/history/{run_id}", "DELETE")
+
+        result = endpoint("run-1")
+
+    assert result == payload
+    mock_delete.assert_called_once_with("run-1")
 
 
 def test_backtest_optimize_delegates_enhanced_fields_to_service():
@@ -781,6 +889,30 @@ def test_notify_test_maps_value_error_to_http_400():
 
     assert excinfo.value.status_code == 400
     assert excinfo.value.detail == "bad notify"
+
+
+def test_backtest_history_detail_maps_lookup_error_to_http_404():
+    with patch("quant_balance.data.result_store.get_backtest_run", side_effect=LookupError("run missing")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/history/{run_id}", "GET")
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint("run-404")
+
+    assert excinfo.value.status_code == 404
+    assert excinfo.value.detail == "run missing"
+
+
+def test_backtest_compare_maps_value_error_to_http_400():
+    with patch("quant_balance.data.result_store.compare_backtest_runs", side_effect=ValueError("ids invalid")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/backtest/compare", "GET")
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint("run-1")
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "ids invalid"
 
 
 def test_backtest_run_maps_unexpected_error_to_http_500(caplog: pytest.LogCaptureFixture):

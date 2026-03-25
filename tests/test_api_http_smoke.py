@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import urlencode
 
@@ -87,7 +88,7 @@ def _request(app, method: str, path: str, payload: dict | None = None) -> tuple[
     return asyncio.run(_asgi_request(app, method, path, payload))
 
 
-def test_api_http_smoke_end_to_end():
+def test_api_http_smoke_end_to_end(tmp_path: Path):
     sample_df = _make_sample_df()
     benchmark_df = sample_df.copy()
     benchmark_close = [10 + index * 0.01 for index in range(len(benchmark_df))]
@@ -142,6 +143,15 @@ def test_api_http_smoke_end_to_end():
 
     with (
         patch("quant_balance.services.backtest_service.load_dataframe", side_effect=fake_load_dataframe),
+        patch("quant_balance.data.result_store.CACHE_DB_PATH", tmp_path / "result-store.db"),
+        patch(
+            "quant_balance.data.result_store.result_store_now",
+            side_effect=[
+                "2026-03-25T10:00:00+08:00",
+                "2026-03-25T10:00:01+08:00",
+                "2026-03-25T10:00:02+08:00",
+            ],
+        ),
         patch(
             "quant_balance.services.backtest_service.optimize",
             return_value=optimize_result,
@@ -477,6 +487,76 @@ def test_api_http_smoke_end_to_end():
         assert "excess_return_pct" in backtest_payload["equity_curve"][0]
         assert backtest_payload["run_context"]["asset_type"] == "stock"
         assert backtest_payload["run_context"]["benchmark_symbol"] == "000300.SH"
+
+        second_backtest_status, _, second_backtest_payload = _request(
+            app,
+            "POST",
+            "/api/backtest/run",
+            {
+                "symbol": "AAA",
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "strategy": "sma_cross",
+                "cash": 100_000.0,
+                "commission": 0.0,
+                "params": {
+                    "fast_period": 8,
+                    "slow_period": 30,
+                },
+            },
+        )
+        assert second_backtest_status == 200
+        assert second_backtest_payload["summary"]["final_equity"] > 0
+
+        history_status, _, history_payload = _request(
+            app,
+            "GET",
+            f"/api/backtest/history?{urlencode({'symbol': 'AAA', 'page': 1, 'page_size': 10})}",
+        )
+        assert history_status == 200
+        assert history_payload["total"] == 2
+        assert len(history_payload["items"]) == 2
+        latest_run_id = history_payload["items"][0]["run_id"]
+        previous_run_id = history_payload["items"][1]["run_id"]
+        assert history_payload["items"][0]["summary"]["final_equity"] > 0
+
+        history_detail_status, _, history_detail_payload = _request(
+            app,
+            "GET",
+            f"/api/backtest/history/{latest_run_id}",
+        )
+        assert history_detail_status == 200
+        assert history_detail_payload["run_id"] == latest_run_id
+        assert history_detail_payload["summary"]["final_equity"] > 0
+        assert len(history_detail_payload["equity_curve"]) > 0
+        assert "chart_overlays" in history_detail_payload
+
+        compare_status, _, compare_payload = _request(
+            app,
+            "GET",
+            f"/api/backtest/compare?{urlencode({'ids': f'{latest_run_id},{previous_run_id}'})}",
+        )
+        assert compare_status == 200
+        assert len(compare_payload["items"]) == 2
+        assert len(compare_payload["metrics"]) > 0
+        assert "params.fast_period" in compare_payload["param_diffs"]["changed_keys"]
+        assert len(compare_payload["equity_curves"]) == 2
+
+        delete_status, _, delete_payload = _request(
+            app,
+            "DELETE",
+            f"/api/backtest/history/{latest_run_id}",
+        )
+        assert delete_status == 200
+        assert delete_payload == {"run_id": latest_run_id, "deleted": True}
+
+        history_after_delete_status, _, history_after_delete_payload = _request(
+            app,
+            "GET",
+            f"/api/backtest/history?{urlencode({'symbol': 'AAA', 'page': 1, 'page_size': 10})}",
+        )
+        assert history_after_delete_status == 200
+        assert history_after_delete_payload["total"] == 1
 
         cb_backtest_status, _, cb_backtest_payload = _request(
             app,

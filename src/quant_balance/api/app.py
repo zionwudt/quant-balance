@@ -66,6 +66,13 @@ def create_api_app() -> Any:
         save_tushare_token,
         validate_tushare_token,
     )
+    from quant_balance.data.result_store import (
+        compare_backtest_runs,
+        delete_backtest_run,
+        get_backtest_run,
+        list_backtest_runs,
+        save_backtest_run,
+    )
     from quant_balance.core.signals import (
         list_recent_signals,
         list_signal_history,
@@ -502,7 +509,12 @@ def create_api_app() -> Any:
                 kwargs["data_provider"] = req.data_provider
             if req.benchmark_data_provider is not None:
                 kwargs["benchmark_data_provider"] = req.benchmark_data_provider
-            return run_single_backtest(**kwargs)
+            result = run_single_backtest(**kwargs)
+            save_backtest_run(
+                request_payload=req.model_dump(exclude_none=True),
+                result_payload=result,
+            )
+            return result
         except (ValueError, DataLoadError) as exc:
             _log_api_error(
                 endpoint="/api/backtest/run",
@@ -514,6 +526,151 @@ def create_api_app() -> Any:
         except Exception as exc:  # noqa: BLE001
             _log_api_error(
                 endpoint="/api/backtest/run",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.get("/api/backtest/history")
+    def backtest_history(
+        page: int = 1,
+        page_size: int = 20,
+        symbol: str | None = None,
+        strategy: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, object]:
+        """分页查询单股回测历史。"""
+
+        context = {
+            "page": page,
+            "page_size": page_size,
+            "symbol": symbol,
+            "strategy": strategy,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+        try:
+            return list_backtest_runs(
+                page=page,
+                page_size=page_size,
+                symbol=symbol,
+                strategy=strategy,
+                date_from=date_from,
+                date_to=date_to,
+            )
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/backtest/history",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/backtest/history",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.get("/api/backtest/history/{run_id}")
+    def backtest_history_detail(run_id: str) -> dict[str, object]:
+        """读取单条回测历史详情。"""
+
+        context = {"run_id": run_id}
+        try:
+            return get_backtest_run(run_id)
+        except LookupError as exc:
+            _log_api_error(
+                endpoint="/api/backtest/history/{run_id}",
+                status_code=404,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/backtest/history/{run_id}",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/backtest/history/{run_id}",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.get("/api/backtest/compare")
+    def backtest_compare(ids: str) -> dict[str, object]:
+        """对比 2-3 条历史回测结果。"""
+
+        normalized_ids = [item.strip() for item in str(ids or "").split(",") if item.strip()]
+        context = {
+            "ids": normalized_ids,
+            "count": len(normalized_ids),
+        }
+        try:
+            return compare_backtest_runs(normalized_ids)
+        except LookupError as exc:
+            _log_api_error(
+                endpoint="/api/backtest/compare",
+                status_code=404,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/backtest/compare",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/backtest/compare",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.delete("/api/backtest/history/{run_id}")
+    def backtest_history_delete(run_id: str) -> dict[str, object]:
+        """删除单条回测历史记录。"""
+
+        context = {"run_id": run_id}
+        try:
+            return delete_backtest_run(run_id)
+        except LookupError as exc:
+            _log_api_error(
+                endpoint="/api/backtest/history/{run_id}",
+                status_code=404,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/backtest/history/{run_id}",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/backtest/history/{run_id}",
                 status_code=500,
                 exc=exc,
                 context=context,

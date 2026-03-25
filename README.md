@@ -16,6 +16,7 @@
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
 - 可转债研究：`asset_type=convertible_bond` 时支持日线加载、单标回测/优化、显式列表筛选，并附带转股价值 / 转股溢价率 / 纯债溢价率 / 推导转股价等字段
 - 报告增强：单股回测 `summary` 内置 Calmar、月度收益、滚动 Sharpe、分年统计，并支持可选 benchmark 对比（基准权益、超额收益、Beta、Alpha）
+- 结果持久化：`/api/backtest/run` 会自动保存单股回测结果，支持历史分页查询、详情恢复、删除和 2-3 条结果对比
 - 定时调度：支持每个交易日盘后自动扫描策略、持久化信号、可选通知推送，并支持 API 手动触发
 - 信号管理：统一记录策略信号、状态流转与 1/5/10/20 日后跟踪收益，支持今日/历史查询
 - 消息推送：企业微信 / 钉钉 / Server酱 / SMTP 邮件 4 种渠道独立发送，支持设置页连通性测试
@@ -165,6 +166,10 @@ Web Dashboard 当前说明：
 - `POST /api/notify/test`
 - `PATCH /api/signals/{signal_id}`
 - `POST /api/backtest/run`
+- `GET /api/backtest/history`
+- `GET /api/backtest/history/{run_id}`
+- `GET /api/backtest/compare`
+- `DELETE /api/backtest/history/{run_id}`
 - `POST /api/backtest/optimize`
 - `POST /api/portfolio/run`
 - `POST /api/scheduler/run`
@@ -342,11 +347,73 @@ Web Dashboard 当前说明：
 说明：
 
 - 响应顶层结构继续保持 `summary`、`trades`、`equity_curve`、`run_context`，并新增 `price_bars`、`chart_overlays`
+- 成功返回后会自动把本次结果写入 SQLite，可再通过 `history / compare` 端点查询
 - `summary` 会额外返回 `calmar_ratio`、`monthly_returns`、`rolling_sharpe`、`yearly_stats`
 - 传入 `benchmark_symbol` 后，`summary` 和 `equity_curve` 会同步返回基准相关字段；如需单独指定基准资产类型或数据源，可额外传 `benchmark_asset_type`、`benchmark_data_provider`
 - `slippage_mode` 支持 `off / spread / commission`；`slippage_rate` 与 `commission` 使用同一比例口径
 - `params.max_position_pct / max_holdings` 用于控制单次建仓比例和允许同时持有的持仓笔数，尤其适合 `dca`
 - `price_bars` 返回 OHLCV，`chart_overlays.line_series / trade_markers` 适合前端直接渲染 K 线、均线和买卖标记
+
+### `GET /api/backtest/history`
+
+按创建时间倒序分页返回单股回测历史，可选参数：
+
+- `page`
+- `page_size`
+- `symbol`
+- `strategy`
+- `date_from`
+- `date_to`
+
+响应会返回：
+
+- `items`
+- `total`
+- `page`
+- `page_size`
+- `total_pages`
+- `filters`
+
+每条 `item` 默认包含 `run_id / created_at / symbol / strategy / asset_type / start_date / end_date / params / summary / request_payload`。
+
+### `GET /api/backtest/history/{run_id}`
+
+返回单条历史回测详情，会尽量还原当前回测结果结构，并附带：
+
+- `run_id`
+- `created_at`
+- `request_payload`
+- `summary`
+- `trades`
+- `equity_curve`
+- `price_bars`
+- `chart_overlays`
+- `run_context`
+
+### `GET /api/backtest/compare`
+
+查询参数：
+
+- `ids`：逗号分隔的 `run_id` 列表，当前要求 2-3 条
+
+响应会返回：
+
+- `items`：每条历史结果的摘要、参数和 `summary`
+- `metrics`：并排指标表格，每行附带 `spread / max_run_id / min_run_id / is_largest_spread`
+- `largest_spread_metric`
+- `equity_curves`：多条权益曲线叠加所需数据
+- `param_diffs`：请求参数差异对照，包含 `rows / all_keys / changed_keys`
+
+### `DELETE /api/backtest/history/{run_id}`
+
+删除单条历史回测记录，成功后返回：
+
+```json
+{
+  "run_id": "xxxx",
+  "deleted": true
+}
+```
 
 ### `GET /api/symbols/search`
 

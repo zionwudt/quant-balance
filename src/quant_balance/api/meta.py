@@ -122,6 +122,7 @@ def build_api_meta() -> dict:
             "scheduler.enabled=true 时，服务启动后会自动恢复盘后扫描调度；也可通过 API 手动触发。",
             "signals/today、signals/history 和 signals/{id} 支持信号查询、状态流转与后续表现跟踪。",
             "notify/test 可用来验证企业微信、钉钉、Server酱和 SMTP 邮件渠道连通性。",
+            "backtest/run 会自动把单股回测结果写入 SQLite；可通过 backtest/history 与 backtest/compare 查询和对比。",
             "数据默认使用前复权价格（qfq）。",
             "行情数据默认按 akshare -> baostock -> tushare 顺序回退，也可在请求中显式指定。",
             "backtest / optimize / screening 支持 asset_type=convertible_bond；当前可转债仅支持 tushare，并沿用简化版股票化撮合规则。",
