@@ -13,3 +13,25 @@ daily_providers = ["akshare", "baostock", "tushare"]
 [server]
 host = "127.0.0.1"
 port = 8765
+
+[scheduler]
+enabled = false
+scan_time = "16:00"
+strategies = ["macd", "rsi"]
+symbols_source = "stock_pool"
+asset_type = "stock"
+top_n = 20
+lookback_days = 365
+cash = 100000
+
+[notifications]
+wecom_webhook = ""
+dingding_webhook = ""
+serverchan_sendkey = ""
+email_recipient = ""
+smtp_host = ""
+smtp_port = 465
+smtp_username = ""
+smtp_password = ""
+smtp_sender = ""
+smtp_use_ssl = true

@@ -16,6 +16,7 @@ from quant_balance.api.schemas import (
     OptimizeConstraintRequest,
     OptimizeRequest,
     PortfolioRunRequest,
+    SchedulerRunRequest,
     ScreeningRunRequest,
     StockPoolFilterRequest,
     TushareTokenRequest,
@@ -39,7 +40,10 @@ def test_create_api_app_registers_expected_routes():
         ("/health", "GET"),
         ("/api/meta", "GET"),
         ("/api/config/status", "GET"),
+        ("/api/scheduler/status", "GET"),
+        ("/api/signals/recent", "GET"),
         ("/api/config/tushare-token", "POST"),
+        ("/api/scheduler/run", "POST"),
         ("/api/strategies", "GET"),
         ("/api/symbols/search", "GET"),
         ("/api/factors/rank", "POST"),
@@ -94,6 +98,7 @@ def test_post_routes_expose_request_body_in_openapi():
     assert "requestBody" in schema["paths"]["/api/portfolio/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/screening/run"]["post"]
     assert "requestBody" in schema["paths"]["/api/config/tushare-token"]["post"]
+    assert "requestBody" in schema["paths"]["/api/scheduler/run"]["post"]
 
 
 def test_backtest_schema_requires_core_fields():
@@ -155,6 +160,49 @@ def test_config_status_endpoint_returns_status():
         result = endpoint()
 
     assert result == expected
+
+
+def test_scheduler_status_endpoint_delegates_to_manager():
+    expected = {
+        "enabled": True,
+        "running": True,
+        "apscheduler_available": True,
+        "config": {"scan_time": "16:00"},
+        "next_run_time": "2024-03-29T16:00:00+08:00",
+        "last_scan": {"status": "completed"},
+    }
+    with patch("quant_balance.scheduler.DailyScanScheduler.get_status", return_value=expected):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/scheduler/status", "GET")
+
+        result = endpoint()
+
+    assert result == expected
+
+
+def test_scheduler_run_endpoint_delegates_to_manager():
+    payload = {"status": "completed", "signals_count": 3}
+    with patch("quant_balance.scheduler.DailyScanScheduler.run_manual_scan", return_value=payload) as mock_run:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/scheduler/run", "POST")
+        request = SchedulerRunRequest(trade_date="2024-03-29", force=True)
+
+        result = endpoint(request)
+
+    assert result == payload
+    mock_run.assert_called_once_with(trade_date="2024-03-29", force=True)
+
+
+def test_signals_recent_endpoint_delegates_to_store():
+    payload = [{"symbol": "AAA", "strategy": "macd"}]
+    with patch("quant_balance.scheduler.list_recent_signals", return_value=payload) as mock_list:
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/signals/recent", "GET")
+
+        result = endpoint(10, "2024-03-29")
+
+    assert result == {"items": payload}
+    mock_list.assert_called_once_with(limit=10, trade_date="2024-03-29")
 
 
 def test_tushare_token_endpoint_validates_and_saves():
@@ -615,6 +663,19 @@ def test_tushare_token_endpoint_maps_invalid_token_to_http_400(caplog: pytest.Lo
     payload = records[0].qb_payload
     assert payload["endpoint"] == "/api/config/tushare-token"
     assert payload["status_code"] == 400
+
+
+def test_scheduler_run_maps_value_error_to_http_400():
+    with patch("quant_balance.scheduler.DailyScanScheduler.run_manual_scan", side_effect=ValueError("bad scan")):
+        app = create_api_app()
+        endpoint = _get_route_endpoint(app, "/api/scheduler/run", "POST")
+        request = SchedulerRunRequest()
+
+        with pytest.raises(HTTPException) as excinfo:
+            endpoint(request)
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == "bad scan"
 
 
 def test_backtest_run_maps_unexpected_error_to_http_500(caplog: pytest.LogCaptureFixture):

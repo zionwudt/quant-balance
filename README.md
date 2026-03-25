@@ -16,6 +16,7 @@
 - 批量筛选：基于 `vectorbt` 的信号扫描与排名
 - 可转债研究：`asset_type=convertible_bond` 时支持日线加载、单标回测/优化、显式列表筛选，并附带转股价值 / 转股溢价率 / 纯债溢价率 / 推导转股价等字段
 - 报告增强：单股回测 `summary` 内置 Calmar、月度收益、滚动 Sharpe、分年统计，并支持可选 benchmark 对比（基准权益、超额收益、Beta、Alpha）
+- 定时调度：支持每个交易日盘后自动扫描策略、持久化信号、可选通知推送，并支持 API 手动触发
 - Web Dashboard：已包含 hash 路由侧栏、股票池研究页、多标的标签输入、组合回测月度热力图、信号中心、模拟盘和设置页；回测页支持策略卡切换、动态参数表单、代码搜索下拉、K 线 / 成交量 / 买卖点叠加、成交明细联动高亮，以及浅色 / 深色 / 跟随系统主题和 A 股 / 国际涨跌配色切换
 - 多因子排名：公告日对齐基本面 + 权重打分的横截面排序
 - 组合回测：基于 `vectorbt` 的等权 / 自定义权重再平衡研究
@@ -70,6 +71,28 @@ daily_providers = ["akshare", "baostock", "tushare"]
 [server]
 host = "127.0.0.1"
 port = 8765
+
+[scheduler]
+enabled = false
+scan_time = "16:00"
+strategies = ["macd", "rsi"]
+symbols_source = "stock_pool"
+asset_type = "stock"
+top_n = 20
+lookback_days = 365
+cash = 100000
+
+[notifications]
+wecom_webhook = ""
+dingding_webhook = ""
+serverchan_sendkey = ""
+email_recipient = ""
+smtp_host = ""
+smtp_port = 465
+smtp_username = ""
+smtp_password = ""
+smtp_sender = ""
+smtp_use_ssl = true
 ```
 
 Tushare token 获取地址：[tushare.pro/register](https://tushare.pro/register)
@@ -79,6 +102,8 @@ Tushare token 获取地址：[tushare.pro/register](https://tushare.pro/register
 - `daily_providers` 决定日线行情优先级，默认顺序会优先走 `AkShare -> Baostock -> Tushare`
 - 即使 `tushare` 放在兜底位，股票池和基本面快照当前仍然是 Tushare-first
 - 如果请求体显式传入 `data_provider`，会覆盖默认回退链
+- `scheduler.enabled=true` 后，服务启动时会自动恢复每日盘后扫描任务；非交易日会自动跳过
+- `notifications` 为可选配置；填写企业微信 / 钉钉 / Server酱 / SMTP 邮件参数后，盘后扫描完成会自动推送摘要
 
 首次使用时，如果 `config/config.toml` 不存在或 `[tushare].token` 为空，CLI 会打印引导信息并退出，不再等到请求行情时才抛出错误。
 
@@ -113,7 +138,9 @@ Web Dashboard 当前说明：
 - `GET /health`
 - `GET /api/meta`
 - `GET /api/config/status`
+- `GET /api/scheduler/status`
 - `GET /api/strategies`
+- `GET /api/signals/recent`
 - `GET /api/symbols/search`
 - `POST /api/factors/rank`
 - `POST /api/stock-pool/filter`
@@ -121,6 +148,7 @@ Web Dashboard 当前说明：
 - `POST /api/backtest/run`
 - `POST /api/backtest/optimize`
 - `POST /api/portfolio/run`
+- `POST /api/scheduler/run`
 - `POST /api/screening/run`
 
 `/api/backtest/run`、`/api/backtest/optimize`、`/api/screening/run` 都支持可选字段 `asset_type`。
@@ -169,6 +197,39 @@ Web Dashboard 当前说明：
 
 - `validate_only=true` 时只测试连接，不保存到磁盘
 - `validate_only=false` 时验证成功后写入 `config/config.toml`
+
+### `GET /api/scheduler/status`
+
+返回当前定时调度器状态，包括：
+
+- `enabled`
+- `running`
+- `apscheduler_available`
+- `config`
+- `next_run_time`
+- `last_scan`
+
+适合前端设置页或运维脚本查看当前盘后扫描是否已恢复。
+
+### `POST /api/scheduler/run`
+
+```json
+{
+  "trade_date": "2026-03-25",
+  "force": true
+}
+```
+
+- `trade_date` 可选；不传时默认使用当天
+- `force=true` 时，如果当天不是交易日，会自动回退到最近一个交易日继续执行
+- 返回本次扫描摘要、每个策略的运行结果、持久化后的信号列表，以及通知发送结果
+
+### `GET /api/signals/recent`
+
+查询最近持久化的调度信号，可选参数：
+
+- `limit`
+- `trade_date`
 
 ### `POST /api/backtest/run`
 

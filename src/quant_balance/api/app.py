@@ -12,6 +12,7 @@ from quant_balance.api.schemas import (
     FactorsRankRequest,
     OptimizeRequest,
     PortfolioRunRequest,
+    SchedulerRunRequest,
     ScreeningRunRequest,
     StockPoolFilterRequest,
     TushareTokenRequest,
@@ -63,6 +64,7 @@ def create_api_app() -> Any:
         save_tushare_token,
         validate_tushare_token,
     )
+    from quant_balance.scheduler import DailyScanScheduler, list_recent_signals
     from quant_balance.services.backtest_service import run_optimize, run_single_backtest
     from quant_balance.services.factor_service import run_factor_ranking
     from quant_balance.services.portfolio_service import run_portfolio_research
@@ -75,6 +77,16 @@ def create_api_app() -> Any:
         version=__version__,
         description="QuantBalance 回测与研究接口 — backtesting.py + vectorbt",
     )
+    scheduler_manager = DailyScanScheduler()
+    app.state.scheduler_manager = scheduler_manager
+
+    @app.on_event("startup")
+    def startup_scheduler() -> None:
+        scheduler_manager.start()
+
+    @app.on_event("shutdown")
+    def shutdown_scheduler() -> None:
+        scheduler_manager.shutdown()
 
     # ── Web 前端静态文件 ──
     static_dir = WEB_DIR / "static"
@@ -111,6 +123,68 @@ def create_api_app() -> Any:
         """返回首次使用配置状态。"""
 
         return get_tushare_config_status(check_connection=True)
+
+    @app.get("/api/scheduler/status")
+    def scheduler_status() -> dict[str, object]:
+        """返回定时调度器状态。"""
+
+        return scheduler_manager.get_status()
+
+    @app.post("/api/scheduler/run")
+    def scheduler_run(req: SchedulerRunRequest) -> dict[str, object]:
+        """手动触发一次盘后扫描。"""
+
+        context = {
+            "trade_date": req.trade_date,
+            "force": req.force,
+        }
+        try:
+            return scheduler_manager.run_manual_scan(
+                trade_date=req.trade_date,
+                force=req.force,
+            )
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/scheduler/run",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/scheduler/run",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+    @app.get("/api/signals/recent")
+    def signals_recent(limit: int = 20, trade_date: str | None = None) -> dict[str, object]:
+        """返回最近持久化的调度信号。"""
+
+        context = {"limit": limit, "trade_date": trade_date}
+        try:
+            return {
+                "items": list_recent_signals(limit=limit, trade_date=trade_date),
+            }
+        except (ValueError, DataLoadError) as exc:
+            _log_api_error(
+                endpoint="/api/signals/recent",
+                status_code=400,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            _log_api_error(
+                endpoint="/api/signals/recent",
+                status_code=500,
+                exc=exc,
+                context=context,
+            )
+            raise HTTPException(status_code=500, detail="内部服务器错误") from exc
 
     @app.post("/api/config/tushare-token")
     def save_tushare_config(req: TushareTokenRequest) -> dict[str, object]:

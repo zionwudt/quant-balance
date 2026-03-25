@@ -221,6 +221,46 @@ def test_api_http_smoke_end_to_end():
             },
         ),
         patch(
+            "quant_balance.scheduler.DailyScanScheduler.get_status",
+            return_value={
+                "enabled": True,
+                "running": True,
+                "apscheduler_available": True,
+                "config": {
+                    "scan_time": "16:00",
+                    "strategies": ["macd", "rsi"],
+                },
+                "next_run_time": "2024-03-29T16:00:00+08:00",
+                "last_scan": {
+                    "scan_id": "scan-latest",
+                    "status": "completed",
+                    "signals_count": 2,
+                },
+            },
+        ),
+        patch(
+            "quant_balance.scheduler.DailyScanScheduler.run_manual_scan",
+            return_value={
+                "scan_id": "scan-manual",
+                "status": "completed",
+                "requested_trade_date": "2024-03-29",
+                "effective_trade_date": "2024-03-29",
+                "signals_count": 2,
+                "signals": [
+                    {"symbol": "AAA", "strategy": "macd"},
+                    {"symbol": "BBB", "strategy": "rsi"},
+                ],
+                "notifications": [],
+            },
+        ),
+        patch(
+            "quant_balance.scheduler.list_recent_signals",
+            return_value=[
+                {"symbol": "AAA", "strategy": "macd", "trade_date": "2024-03-29"},
+                {"symbol": "BBB", "strategy": "rsi", "trade_date": "2024-03-29"},
+            ],
+        ),
+        patch(
             "quant_balance.services.symbol_search_service.search_symbol_candidates",
             return_value=[
                 {"symbol": "600519.SH", "name": "贵州茅台", "industry": "白酒", "market": "主板", "asset_type": "stock", "kind": "stock"},
@@ -253,6 +293,33 @@ def test_api_http_smoke_end_to_end():
         assert favicon_status == 200
         assert "image/svg+xml" in favicon_headers.get("content-type", "")
         assert "<svg" in favicon_payload
+
+        scheduler_status, _, scheduler_status_payload = _request(app, "GET", "/api/scheduler/status")
+        assert scheduler_status == 200
+        assert scheduler_status_payload["enabled"] is True
+        assert scheduler_status_payload["last_scan"]["status"] == "completed"
+
+        scheduler_run_status, _, scheduler_run_payload = _request(
+            app,
+            "POST",
+            "/api/scheduler/run",
+            {
+                "trade_date": "2024-03-29",
+                "force": True,
+            },
+        )
+        assert scheduler_run_status == 200
+        assert scheduler_run_payload["status"] == "completed"
+        assert scheduler_run_payload["signals_count"] == 2
+
+        recent_signals_status, _, recent_signals_payload = _request(
+            app,
+            "GET",
+            f"/api/signals/recent?{urlencode({'limit': 2, 'trade_date': '2024-03-29'})}",
+        )
+        assert recent_signals_status == 200
+        assert len(recent_signals_payload["items"]) == 2
+        assert recent_signals_payload["items"][0]["strategy"] == "macd"
 
         health_status, _, health_payload = _request(app, "GET", "/health")
         assert health_status == 200

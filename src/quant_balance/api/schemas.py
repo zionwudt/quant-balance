@@ -194,3 +194,16 @@ class TushareTokenRequest(BaseModel):
         False,
         description="仅测试连接，不落盘保存",
     )
+
+
+class SchedulerRunRequest(BaseModel):
+    """手动触发一次盘后扫描。"""
+
+    trade_date: str | None = Field(
+        None,
+        description="可选扫描日期 YYYY-MM-DD；不传默认取今天",
+    )
+    force: bool = Field(
+        True,
+        description="非交易日时是否回退到最近一个交易日继续执行",
+    )

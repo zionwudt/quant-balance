@@ -12,6 +12,7 @@ authors = [
   { name = "Eric" }
 ]
 dependencies = [
+  "apscheduler>=3.10",
   "fastapi>=0.115",
   "uvicorn>=0.30",
   "tushare>=1.4",
