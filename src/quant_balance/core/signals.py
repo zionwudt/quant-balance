@@ -1,4 +1,45 @@
-"""信号对象、持久化与查询。"""
+"""信号对象、持久化与查询。
+
+文件结构：
+1. 常量定义 (行 20-23)
+   - SIGNAL_TIMEZONE: 时区（Asia/Shanghai）
+   - VALID_SIGNAL_SIDES: 支持的信号方向（BUY/SELL）
+   - VALID_SIGNAL_STATUSES: 支持的信号状态（pending/executed/ignored/expired）
+   - TRACKING_WINDOWS: 收益跟踪窗口（1/5/10/20 日）
+
+2. SQL Schema 定义 (行 25-94)
+   - signals 表结构
+   - 索引定义
+   - 字段迁移脚本
+
+3. Signal 数据类 (行 111-169)
+   - 可持久化的交易信号对象
+
+4. 工具函数 (行 172-321)
+   - signal_now(): 当前时间
+   - normalize_*(): 规范化函数
+   - resolve_signal_name(): 解析股票中文名
+   - suggest_signal_quantity(): 估算买入数量
+
+5. 持久化函数 (行 211-356)
+   - get_signal_connection(): 获取数据库连接
+   - ensure_signal_schema(): 创建/升级表结构
+   - persist_signals(): 批量保存信号
+
+6. 查询函数 (行 359-479)
+   - list_recent_signals(): 最近信号
+   - list_today_signals(): 当日信号
+   - list_signal_history(): 历史信号分页查询
+   - update_signal_status(): 更新信号状态
+
+7. 序列化函数 (行 482-625)
+   - serialize_signal(): Signal 对象转字典
+   - _serialize_signal_payload(): 补充显示用字段
+
+8. 跟踪逻辑 (行 661-775)
+   - _refresh_tracking(): 刷新信号收益跟踪数据
+   - _compute_tracking_returns(): 计算窗口收益
+"""
 
 from __future__ import annotations
 
@@ -149,10 +190,14 @@ class Signal:
         self.strategy = str(self.strategy).strip()
         self.reason = str(self.reason or default_signal_reason(self.strategy)).strip()
         self.price = 0.0 if self.price in (None, "") else float(self.price)
-        self.suggested_qty = 0 if self.suggested_qty in (None, "") else int(self.suggested_qty)
+        self.suggested_qty = (
+            0 if self.suggested_qty in (None, "") else int(self.suggested_qty)
+        )
         self.asset_type = str(self.asset_type or "stock").strip() or "stock"
         self.status = normalize_signal_status(self.status)
-        self.trade_date = normalize_trade_date(self.trade_date or self.timestamp.date().isoformat())
+        self.trade_date = normalize_trade_date(
+            self.trade_date or self.timestamp.date().isoformat()
+        )
         self.rank = None if self.rank in (None, "") else int(self.rank)
         self.score = None if self.score in (None, "") else float(self.score)
         self.total_return = optional_float(self.total_return)
@@ -258,7 +303,9 @@ def ensure_signal_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def default_signal_reason(strategy: str, *, rank: int | None = None, score: float | None = None) -> str:
+def default_signal_reason(
+    strategy: str, *, rank: int | None = None, score: float | None = None
+) -> str:
     """根据策略名生成默认信号原因。"""
 
     reason = _SIGNAL_REASON_TEMPLATES.get(strategy, f"{strategy} 策略触发")
@@ -337,7 +384,11 @@ def persist_signals(
             placeholders = ", ".join("?" for _ in replace_strategies)
             conn.execute(
                 f"DELETE FROM signals WHERE trade_date = ? AND strategy IN ({placeholders}) AND source = ?",
-                [normalize_trade_date(replace_trade_date), *replace_strategies, replace_source],
+                [
+                    normalize_trade_date(replace_trade_date),
+                    *replace_strategies,
+                    replace_source,
+                ],
             )
 
         conn.executemany(
@@ -348,10 +399,7 @@ def persist_signals(
             "total_trades, win_rate, profit_factor, final_value, raw_payload, return_1d_pct, return_5d_pct, "
             "return_10d_pct, return_20d_pct, tracking_updated_at, updated_at"
             ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                _signal_insert_values(signal)
-                for signal in items
-            ],
+            [_signal_insert_values(signal) for signal in items],
         )
         conn.commit()
 
@@ -386,7 +434,9 @@ def list_today_signals(
 ) -> dict[str, object]:
     """返回指定自然日生成的信号。"""
 
-    normalized_date = normalize_trade_date(as_of_date or current_signal_date().isoformat())
+    normalized_date = normalize_trade_date(
+        as_of_date or current_signal_date().isoformat()
+    )
     normalized_limit = max(1, min(int(limit), 500))
     rows = _fetch_signal_rows(
         "SELECT * FROM signals WHERE substr(created_at, 1, 10) = ? ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -413,7 +463,9 @@ def list_signal_history(
     normalized_days = max(1, min(int(days), 3650))
     normalized_page = max(1, int(page))
     normalized_page_size = max(1, min(int(page_size), 200))
-    start_date = (current_signal_date() - timedelta(days=normalized_days - 1)).isoformat()
+    start_date = (
+        current_signal_date() - timedelta(days=normalized_days - 1)
+    ).isoformat()
     offset = (normalized_page - 1) * normalized_page_size
 
     with get_signal_connection(db_path=db_path) as conn:
@@ -465,7 +517,9 @@ def update_signal_status(
     return get_signal_by_id(normalized_id, db_path=db_path)
 
 
-def get_signal_by_id(signal_id: int, *, db_path: Path | None = None) -> dict[str, object]:
+def get_signal_by_id(
+    signal_id: int, *, db_path: Path | None = None
+) -> dict[str, object]:
     """读取单条信号。"""
 
     rows = _fetch_signal_rows(
@@ -483,38 +537,40 @@ def serialize_signal(signal: Signal) -> dict[str, object]:
     """序列化内存中的 Signal 对象。"""
 
     created_at = signal.timestamp.isoformat()
-    return _serialize_signal_payload({
-        "id": signal.id,
-        "symbol": signal.symbol,
-        "name": signal.name,
-        "side": signal.side,
-        "strategy": signal.strategy,
-        "reason": signal.reason,
-        "price": signal.price,
-        "suggested_qty": signal.suggested_qty,
-        "generated_at": created_at,
-        "created_at": created_at,
-        "status": signal.status,
-        "trade_date": signal.trade_date,
-        "asset_type": signal.asset_type,
-        "source": signal.source,
-        "scan_id": signal.scan_id,
-        "rank": signal.rank,
-        "score": signal.score,
-        "total_return": signal.total_return,
-        "sharpe_ratio": signal.sharpe_ratio,
-        "max_drawdown": signal.max_drawdown,
-        "total_trades": signal.total_trades,
-        "win_rate": signal.win_rate,
-        "profit_factor": signal.profit_factor,
-        "final_value": signal.final_value,
-        "raw_payload": dict(signal.raw_payload or {}),
-        "return_1d_pct": signal.return_1d_pct,
-        "return_5d_pct": signal.return_5d_pct,
-        "return_10d_pct": signal.return_10d_pct,
-        "return_20d_pct": signal.return_20d_pct,
-        "tracking_updated_at": signal.tracking_updated_at,
-    })
+    return _serialize_signal_payload(
+        {
+            "id": signal.id,
+            "symbol": signal.symbol,
+            "name": signal.name,
+            "side": signal.side,
+            "strategy": signal.strategy,
+            "reason": signal.reason,
+            "price": signal.price,
+            "suggested_qty": signal.suggested_qty,
+            "generated_at": created_at,
+            "created_at": created_at,
+            "status": signal.status,
+            "trade_date": signal.trade_date,
+            "asset_type": signal.asset_type,
+            "source": signal.source,
+            "scan_id": signal.scan_id,
+            "rank": signal.rank,
+            "score": signal.score,
+            "total_return": signal.total_return,
+            "sharpe_ratio": signal.sharpe_ratio,
+            "max_drawdown": signal.max_drawdown,
+            "total_trades": signal.total_trades,
+            "win_rate": signal.win_rate,
+            "profit_factor": signal.profit_factor,
+            "final_value": signal.final_value,
+            "raw_payload": dict(signal.raw_payload or {}),
+            "return_1d_pct": signal.return_1d_pct,
+            "return_5d_pct": signal.return_5d_pct,
+            "return_10d_pct": signal.return_10d_pct,
+            "return_20d_pct": signal.return_20d_pct,
+            "tracking_updated_at": signal.tracking_updated_at,
+        }
+    )
 
 
 def _signal_insert_values(signal: Signal) -> tuple[object, ...]:
@@ -658,7 +714,9 @@ def _build_outcome_label(payload: dict[str, object]) -> str:
     return "跟踪中"
 
 
-def _refresh_tracking(rows: list[dict[str, object]], *, db_path: Path | None = None) -> None:
+def _refresh_tracking(
+    rows: list[dict[str, object]], *, db_path: Path | None = None
+) -> None:
     candidates = [row for row in rows if _should_refresh_tracking(row)]
     if not candidates:
         return
@@ -678,7 +736,11 @@ def _refresh_tracking(rows: list[dict[str, object]], *, db_path: Path | None = N
     if not grouped:
         return
 
-    updates: list[tuple[float | None, float | None, float | None, float | None, float, str, str, int]] = []
+    updates: list[
+        tuple[
+            float | None, float | None, float | None, float | None, float, str, str, int
+        ]
+    ] = []
     tracking_updated_at = signal_now().isoformat()
     for (symbol, asset_type), group in grouped.items():
         try:
@@ -702,21 +764,31 @@ def _refresh_tracking(rows: list[dict[str, object]], *, db_path: Path | None = N
             row["return_10d_pct"] = returns[10]
             row["return_20d_pct"] = returns[20]
             row["tracking_updated_at"] = tracking_updated_at
-            row["performance_1d_pct"] = _directional_return(str(row["side"]), returns[1])
-            row["performance_5d_pct"] = _directional_return(str(row["side"]), returns[5])
-            row["performance_10d_pct"] = _directional_return(str(row["side"]), returns[10])
-            row["performance_20d_pct"] = _directional_return(str(row["side"]), returns[20])
+            row["performance_1d_pct"] = _directional_return(
+                str(row["side"]), returns[1]
+            )
+            row["performance_5d_pct"] = _directional_return(
+                str(row["side"]), returns[5]
+            )
+            row["performance_10d_pct"] = _directional_return(
+                str(row["side"]), returns[10]
+            )
+            row["performance_20d_pct"] = _directional_return(
+                str(row["side"]), returns[20]
+            )
             row["outcome_label"] = _build_outcome_label(row)
-            updates.append((
-                returns[1],
-                returns[5],
-                returns[10],
-                returns[20],
-                signal_price,
-                tracking_updated_at,
-                tracking_updated_at,
-                int(row["id"]),
-            ))
+            updates.append(
+                (
+                    returns[1],
+                    returns[5],
+                    returns[10],
+                    returns[20],
+                    signal_price,
+                    tracking_updated_at,
+                    tracking_updated_at,
+                    int(row["id"]),
+                )
+            )
 
     if not updates:
         return

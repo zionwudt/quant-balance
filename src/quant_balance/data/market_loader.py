@@ -1,4 +1,14 @@
-"""统一的行情加载入口。"""
+"""统一的行情加载入口。
+
+支持多数据源按优先级回退：
+1. tushare（默认，需要配置 token）
+2. akshare（免费，数据较全）
+3. baostock（免费，主要用于日线）
+
+缓存机制：
+- 首次加载后自动写入 SQLite 本地缓存
+- 后续查询优先从缓存读取，减少 API 调用
+"""
 
 from __future__ import annotations
 
@@ -10,10 +20,18 @@ from typing import Literal
 import pandas as pd
 
 from quant_balance.data.cb_loader import load_dataframe as load_cb_dataframe
-from quant_balance.data.akshare_loader import fetch_daily_bar_rows as fetch_akshare_daily_bar_rows
-from quant_balance.data.baostock_loader import fetch_daily_bar_rows as fetch_baostock_daily_bar_rows
+from quant_balance.data.akshare_loader import (
+    fetch_daily_bar_rows as fetch_akshare_daily_bar_rows,
+)
+from quant_balance.data.baostock_loader import (
+    fetch_daily_bar_rows as fetch_baostock_daily_bar_rows,
+)
 from quant_balance.data.common import DataLoadError, resolve_daily_provider_order
-from quant_balance.data.market_cache import get_connection, query_daily_bars, save_daily_bars
+from quant_balance.data.market_cache import (
+    get_connection,
+    query_daily_bars,
+    save_daily_bars,
+)
 from quant_balance.data.tushare_loader import load_dataframe as load_tushare_dataframe
 from quant_balance.logging_utils import get_logger, log_event
 
@@ -38,14 +56,16 @@ def _to_yyyymmdd(iso_date: str) -> str:
 def _rows_to_dataframe(rows: list[tuple], *, provider: str) -> pd.DataFrame:
     records = []
     for row in rows:
-        records.append({
-            "Date": datetime.strptime(row[1], "%Y%m%d"),
-            "Open": row[2],
-            "High": row[3],
-            "Low": row[4],
-            "Close": row[5],
-            "Volume": row[6],
-        })
+        records.append(
+            {
+                "Date": datetime.strptime(row[1], "%Y%m%d"),
+                "Open": row[2],
+                "High": row[3],
+                "Low": row[4],
+                "Close": row[5],
+                "Volume": row[6],
+            }
+        )
 
     df = pd.DataFrame(records)
     df.set_index("Date", inplace=True)
@@ -62,7 +82,9 @@ def _resolve_cb_provider_order(
     if provider is None and providers is None:
         return ["tushare"]
 
-    provider_order = resolve_daily_provider_order(provider=provider, providers=providers)
+    provider_order = resolve_daily_provider_order(
+        provider=provider, providers=providers
+    )
     unsupported = [name for name in provider_order if name != "tushare"]
     if unsupported:
         raise DataLoadError("可转债当前仅支持 tushare 日线数据源。")
@@ -92,9 +114,13 @@ def load_dataframe(
         df.attrs["price_adjustment"] = "none"
         return df
     if asset_type != "stock":
-        raise DataLoadError(f"不支持的资产类型 {asset_type!r}，当前支持: stock, convertible_bond")
+        raise DataLoadError(
+            f"不支持的资产类型 {asset_type!r}，当前支持: stock, convertible_bond"
+        )
 
-    provider_order = resolve_daily_provider_order(provider=provider, providers=providers)
+    provider_order = resolve_daily_provider_order(
+        provider=provider, providers=providers
+    )
     start = _to_yyyymmdd(start_date)
     end = _to_yyyymmdd(end_date)
 

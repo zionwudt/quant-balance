@@ -1,4 +1,16 @@
-"""批量筛选服务 — 编排 stock_pool + vectorbt 筛选。"""
+"""批量筛选服务 — 编排 stock_pool + vectorbt 筛选。
+
+功能：
+- 基于历史股票池获取候选股票
+- 对候选股票执行信号策略回测
+- 按收益排序返回 top N
+
+调用链：
+screening_service.run_stock_screening()
+  ├── stock_pool.get_pool_at_date() / filter_pool_at_date()
+  ├── data_adapter.load_multi_dataframes()
+  └── core.screening.run_screening()  ← vectorbt 批量回测
+"""
 
 from __future__ import annotations
 
@@ -9,7 +21,10 @@ from quant_balance.core.screening import run_screening
 from quant_balance.core.strategies import SIGNAL_REGISTRY
 from quant_balance.data.stock_pool import filter_pool_at_date, get_pool_at_date
 from quant_balance.logging_utils import get_logger, log_event
-from quant_balance.services.regime_service import DEFAULT_REGIME_SYMBOL, resolve_market_regime_filter
+from quant_balance.services.regime_service import (
+    DEFAULT_REGIME_SYMBOL,
+    resolve_market_regime_filter,
+)
 
 logger = get_logger(__name__)
 
@@ -27,8 +42,7 @@ def _has_active_pool_filters(pool_filters: dict | None) -> bool:
     if not pool_filters:
         return False
     return any(
-        value not in (None, False, [], {}, "")
-        for value in pool_filters.values()
+        value not in (None, False, [], {}, "") for value in pool_filters.values()
     )
 
 
@@ -159,9 +173,15 @@ def run_stock_screening(
                 "top_n": top_n,
                 "data_provider": data_provider,
                 "market_regime_filter": market_regime,
-                "market_regime_symbol": market_regime_symbol if market_regime is not None else None,
-                "market_regime_actual": regime_filter["actual_regime"] if regime_filter is not None else None,
-                "market_regime_match": regime_filter["matches"] if regime_filter is not None else None,
+                "market_regime_symbol": market_regime_symbol
+                if market_regime is not None
+                else None,
+                "market_regime_actual": regime_filter["actual_regime"]
+                if regime_filter is not None
+                else None,
+                "market_regime_match": regime_filter["matches"]
+                if regime_filter is not None
+                else None,
             },
         }
         log_event(
@@ -182,15 +202,22 @@ def run_stock_screening(
             total_screened=0,
             data_provider=data_provider,
             market_regime_filter=market_regime,
-            market_regime_symbol=market_regime_symbol if market_regime is not None else None,
-            market_regime_actual=regime_filter["actual_regime"] if regime_filter is not None else None,
-            market_regime_match=regime_filter["matches"] if regime_filter is not None else None,
+            market_regime_symbol=market_regime_symbol
+            if market_regime is not None
+            else None,
+            market_regime_actual=regime_filter["actual_regime"]
+            if regime_filter is not None
+            else None,
+            market_regime_match=regime_filter["matches"]
+            if regime_filter is not None
+            else None,
             duration_ms=round((perf_counter() - started_at) * 1000, 2),
         )
         return payload
 
     result = run_screening(
-        data, signal_func,
+        data,
+        signal_func,
         cash=cash,
         freq=_TIMEFRAME_TO_VECTORBT_FREQ.get(timeframe, "1D"),
         signal_params=signal_params,
@@ -209,10 +236,12 @@ def run_stock_screening(
     if not result.rankings.empty:
         top = result.rankings.head(top_n)
         for symbol, row in top.iterrows():
-            rankings_list.append({
-                "symbol": symbol,
-                **{k: _safe_value(v) for k, v in row.to_dict().items()},
-            })
+            rankings_list.append(
+                {
+                    "symbol": symbol,
+                    **{k: _safe_value(v) for k, v in row.to_dict().items()},
+                }
+            )
 
     payload = {
         "rankings": rankings_list,
@@ -229,9 +258,15 @@ def run_stock_screening(
             "top_n": top_n,
             "data_provider": data_provider,
             "market_regime_filter": market_regime,
-            "market_regime_symbol": market_regime_symbol if market_regime is not None else None,
-            "market_regime_actual": regime_filter["actual_regime"] if regime_filter is not None else None,
-            "market_regime_match": regime_filter["matches"] if regime_filter is not None else None,
+            "market_regime_symbol": market_regime_symbol
+            if market_regime is not None
+            else None,
+            "market_regime_actual": regime_filter["actual_regime"]
+            if regime_filter is not None
+            else None,
+            "market_regime_match": regime_filter["matches"]
+            if regime_filter is not None
+            else None,
         },
     }
     log_event(
@@ -253,9 +288,15 @@ def run_stock_screening(
         ranked_count=len(rankings_list),
         data_provider=data_provider,
         market_regime_filter=market_regime,
-        market_regime_symbol=market_regime_symbol if market_regime is not None else None,
-        market_regime_actual=regime_filter["actual_regime"] if regime_filter is not None else None,
-        market_regime_match=regime_filter["matches"] if regime_filter is not None else None,
+        market_regime_symbol=market_regime_symbol
+        if market_regime is not None
+        else None,
+        market_regime_actual=regime_filter["actual_regime"]
+        if regime_filter is not None
+        else None,
+        market_regime_match=regime_filter["matches"]
+        if regime_filter is not None
+        else None,
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )
     return payload

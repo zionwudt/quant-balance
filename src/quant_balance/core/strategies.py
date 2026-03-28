@@ -1,7 +1,21 @@
 """策略定义 -- backtesting.py 风格 + vectorbt 信号函数。
 
-backtesting.py 策略: 继承 Strategy，实现 init() / next()
+backtesting.py 策略: 继承 RiskManagedStrategy，实现 init() / next()
+    - init(): 初始化指标（在回测开始前调用一次）
+    - next(): 每个 K 线执行一次交易逻辑
+
 vectorbt 信号函数: 普通函数，接收 DataFrame 返回 (entries, exits) 布尔 Series
+    - entries: 入场信号
+    - exits: 出场信号
+
+内置策略：
+- SmaCross/ EmaCross: 金叉死叉
+- MacdCross: MACD 交叉
+- RsiStrategy: RSI 超卖反弹
+- BollingerBreakout: 布林带突破
+- GridStrategy: 网格策略
+- DcaStrategy: 定期定额
+- MaRsiFilter: 均线+RSI 组合过滤
 """
 
 from __future__ import annotations
@@ -33,7 +47,9 @@ def _cross_above(
 ) -> pd.Series:
     left_series = _to_series(left, index)
     right_series = _to_series(right, index)
-    result = (left_series > right_series) & (left_series.shift(1) <= right_series.shift(1))
+    result = (left_series > right_series) & (
+        left_series.shift(1) <= right_series.shift(1)
+    )
     return result.fillna(False)
 
 
@@ -45,7 +61,9 @@ def _cross_below(
 ) -> pd.Series:
     left_series = _to_series(left, index)
     right_series = _to_series(right, index)
-    result = (left_series < right_series) & (left_series.shift(1) >= right_series.shift(1))
+    result = (left_series < right_series) & (
+        left_series.shift(1) >= right_series.shift(1)
+    )
     return result.fillna(False)
 
 
@@ -68,6 +86,7 @@ def _latest_cross_below(
 # ---------------------------------------------------------------------------
 # backtesting.py 策略类
 # ---------------------------------------------------------------------------
+
 
 class RiskManagedStrategy(Strategy):
     """支持通用止损 / 止盈参数的策略基类。"""
@@ -171,11 +190,15 @@ class MacdCross(RiskManagedStrategy):
     def init(self):
         price = self.data.Close
         self.macd_line = self.I(
-            lambda values: macd(values, self.fast_period, self.slow_period, self.signal_period)[0],
+            lambda values: macd(
+                values, self.fast_period, self.slow_period, self.signal_period
+            )[0],
             price,
         )
         self.signal_line = self.I(
-            lambda values: macd(values, self.fast_period, self.slow_period, self.signal_period)[1],
+            lambda values: macd(
+                values, self.fast_period, self.slow_period, self.signal_period
+            )[1],
             price,
         )
 
@@ -299,12 +322,10 @@ class MaRsiFilter(RiskManagedStrategy):
             and self.rsi_value[-2] > self.rsi_threshold
         )
         exit_state = (
-            self.fast_ma[-1] < self.slow_ma[-1]
-            or self.rsi_value[-1] < self.exit_rsi
+            self.fast_ma[-1] < self.slow_ma[-1] or self.rsi_value[-1] < self.exit_rsi
         )
         prev_exit_state = (
-            self.fast_ma[-2] < self.slow_ma[-2]
-            or self.rsi_value[-2] < self.exit_rsi
+            self.fast_ma[-2] < self.slow_ma[-2] or self.rsi_value[-2] < self.exit_rsi
         )
 
         if not self.position and entry_state and not prev_entry_state:
@@ -316,6 +337,7 @@ class MaRsiFilter(RiskManagedStrategy):
 # ---------------------------------------------------------------------------
 # vectorbt 信号函数（用于批量筛选）
 # ---------------------------------------------------------------------------
+
 
 def sma_cross_signals(
     df: pd.DataFrame,
@@ -350,7 +372,9 @@ def macd_signals(
     signal_period: int = 9,
 ) -> tuple[pd.Series, pd.Series]:
     """MACD 金叉/死叉信号。"""
-    macd_line, signal_line, _ = macd(df["Close"], fast_period, slow_period, signal_period)
+    macd_line, signal_line, _ = macd(
+        df["Close"], fast_period, slow_period, signal_period
+    )
     entries = _cross_above(macd_line, signal_line, index=df.index)
     exits = _cross_below(macd_line, signal_line, index=df.index)
     return entries, exits

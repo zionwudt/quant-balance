@@ -1,4 +1,17 @@
-"""vectorbt 批量筛选引擎。"""
+"""vectorbt 批量筛选引擎。
+
+功能：
+对多只股票并行执行信号回测，返回收益排名结果
+
+工作流程：
+1. 对每只股票执行信号回测（entries/exits）
+2. 收集每只股票的收益、夏普比、最大回撤等指标
+3. 按总收益排序，返回 top N
+
+适用于：
+- 筛选哪些股票适合某种策略
+- 批量测试策略参数在不同股票上的表现
+"""
 
 from __future__ import annotations
 
@@ -14,6 +27,7 @@ from quant_balance.logging_utils import get_logger, log_event
 logger = get_logger(__name__)
 
 RISK_PARAM_KEYS = {"stop_loss_pct", "take_profit_pct"}
+
 
 @dataclass(slots=True)
 class ScreeningResult:
@@ -44,8 +58,7 @@ def run_screening(
 
     params = signal_params or {}
     signal_call_params = {
-        key: value for key, value in params.items()
-        if key not in RISK_PARAM_KEYS
+        key: value for key, value in params.items() if key not in RISK_PARAM_KEYS
     }
     portfolio_kwargs = _resolve_portfolio_kwargs(signal_func, params)
     details: dict[str, dict] = {}

@@ -2,6 +2,14 @@
 
 所有函数接收 pandas.Series，返回 pandas.Series。
 窗口不足的位置返回 NaN，空输入返回空 Series。
+
+常用指标：
+- sma/ema: 移动平均线
+- macd: MACD（异同移动平均线）
+- rsi: RSI（相对强弱指数）
+- bollinger: 布林带
+- atr: ATR（平均真实波幅）
+- kdj: KDJ 随机指标
 """
 
 from __future__ import annotations
@@ -81,11 +89,14 @@ def atr(
     l = pd.Series(low)
     c = pd.Series(close)
     prev_close = c.shift(1)
-    tr = pd.concat([
-        h - l,
-        (h - prev_close).abs(),
-        (l - prev_close).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            h - l,
+            (h - prev_close).abs(),
+            (l - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
     return tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
 

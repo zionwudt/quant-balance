@@ -1,4 +1,15 @@
-"""组合收益归因：个股贡献、简化 Brinson 与成本拆解。"""
+"""组合收益归因：个股贡献、简化 Brinson 与成本拆解。
+
+归因维度：
+1. 个股贡献: 每只股票对组合的收益贡献
+2. 行业配置效应: 超配/低配行业带来的收益差异
+3. 行业选股效应: 行业内选股的超额收益
+4. 成本拆解: 手续费、印花税、滑点分析
+
+Brinson 模型简化说明：
+基准 = 同股票池首日等权买入并持有
+组合 vs 基准的差异分解为配置效应、选股效应和交互效应
+"""
 
 from __future__ import annotations
 
@@ -205,7 +216,9 @@ def _normalize_symbol_metadata(
         entry = metadata.get(str(symbol), {})
         normalized[str(symbol)] = {
             "name": str(entry.get("name", "") or symbol),
-            "sector": str(entry.get("industry", "") or entry.get("sector", "") or "未分类"),
+            "sector": str(
+                entry.get("industry", "") or entry.get("sector", "") or "未分类"
+            ),
         }
     return normalized
 
@@ -213,7 +226,9 @@ def _normalize_symbol_metadata(
 def _extract_orders(portfolio, symbols: pd.Index) -> pd.DataFrame:
     records = pd.DataFrame(portfolio.orders.records.copy())
     if records.empty:
-        return pd.DataFrame(columns=["symbol", "side", "size", "price", "fees", "notional"])
+        return pd.DataFrame(
+            columns=["symbol", "side", "size", "price", "fees", "notional"]
+        )
 
     symbol_map = {index: str(symbol) for index, symbol in enumerate(symbols)}
     records["symbol"] = records["col"].astype(int).map(symbol_map)
@@ -243,7 +258,9 @@ def _build_stock_contributions(
     metadata: dict[str, dict[str, str]],
 ) -> list[StockContribution]:
     records: list[StockContribution] = []
-    total_final_value = float((asset_units.reindex(final_prices.index).fillna(0.0) * final_prices).sum())
+    total_final_value = float(
+        (asset_units.reindex(final_prices.index).fillna(0.0) * final_prices).sum()
+    )
 
     for symbol in final_prices.index:
         symbol_orders = orders[orders["symbol"] == symbol]
@@ -254,36 +271,46 @@ def _build_stock_contributions(
         fees = float(symbol_orders["fees"].sum())
         final_value = float(asset_units.get(symbol, 0.0) * final_prices[symbol])
         pnl = float((buy_notional * -1) + sell_notional + final_value - fees)
-        records.append(StockContribution(
-            symbol=str(symbol),
-            name=metadata[str(symbol)]["name"],
-            sector=metadata[str(symbol)]["sector"],
-            pnl=_round(pnl),
-            contribution_pct=_round(pnl / initial_cash * 100),
-            contribution_share_pct=0.0,
-            buy_notional=_round_money(buy_notional),
-            sell_notional=_round_money(sell_notional),
-            final_value=_round_money(final_value),
-            fees=_round_money(fees),
-            final_weight_pct=_round(final_value / total_final_value * 100 if total_final_value > 0 else 0.0),
-        ))
+        records.append(
+            StockContribution(
+                symbol=str(symbol),
+                name=metadata[str(symbol)]["name"],
+                sector=metadata[str(symbol)]["sector"],
+                pnl=_round(pnl),
+                contribution_pct=_round(pnl / initial_cash * 100),
+                contribution_share_pct=0.0,
+                buy_notional=_round_money(buy_notional),
+                sell_notional=_round_money(sell_notional),
+                final_value=_round_money(final_value),
+                fees=_round_money(fees),
+                final_weight_pct=_round(
+                    final_value / total_final_value * 100
+                    if total_final_value > 0
+                    else 0.0
+                ),
+            )
+        )
 
     total_pnl = sum(item.pnl for item in records)
     normalized: list[StockContribution] = []
     for item in records:
-        normalized.append(StockContribution(
-            symbol=item.symbol,
-            name=item.name,
-            sector=item.sector,
-            pnl=item.pnl,
-            contribution_pct=item.contribution_pct,
-            contribution_share_pct=_round(item.pnl / total_pnl * 100 if abs(total_pnl) > 1e-12 else 0.0),
-            buy_notional=item.buy_notional,
-            sell_notional=item.sell_notional,
-            final_value=item.final_value,
-            fees=item.fees,
-            final_weight_pct=item.final_weight_pct,
-        ))
+        normalized.append(
+            StockContribution(
+                symbol=item.symbol,
+                name=item.name,
+                sector=item.sector,
+                pnl=item.pnl,
+                contribution_pct=item.contribution_pct,
+                contribution_share_pct=_round(
+                    item.pnl / total_pnl * 100 if abs(total_pnl) > 1e-12 else 0.0
+                ),
+                buy_notional=item.buy_notional,
+                sell_notional=item.sell_notional,
+                final_value=item.final_value,
+                fees=item.fees,
+                final_weight_pct=item.final_weight_pct,
+            )
+        )
 
     return sorted(normalized, key=lambda item: abs(item.pnl), reverse=True)
 
@@ -293,7 +320,9 @@ def _group_contribution_by_sector(
 ) -> dict[str, float]:
     grouped: dict[str, float] = {}
     for item in stock_contributions:
-        grouped[item.sector] = grouped.get(item.sector, 0.0) + float(item.contribution_pct)
+        grouped[item.sector] = grouped.get(item.sector, 0.0) + float(
+            item.contribution_pct
+        )
     return grouped
 
 
@@ -321,17 +350,16 @@ def _average_sector_weights(
     for symbol in weights.columns:
         sector = metadata[str(symbol)]["sector"]
         grouped.setdefault(sector, pd.Series(0.0, index=weights.index, dtype=float))
-        grouped[sector] = grouped[sector].add(weights[symbol].astype(float), fill_value=0.0)
+        grouped[sector] = grouped[sector].add(
+            weights[symbol].astype(float), fill_value=0.0
+        )
 
     sector_weights = pd.DataFrame(grouped, index=weights.index).fillna(0.0)
     average_weights = sector_weights.mean(axis=0)
     total = float(average_weights.sum())
     if total > 0:
         average_weights = average_weights / total
-    return {
-        str(sector): float(weight)
-        for sector, weight in average_weights.items()
-    }
+    return {str(sector): float(weight) for sector, weight in average_weights.items()}
 
 
 def _build_sector_summary(
@@ -356,8 +384,12 @@ def _build_sector_summary(
         benchmark_weight = float(benchmark_sector_weights.get(sector, 0.0))
         portfolio_contribution = float(portfolio_sector_contrib.get(sector, 0.0))
         benchmark_contribution = float(benchmark_sector_contrib.get(sector, 0.0))
-        portfolio_return = portfolio_contribution / portfolio_weight if portfolio_weight > 0 else 0.0
-        benchmark_return = benchmark_contribution / benchmark_weight if benchmark_weight > 0 else 0.0
+        portfolio_return = (
+            portfolio_contribution / portfolio_weight if portfolio_weight > 0 else 0.0
+        )
+        benchmark_return = (
+            benchmark_contribution / benchmark_weight if benchmark_weight > 0 else 0.0
+        )
         allocation_effect = (portfolio_weight - benchmark_weight) * (
             benchmark_return - benchmark_total_return_pct
         )
@@ -365,21 +397,27 @@ def _build_sector_summary(
         interaction_effect = (portfolio_weight - benchmark_weight) * (
             portfolio_return - benchmark_return
         )
-        rows.append(SectorAttributionSummary(
-            sector=sector,
-            portfolio_weight_pct=_round(portfolio_weight * 100),
-            benchmark_weight_pct=_round(benchmark_weight * 100),
-            portfolio_return_pct=_round(portfolio_return),
-            benchmark_return_pct=_round(benchmark_return),
-            portfolio_contribution_pct=_round(portfolio_contribution),
-            benchmark_contribution_pct=_round(benchmark_contribution),
-            active_contribution_pct=_round(portfolio_contribution - benchmark_contribution),
-            allocation_effect_pct=_round(allocation_effect),
-            selection_effect_pct=_round(selection_effect),
-            interaction_effect_pct=_round(interaction_effect),
-        ))
+        rows.append(
+            SectorAttributionSummary(
+                sector=sector,
+                portfolio_weight_pct=_round(portfolio_weight * 100),
+                benchmark_weight_pct=_round(benchmark_weight * 100),
+                portfolio_return_pct=_round(portfolio_return),
+                benchmark_return_pct=_round(benchmark_return),
+                portfolio_contribution_pct=_round(portfolio_contribution),
+                benchmark_contribution_pct=_round(benchmark_contribution),
+                active_contribution_pct=_round(
+                    portfolio_contribution - benchmark_contribution
+                ),
+                allocation_effect_pct=_round(allocation_effect),
+                selection_effect_pct=_round(selection_effect),
+                interaction_effect_pct=_round(interaction_effect),
+            )
+        )
 
-    return sorted(rows, key=lambda item: abs(item.active_contribution_pct), reverse=True)
+    return sorted(
+        rows, key=lambda item: abs(item.active_contribution_pct), reverse=True
+    )
 
 
 def _summary_to_sector_effect(
@@ -406,8 +444,16 @@ def _build_cost_breakdown(
     initial_cash: float,
 ) -> CostBreakdown:
     commission = float(orders["fees"].sum()) if not orders.empty else 0.0
-    buy_notional = float(orders.loc[orders["side"] == _BUY_SIDE, "notional"].sum()) if not orders.empty else 0.0
-    sell_notional = float(orders.loc[orders["side"] == _SELL_SIDE, "notional"].sum()) if not orders.empty else 0.0
+    buy_notional = (
+        float(orders.loc[orders["side"] == _BUY_SIDE, "notional"].sum())
+        if not orders.empty
+        else 0.0
+    )
+    sell_notional = (
+        float(orders.loc[orders["side"] == _SELL_SIDE, "notional"].sum())
+        if not orders.empty
+        else 0.0
+    )
     traded_notional = buy_notional + sell_notional
     total_cost = commission
 
@@ -416,13 +462,21 @@ def _build_cost_breakdown(
         stamp_tax=0.0,
         slippage=0.0,
         total_cost=_round_money(total_cost),
-        commission_share_pct=_round(commission / total_cost * 100 if total_cost > 0 else 0.0),
+        commission_share_pct=_round(
+            commission / total_cost * 100 if total_cost > 0 else 0.0
+        ),
         stamp_tax_share_pct=0.0,
         slippage_share_pct=0.0,
-        cost_rate_pct=_round(total_cost / initial_cash * 100 if initial_cash > 0 else 0.0),
+        cost_rate_pct=_round(
+            total_cost / initial_cash * 100 if initial_cash > 0 else 0.0
+        ),
         traded_notional=_round_money(traded_notional),
-        turnover_pct=_round(traded_notional / initial_cash * 100 if initial_cash > 0 else 0.0),
-        cost_to_turnover_bps=_round(total_cost / traded_notional * 10_000 if traded_notional > 0 else 0.0),
+        turnover_pct=_round(
+            traded_notional / initial_cash * 100 if initial_cash > 0 else 0.0
+        ),
+        cost_to_turnover_bps=_round(
+            total_cost / traded_notional * 10_000 if traded_notional > 0 else 0.0
+        ),
         buy_notional=_round_money(buy_notional),
         sell_notional=_round_money(sell_notional),
         orders_count=int(len(orders)),

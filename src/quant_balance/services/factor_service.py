@@ -1,15 +1,34 @@
-"""多因子服务 —— 编排历史股票池与财务快照。"""
+"""多因子服务 —— 编排历史股票池与财务快照。
+
+功能：
+- 从历史股票池获取候选股票
+- 加载财务数据（PE、PB、ROE 等）
+- 执行多因子打分与排名
+
+调用链：
+factor_service.run_factor_ranking()
+  ├── stock_pool.filter_pool_at_date()
+  ├── fundamental_loader.load_financial_at()
+  └── core.factors.rank_factor_items()  ← 多因子打分
+"""
 
 from __future__ import annotations
 
 from dataclasses import asdict
 from time import perf_counter
 
-from quant_balance.core.factors import DEFAULT_FACTOR_SPECS, rank_factor_items, resolve_factor_specs
+from quant_balance.core.factors import (
+    DEFAULT_FACTOR_SPECS,
+    rank_factor_items,
+    resolve_factor_specs,
+)
 from quant_balance.data.fundamental_loader import load_financial_at
 from quant_balance.data.stock_pool import filter_pool_at_date
 from quant_balance.logging_utils import get_logger, log_event
-from quant_balance.services.regime_service import DEFAULT_REGIME_SYMBOL, resolve_market_regime_filter
+from quant_balance.services.regime_service import (
+    DEFAULT_REGIME_SYMBOL,
+    resolve_market_regime_filter,
+)
 
 logger = get_logger(__name__)
 
@@ -46,7 +65,9 @@ def run_factor_ranking(
                 "run_context": {
                     "pool_date": pool_date,
                     "pool_filters": pool_filters or {},
-                    "requested_symbols_count": len(symbols) if symbols is not None else None,
+                    "requested_symbols_count": len(symbols)
+                    if symbols is not None
+                    else None,
                     "candidate_count": 0,
                     "scored_count": 0,
                     "top_n": top_n,
@@ -104,11 +125,13 @@ def run_factor_ranking(
             "ann_date": snapshot.ann_date,
             "end_date": snapshot.end_date,
         }
-        candidate_rows.append({
-            "symbol": symbol,
-            **record_payload,
-            **snapshot_payload,
-        })
+        candidate_rows.append(
+            {
+                "symbol": symbol,
+                **record_payload,
+                **snapshot_payload,
+            }
+        )
 
     result = rank_factor_items(candidate_rows, factor_specs)
     ranked = result.rankings.head(top_n)
@@ -122,8 +145,12 @@ def run_factor_ranking(
                 "rank": int(row["rank"]),
                 "factors": {
                     spec.name: {
-                        "raw_value": _jsonable_factor_value(result.raw_values.at[symbol, spec.name]),
-                        "score": _jsonable_factor_value(result.scores.at[symbol, spec.name]),
+                        "raw_value": _jsonable_factor_value(
+                            result.raw_values.at[symbol, spec.name]
+                        ),
+                        "score": _jsonable_factor_value(
+                            result.scores.at[symbol, spec.name]
+                        ),
                         "weight": float(result.normalized_weights[spec.name]),
                         "direction": result.factor_directions[spec.name],
                     }
@@ -149,9 +176,15 @@ def run_factor_ranking(
             "skipped_symbols_no_financial": missing_financial_symbols,
             "skipped_symbols_missing_factors": result.skipped_symbols,
             "market_regime_filter": market_regime,
-            "market_regime_symbol": market_regime_symbol if market_regime is not None else None,
-            "market_regime_actual": regime_filter["actual_regime"] if regime_filter is not None else None,
-            "market_regime_match": regime_filter["matches"] if regime_filter is not None else None,
+            "market_regime_symbol": market_regime_symbol
+            if market_regime is not None
+            else None,
+            "market_regime_actual": regime_filter["actual_regime"]
+            if regime_filter is not None
+            else None,
+            "market_regime_match": regime_filter["matches"]
+            if regime_filter is not None
+            else None,
             "factors": [
                 {
                     "name": spec.name,
@@ -172,9 +205,15 @@ def run_factor_ranking(
         scored_count=len(result.rankings),
         top_n=top_n,
         market_regime_filter=market_regime,
-        market_regime_symbol=market_regime_symbol if market_regime is not None else None,
-        market_regime_actual=regime_filter["actual_regime"] if regime_filter is not None else None,
-        market_regime_match=regime_filter["matches"] if regime_filter is not None else None,
+        market_regime_symbol=market_regime_symbol
+        if market_regime is not None
+        else None,
+        market_regime_actual=regime_filter["actual_regime"]
+        if regime_filter is not None
+        else None,
+        market_regime_match=regime_filter["matches"]
+        if regime_filter is not None
+        else None,
         factors=payload["run_context"]["factors"],
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )
@@ -190,4 +229,6 @@ def _jsonable_factor_value(value: object) -> float | None:
 def _has_active_pool_filters(pool_filters: dict | None) -> bool:
     if not pool_filters:
         return False
-    return any(value not in (None, False, [], {}, "") for value in pool_filters.values())
+    return any(
+        value not in (None, False, [], {}, "") for value in pool_filters.values()
+    )

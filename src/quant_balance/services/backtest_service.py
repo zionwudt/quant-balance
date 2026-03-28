@@ -1,4 +1,20 @@
-"""回测服务 — 编排数据加载与引擎执行。"""
+"""回测服务 — 编排数据加载与引擎执行。
+
+功能：
+- 单股回测 (run_single_backtest): 加载数据 → 执行回测 → 生成报告
+- 参数优化 (run_optimize): 参数扫描 + Walk-Forward 分析
+
+调用链：
+backtest_service.run_single_backtest()
+  ├── data.market_loader.load_dataframe()
+  ├── core.backtest.run_backtest()
+  └── core.report.normalize_bt_stats() → 生成图表数据
+
+backtest_service.run_optimize()
+  ├── data.market_loader.load_dataframe()
+  ├── core.backtest.optimize()
+  └── _run_walk_forward() → Walk-Forward 分析
+"""
 
 from __future__ import annotations
 
@@ -11,7 +27,11 @@ import pandas as pd
 
 from quant_balance.core.backtest import optimize, run_backtest
 from quant_balance.core.indicators import bollinger, ema, sma
-from quant_balance.core.report import bt_trades_to_dicts, equity_curve_to_dicts, normalize_bt_stats
+from quant_balance.core.report import (
+    bt_trades_to_dicts,
+    equity_curve_to_dicts,
+    normalize_bt_stats,
+)
 from quant_balance.core.strategies import STRATEGY_REGISTRY
 from quant_balance.data import load_dataframe
 from quant_balance.logging_utils import get_logger, log_event
@@ -73,7 +93,9 @@ def run_single_backtest(
         "stock" if benchmark_symbol in BENCHMARK_INDEX_SYMBOLS else asset_type
     )
     resolved_benchmark_data_provider = (
-        benchmark_data_provider if benchmark_data_provider is not None else (
+        benchmark_data_provider
+        if benchmark_data_provider is not None
+        else (
             "tushare" if benchmark_symbol in BENCHMARK_INDEX_SYMBOLS else data_provider
         )
     )
@@ -97,8 +119,11 @@ def run_single_backtest(
         )
 
     result = run_backtest(
-        df, strategy_cls,
-        cash=cash, spread=spread, commission=effective_commission,
+        df,
+        strategy_cls,
+        cash=cash,
+        spread=spread,
+        commission=effective_commission,
         strategy_params=params,
         log_context={
             "symbol": symbol,
@@ -126,7 +151,9 @@ def run_single_backtest(
     payload = {
         "summary": summary,
         "trades": bt_trades_to_dicts(result.trades, params),
-        "equity_curve": equity_curve_to_dicts(result.equity_curve, benchmark_df=benchmark_df),
+        "equity_curve": equity_curve_to_dicts(
+            result.equity_curve, benchmark_df=benchmark_df
+        ),
         **chart_payload,
         "run_context": {
             "symbol": symbol,
@@ -141,18 +168,24 @@ def run_single_backtest(
             "spread": spread,
             "slippage_mode": slippage_mode,
             "slippage_rate": slippage_rate,
-            "price_adjustment": df.attrs.get("price_adjustment", "qfq" if timeframe == "1d" else "none"),
+            "price_adjustment": df.attrs.get(
+                "price_adjustment", "qfq" if timeframe == "1d" else "none"
+            ),
             "params": params or {},
             "bars_count": len(df),
             "data_provider": df.attrs.get("data_provider", data_provider),
             "benchmark_symbol": benchmark_symbol,
             "benchmark_asset_type": (
                 benchmark_df.attrs.get("asset_type", resolved_benchmark_asset_type)
-                if benchmark_df is not None else None
+                if benchmark_df is not None
+                else None
             ),
             "benchmark_data_provider": (
-                benchmark_df.attrs.get("data_provider", resolved_benchmark_data_provider)
-                if benchmark_df is not None else None
+                benchmark_df.attrs.get(
+                    "data_provider", resolved_benchmark_data_provider
+                )
+                if benchmark_df is not None
+                else None
             ),
         },
     }
@@ -172,7 +205,9 @@ def run_single_backtest(
         spread=spread,
         slippage_mode=slippage_mode,
         slippage_rate=slippage_rate,
-        price_adjustment=df.attrs.get("price_adjustment", "qfq" if timeframe == "1d" else "none"),
+        price_adjustment=df.attrs.get(
+            "price_adjustment", "qfq" if timeframe == "1d" else "none"
+        ),
         params=params or {},
         bars_count=len(df),
         trades_count=len(result.trades),
@@ -180,11 +215,13 @@ def run_single_backtest(
         benchmark_symbol=benchmark_symbol,
         benchmark_asset_type=(
             benchmark_df.attrs.get("asset_type", resolved_benchmark_asset_type)
-            if benchmark_df is not None else None
+            if benchmark_df is not None
+            else None
         ),
         benchmark_data_provider=(
             benchmark_df.attrs.get("data_provider", resolved_benchmark_data_provider)
-            if benchmark_df is not None else None
+            if benchmark_df is not None
+            else None
         ),
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )
@@ -232,7 +269,9 @@ def run_optimize(
     if not param_ranges:
         raise ValueError("param_ranges 不能为空")
 
-    normalized_param_ranges, strategy_params = _normalize_param_ranges(strategy_cls, param_ranges)
+    normalized_param_ranges, strategy_params = _normalize_param_ranges(
+        strategy_cls, param_ranges
+    )
     normalized_constraints = _normalize_constraints(constraints or [], strategy_params)
     constraint_fn = _build_constraint(normalized_constraints)
     walk_forward_config = _normalize_walk_forward_config(walk_forward)
@@ -268,11 +307,15 @@ def run_optimize(
         },
         **normalized_param_ranges,
     )
-    execution = _build_execution_payload(optimize_result.candidate_count, walk_forward_windows)
+    execution = _build_execution_payload(
+        optimize_result.candidate_count, walk_forward_windows
+    )
 
     payload = {
         "best_params": _jsonable_value(optimize_result.best_params),
-        "best_stats": normalize_bt_stats(optimize_result.best_stats, risk_params=optimize_result.best_params),
+        "best_stats": normalize_bt_stats(
+            optimize_result.best_stats, risk_params=optimize_result.best_params
+        ),
         "top_results": _jsonable_value(optimize_result.top_results),
         "execution": execution,
         "run_context": {
@@ -369,14 +412,16 @@ def _build_chart_payload(
 def _price_bars_to_dicts(df: pd.DataFrame) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     for index, row in df.iterrows():
-        records.append({
-            "date": _format_time_label(index),
-            "open": float(row.get("Open", 0.0)),
-            "high": float(row.get("High", 0.0)),
-            "low": float(row.get("Low", 0.0)),
-            "close": float(row.get("Close", 0.0)),
-            "volume": float(row.get("Volume", 0.0)),
-        })
+        records.append(
+            {
+                "date": _format_time_label(index),
+                "open": float(row.get("Open", 0.0)),
+                "high": float(row.get("High", 0.0)),
+                "low": float(row.get("Low", 0.0)),
+                "close": float(row.get("Close", 0.0)),
+                "volume": float(row.get("Volume", 0.0)),
+            }
+        )
     return records
 
 
@@ -390,22 +435,26 @@ def _trade_markers_to_dicts(trades_df: pd.DataFrame | None) -> list[dict[str, ob
         exit_bar = int(row.get("ExitBar", 0))
         entry_time = _format_trade_time(row.get("EntryTime", ""))
         exit_time = _format_trade_time(row.get("ExitTime", ""))
-        markers.append({
-            "trade_index": trade_index,
-            "side": "buy",
-            "label": f"B{trade_index}",
-            "date": entry_time,
-            "price": float(row.get("EntryPrice", 0.0)),
-            "bar_index": entry_bar,
-        })
-        markers.append({
-            "trade_index": trade_index,
-            "side": "sell",
-            "label": f"S{trade_index}",
-            "date": exit_time,
-            "price": float(row.get("ExitPrice", 0.0)),
-            "bar_index": exit_bar,
-        })
+        markers.append(
+            {
+                "trade_index": trade_index,
+                "side": "buy",
+                "label": f"B{trade_index}",
+                "date": entry_time,
+                "price": float(row.get("EntryPrice", 0.0)),
+                "bar_index": entry_bar,
+            }
+        )
+        markers.append(
+            {
+                "trade_index": trade_index,
+                "side": "sell",
+                "label": f"S{trade_index}",
+                "date": exit_time,
+                "price": float(row.get("ExitPrice", 0.0)),
+                "bar_index": exit_bar,
+            }
+        )
     return markers
 
 
@@ -437,18 +486,42 @@ def _chart_line_series(
 
     if strategy == "sma_cross":
         return [
-            _line_series(f"SMA {resolved_params['fast_period']}", sma(close, int(resolved_params["fast_period"])), "#34d399"),
-            _line_series(f"SMA {resolved_params['slow_period']}", sma(close, int(resolved_params["slow_period"])), "#f59e0b"),
+            _line_series(
+                f"SMA {resolved_params['fast_period']}",
+                sma(close, int(resolved_params["fast_period"])),
+                "#34d399",
+            ),
+            _line_series(
+                f"SMA {resolved_params['slow_period']}",
+                sma(close, int(resolved_params["slow_period"])),
+                "#f59e0b",
+            ),
         ]
     if strategy == "ema_cross":
         return [
-            _line_series(f"EMA {resolved_params['fast_period']}", ema(close, int(resolved_params["fast_period"])), "#22c55e"),
-            _line_series(f"EMA {resolved_params['slow_period']}", ema(close, int(resolved_params["slow_period"])), "#f59e0b"),
+            _line_series(
+                f"EMA {resolved_params['fast_period']}",
+                ema(close, int(resolved_params["fast_period"])),
+                "#22c55e",
+            ),
+            _line_series(
+                f"EMA {resolved_params['slow_period']}",
+                ema(close, int(resolved_params["slow_period"])),
+                "#f59e0b",
+            ),
         ]
     if strategy == "macd":
         return [
-            _line_series(f"EMA {resolved_params['fast_period']}", ema(close, int(resolved_params["fast_period"])), "#22c55e"),
-            _line_series(f"EMA {resolved_params['slow_period']}", ema(close, int(resolved_params["slow_period"])), "#f59e0b"),
+            _line_series(
+                f"EMA {resolved_params['fast_period']}",
+                ema(close, int(resolved_params["fast_period"])),
+                "#22c55e",
+            ),
+            _line_series(
+                f"EMA {resolved_params['slow_period']}",
+                ema(close, int(resolved_params["slow_period"])),
+                "#f59e0b",
+            ),
         ]
     if strategy == "bollinger":
         upper, middle, lower = bollinger(
@@ -465,14 +538,24 @@ def _chart_line_series(
         anchor = sma(close, int(resolved_params["anchor_period"]))
         grid_pct = float(resolved_params["grid_pct"])
         return [
-            _line_series(f"Anchor {resolved_params['anchor_period']}", anchor, "#f59e0b"),
+            _line_series(
+                f"Anchor {resolved_params['anchor_period']}", anchor, "#f59e0b"
+            ),
             _line_series("Grid Upper", anchor * (1 + grid_pct), "#60a5fa", "dashed"),
             _line_series("Grid Lower", anchor * (1 - grid_pct), "#60a5fa", "dashed"),
         ]
     if strategy == "ma_rsi_filter":
         return [
-            _line_series(f"SMA {resolved_params['fast_period']}", sma(close, int(resolved_params["fast_period"])), "#34d399"),
-            _line_series(f"SMA {resolved_params['slow_period']}", sma(close, int(resolved_params["slow_period"])), "#f59e0b"),
+            _line_series(
+                f"SMA {resolved_params['fast_period']}",
+                sma(close, int(resolved_params["fast_period"])),
+                "#34d399",
+            ),
+            _line_series(
+                f"SMA {resolved_params['slow_period']}",
+                sma(close, int(resolved_params["slow_period"])),
+                "#f59e0b",
+            ),
         ]
     return []
 
@@ -583,20 +666,24 @@ def _normalize_constraints(
             right_param = str(item["right_param"])
             if right_param not in strategy_params:
                 raise ValueError(f"constraints 引用了未知参数: {right_param}")
-            normalized.append({
-                "left": left,
-                "operator": operator_symbol,
-                "right_param": right_param,
-            })
+            normalized.append(
+                {
+                    "left": left,
+                    "operator": operator_symbol,
+                    "right_param": right_param,
+                }
+            )
             continue
 
         right_value = item["right_value"]
         _validate_candidate_value(left, right_value, strategy_params[left])
-        normalized.append({
-            "left": left,
-            "operator": operator_symbol,
-            "right_value": right_value,
-        })
+        normalized.append(
+            {
+                "left": left,
+                "operator": operator_symbol,
+                "right_value": right_value,
+            }
+        )
     return normalized
 
 
@@ -702,7 +789,11 @@ def _run_walk_forward(
             maximize=maximize,
             constraint=constraint,
             top_n=1,
-            log_context={**log_context, "walk_forward_window": index, "sample": "in_sample"},
+            log_context={
+                **log_context,
+                "walk_forward_window": index,
+                "sample": "in_sample",
+            },
             **param_ranges,
         )
         out_sample = run_backtest(
@@ -711,23 +802,35 @@ def _run_walk_forward(
             cash=cash,
             commission=commission,
             strategy_params=optimize_result.best_params,
-            log_context={**log_context, "walk_forward_window": index, "sample": "out_of_sample"},
+            log_context={
+                **log_context,
+                "walk_forward_window": index,
+                "sample": "out_of_sample",
+            },
         )
-        windows.append({
-            "window_index": index,
-            "train_period": _frame_period_summary(train_df),
-            "test_period": _frame_period_summary(test_df),
-            "best_params": _jsonable_value(optimize_result.best_params),
-            "in_sample": normalize_bt_stats(optimize_result.best_stats, risk_params=optimize_result.best_params),
-            "out_of_sample": out_sample.report,
-        })
+        windows.append(
+            {
+                "window_index": index,
+                "train_period": _frame_period_summary(train_df),
+                "test_period": _frame_period_summary(test_df),
+                "best_params": _jsonable_value(optimize_result.best_params),
+                "in_sample": normalize_bt_stats(
+                    optimize_result.best_stats, risk_params=optimize_result.best_params
+                ),
+                "out_of_sample": out_sample.report,
+            }
+        )
 
     return {
         "config": _jsonable_value(walk_forward_config),
         "windows_count": len(windows),
         "averages": {
-            "in_sample": _average_numeric_report_fields([item["in_sample"] for item in windows]),
-            "out_of_sample": _average_numeric_report_fields([item["out_of_sample"] for item in windows]),
+            "in_sample": _average_numeric_report_fields(
+                [item["in_sample"] for item in windows]
+            ),
+            "out_of_sample": _average_numeric_report_fields(
+                [item["out_of_sample"] for item in windows]
+            ),
         },
         "windows": windows,
     }
@@ -741,19 +844,24 @@ def _frame_period_summary(df: pd.DataFrame) -> dict[str, object]:
     }
 
 
-def _average_numeric_report_fields(reports: list[dict[str, object]]) -> dict[str, object]:
+def _average_numeric_report_fields(
+    reports: list[dict[str, object]],
+) -> dict[str, object]:
     averages: dict[str, object] = {"windows_count": len(reports)}
-    numeric_keys = sorted({
-        key
-        for report in reports
-        for key, value in report.items()
-        if isinstance(value, (int, float)) and not isinstance(value, bool)
-    })
+    numeric_keys = sorted(
+        {
+            key
+            for report in reports
+            for key, value in report.items()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        }
+    )
     for key in numeric_keys:
         values = [
             float(report[key])
             for report in reports
-            if isinstance(report.get(key), (int, float)) and not isinstance(report.get(key), bool)
+            if isinstance(report.get(key), (int, float))
+            and not isinstance(report.get(key), bool)
         ]
         if values:
             averages[key] = round(sum(values) / len(values), 6)

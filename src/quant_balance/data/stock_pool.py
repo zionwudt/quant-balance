@@ -1,4 +1,14 @@
-"""历史时点股票池构建与过滤 —— 防止幸存者偏差。"""
+"""历史时点股票池构建与过滤 —— 防止幸存者偏差。
+
+核心概念：
+- 幸存者偏差: 回测时只选择当前存活的股票会高估收益
+- 历史股票池: 回测时使用当时实际上市的股票列表
+
+功能：
+- get_pool_at_date(): 获取指定日期的上市股票列表
+- filter_pool_at_date(): 基于历史股票池叠加过滤条件
+- 过滤条件: 行业、市值、PE、ST 状态、上市天数等
+"""
 
 from __future__ import annotations
 
@@ -180,7 +190,9 @@ def _normalize_filters(filters: StockPoolFilters | dict | None) -> StockPoolFilt
             min_pe=_optional_float(filters.get("min_pe")),
             max_pe=_optional_float(filters.get("max_pe")),
             exclude_st=bool(filters.get("exclude_st", False)),
-            min_listing_days=int(min_listing_days) if min_listing_days is not None else None,
+            min_listing_days=int(min_listing_days)
+            if min_listing_days is not None
+            else None,
         )
     else:
         raise TypeError("filters 必须是 StockPoolFilters、dict 或 None")
@@ -301,7 +313,9 @@ def _listing_days(list_date: str, as_of_date: str) -> int:
     return (snapshot_at - listed_at).days
 
 
-def _passes_range(value: float | None, minimum: float | None, maximum: float | None) -> bool:
+def _passes_range(
+    value: float | None, minimum: float | None, maximum: float | None
+) -> bool:
     if minimum is None and maximum is None:
         return True
     if value is None:
@@ -379,7 +393,15 @@ def search_stock_candidates(
             "  ELSE 4 "
             "END, ts_code "
             "LIMIT ?",
-            (code_like, name_like, code_exact, code_prefix, normalized, name_prefix, limit),
+            (
+                code_like,
+                name_like,
+                code_exact,
+                code_prefix,
+                normalized,
+                name_prefix,
+                limit,
+            ),
         ).fetchall()
         return [
             {
@@ -402,11 +424,9 @@ def lookup_stock_metadata(
 ) -> dict[str, dict[str, str]]:
     """从本地缓存读取股票名称/行业/市场；不主动触发远程拉取。"""
 
-    normalized_symbols = sorted({
-        str(symbol).strip().upper()
-        for symbol in symbols
-        if str(symbol).strip()
-    })
+    normalized_symbols = sorted(
+        {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
+    )
     if not normalized_symbols:
         return {}
 
@@ -473,7 +493,10 @@ def filter_pool_at_date(
 
         for row in rows:
             industry = str(row["industry"] or "")
-            if normalized_filters.industries and industry not in normalized_filters.industries:
+            if (
+                normalized_filters.industries
+                and industry not in normalized_filters.industries
+            ):
                 continue
 
             listing_days = _listing_days(str(row["list_date"]), yyyymmdd)

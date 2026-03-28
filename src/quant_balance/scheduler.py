@@ -1,4 +1,26 @@
-"""盘后自动扫描调度器。"""
+"""盘后自动扫描调度器。
+
+功能：
+- 定时（默认 16:00）自动执行盘后扫描
+- 支持手动触发扫描
+- 自动生成交易信号并持久化
+- 支持钉钉、企业微信、邮件通知
+
+调度配置（config/config.toml）：
+[scheduler]
+enabled = true
+scan_time = "16:00"  # HH:MM 格式
+strategies = ["macd", "rsi"]  # 扫描策略列表
+
+调用链：
+DailyScanScheduler.run_scheduled_scan()
+  ├── scheduler.run_daily_scan()
+  │   ├── run_stock_screening()  # 执行筛选
+  │   ├── scheduler.build_scan_signals()  # 构建信号对象
+  │   ├── persist_signals()  # 持久化信号
+  │   └── send_scan_notifications()  # 发送通知
+  └── signal_persistence.persist_scan_record()  # 记录扫描日志
+"""
 
 from __future__ import annotations
 
@@ -23,7 +45,12 @@ from quant_balance.core.signals import (
 )
 from quant_balance.core.strategies import SIGNAL_REGISTRY
 from quant_balance.data import load_dataframe
-from quant_balance.data.common import CACHE_DB_PATH, DataLoadError, load_app_config, load_tushare_token
+from quant_balance.data.common import (
+    CACHE_DB_PATH,
+    DataLoadError,
+    load_app_config,
+    load_tushare_token,
+)
 from quant_balance.logging_utils import get_logger, log_event
 from quant_balance.notify import send_configured_notifications
 from quant_balance.services.screening_service import run_stock_screening
@@ -151,7 +178,9 @@ class DailyScanScheduler:
         self._last_scan = result
         return result
 
-    def run_manual_scan(self, *, trade_date: str | None = None, force: bool = True) -> dict[str, object]:
+    def run_manual_scan(
+        self, *, trade_date: str | None = None, force: bool = True
+    ) -> dict[str, object]:
         """手动触发一次盘后扫描。"""
 
         result = run_daily_scan(
@@ -168,7 +197,11 @@ class DailyScanScheduler:
         """返回调度器状态。"""
 
         config = load_scheduler_config(self._config_loader())
-        job = self._scheduler.get_job("daily_scan") if self._scheduler is not None else None
+        job = (
+            self._scheduler.get_job("daily_scan")
+            if self._scheduler is not None
+            else None
+        )
         if self._apscheduler_available is None:
             scheduler_cls, _ = _load_apscheduler()
             self._apscheduler_available = scheduler_cls is not None
@@ -184,7 +217,9 @@ class DailyScanScheduler:
             "running": bool(self._started and self._scheduler is not None),
             "apscheduler_available": self._apscheduler_available,
             "config": asdict(config),
-            "next_run_time": job.next_run_time.isoformat() if job and job.next_run_time else None,
+            "next_run_time": job.next_run_time.isoformat()
+            if job and job.next_run_time
+            else None,
             "last_scan": last_scan,
         }
 
@@ -195,7 +230,11 @@ def load_scheduler_config(config: dict[str, object] | None = None) -> SchedulerC
     app_config = config or load_app_config()
     raw = dict(app_config.get("scheduler") or {})
 
-    strategies = [str(item).strip() for item in raw.get("strategies", ["macd", "rsi"]) if str(item).strip()]
+    strategies = [
+        str(item).strip()
+        for item in raw.get("strategies", ["macd", "rsi"])
+        if str(item).strip()
+    ]
     if not strategies:
         raise ValueError("scheduler.strategies 不能为空。")
     unknown = [name for name in strategies if name not in SIGNAL_REGISTRY]
@@ -206,7 +245,11 @@ def load_scheduler_config(config: dict[str, object] | None = None) -> SchedulerC
     if symbols_source not in {"stock_pool", "manual"}:
         raise ValueError("scheduler.symbols_source 仅支持 stock_pool / manual")
 
-    symbols = [str(item).strip().upper() for item in raw.get("symbols", []) if str(item).strip()]
+    symbols = [
+        str(item).strip().upper()
+        for item in raw.get("symbols", [])
+        if str(item).strip()
+    ]
     if symbols_source == "manual" and not symbols:
         raise ValueError("scheduler.symbols_source=manual 时必须提供 scheduler.symbols")
 
@@ -266,7 +309,9 @@ def run_daily_scan(
     """执行一次盘后策略扫描。"""
 
     scheduler_config = load_scheduler_config(config)
-    requested_trade_date = normalize_trade_date(trade_date or current_shanghai_date().isoformat())
+    requested_trade_date = normalize_trade_date(
+        trade_date or current_shanghai_date().isoformat()
+    )
     started_at = shanghai_now()
     scan_id = build_scan_id(requested_trade_date)
     notifications: list[dict[str, object]] = []
@@ -299,8 +344,13 @@ def run_daily_scan(
             return payload
 
         lookback_start = (
-            datetime.fromisoformat(effective_trade_date) - timedelta(days=scheduler_config.lookback_days)
-        ).date().isoformat()
+            (
+                datetime.fromisoformat(effective_trade_date)
+                - timedelta(days=scheduler_config.lookback_days)
+            )
+            .date()
+            .isoformat()
+        )
         generated_at = shanghai_now()
         signals: list[Signal] = []
         strategy_runs: list[dict[str, object]] = []
@@ -316,8 +366,12 @@ def run_daily_scan(
                 signal_params=signal_params,
                 top_n=scheduler_config.top_n,
                 cash=scheduler_config.cash,
-                symbols=scheduler_config.symbols if scheduler_config.symbols_source == "manual" else None,
-                pool_filters=scheduler_config.pool_filters if scheduler_config.symbols_source == "stock_pool" else None,
+                symbols=scheduler_config.symbols
+                if scheduler_config.symbols_source == "manual"
+                else None,
+                pool_filters=scheduler_config.pool_filters
+                if scheduler_config.symbols_source == "stock_pool"
+                else None,
                 data_provider=scheduler_config.data_provider,
             )
             strategy_signals = build_scan_signals(
@@ -332,12 +386,14 @@ def run_daily_scan(
                 db_path=db_path,
             )
             signals.extend(strategy_signals)
-            strategy_runs.append({
-                "strategy": strategy,
-                "ranked_count": len(result.get("rankings") or []),
-                "total_screened": result.get("total_screened", 0),
-                "run_context": result.get("run_context", {}),
-            })
+            strategy_runs.append(
+                {
+                    "strategy": strategy,
+                    "ranked_count": len(result.get("rankings") or []),
+                    "total_screened": result.get("total_screened", 0),
+                    "run_context": result.get("run_context", {}),
+                }
+            )
 
         persist_scan_signals(
             trade_date=effective_trade_date,
@@ -443,7 +499,9 @@ def build_scan_signals(
             trade_date=trade_date,
             asset_type=asset_type,
             data_provider=data_provider,
-            fallback_price=_optional_float(item.get("price") or item.get("signal_price")),
+            fallback_price=_optional_float(
+                item.get("price") or item.get("signal_price")
+            ),
             db_path=db_path,
         )
         signals.append(
@@ -462,7 +520,12 @@ def build_scan_signals(
                 ),
                 asset_type=asset_type,
                 side="BUY",
-                reason=str(item.get("reason") or default_signal_reason(strategy, rank=index, score=_pick_signal_score(item))),
+                reason=str(
+                    item.get("reason")
+                    or default_signal_reason(
+                        strategy, rank=index, score=_pick_signal_score(item)
+                    )
+                ),
                 price=signal_price or 0.0,
                 suggested_qty=suggest_signal_quantity(
                     price=signal_price,
@@ -504,7 +567,9 @@ def load_last_scan_record(*, db_path: Path | None = None) -> dict[str, object] |
         "completed_at": row["completed_at"],
         "scheduled": bool(row["scheduled"]),
         "forced": bool(row["forced"]),
-        "is_trade_day": None if row["is_trade_day"] is None else bool(row["is_trade_day"]),
+        "is_trade_day": None
+        if row["is_trade_day"] is None
+        else bool(row["is_trade_day"]),
         "status": row["status"],
         "signals_count": row["signals_count"],
         "strategies": json.loads(row["strategies_json"] or "[]"),
@@ -524,7 +589,9 @@ def get_scheduler_connection(*, db_path: Path | None = None) -> sqlite3.Connecti
     return conn
 
 
-def persist_scan_record(payload: dict[str, object], *, db_path: Path | None = None) -> None:
+def persist_scan_record(
+    payload: dict[str, object], *, db_path: Path | None = None
+) -> None:
     """保存扫描执行记录。"""
 
     with get_scheduler_connection(db_path=db_path) as conn:
@@ -541,7 +608,9 @@ def persist_scan_record(payload: dict[str, object], *, db_path: Path | None = No
                 payload.get("completed_at"),
                 1 if payload.get("scheduled") else 0,
                 1 if payload.get("forced") else 0,
-                None if payload.get("is_trade_day") is None else (1 if payload.get("is_trade_day") else 0),
+                None
+                if payload.get("is_trade_day") is None
+                else (1 if payload.get("is_trade_day") else 0),
                 payload["status"],
                 int(payload.get("signals_count", 0)),
                 json.dumps(payload.get("strategies") or [], ensure_ascii=False),
@@ -570,7 +639,9 @@ def persist_scan_signals(
     )
 
 
-def resolve_scan_trade_date(trade_date: str, *, force: bool = False) -> tuple[str, bool]:
+def resolve_scan_trade_date(
+    trade_date: str, *, force: bool = False
+) -> tuple[str, bool]:
     """解析调度扫描应使用的交易日。"""
 
     normalized = normalize_trade_date(trade_date)
@@ -597,7 +668,11 @@ def get_previous_trade_day(trade_date: str) -> str:
         (target - timedelta(days=31)).isoformat(),
         target.isoformat(),
     )
-    open_dates = [item["trade_date"] for item in rows if item["is_open"] and item["trade_date"] <= target.isoformat()]
+    open_dates = [
+        item["trade_date"]
+        for item in rows
+        if item["is_open"] and item["trade_date"] <= target.isoformat()
+    ]
     if not open_dates:
         raise DataLoadError("无法从 Tushare trade_cal 获取最近交易日。")
     return open_dates[-1]
@@ -632,10 +707,12 @@ def query_trade_calendar(start_date: str, end_date: str) -> list[dict[str, objec
         cal_date = str(row.get("cal_date") or "")
         if len(cal_date) != 8:
             continue
-        records.append({
-            "trade_date": f"{cal_date[:4]}-{cal_date[4:6]}-{cal_date[6:8]}",
-            "is_open": str(row.get("is_open", "0")) == "1",
-        })
+        records.append(
+            {
+                "trade_date": f"{cal_date[:4]}-{cal_date[4:6]}-{cal_date[6:8]}",
+                "is_open": str(row.get("is_open", "0")) == "1",
+            }
+        )
     return records
 
 
@@ -649,7 +726,9 @@ def send_scan_notifications(
     """根据配置推送扫描结果通知。"""
 
     title = f"QuantBalance 盘后扫描 {trade_date}"
-    body = format_notification_body(trade_date=trade_date, strategy_runs=strategy_runs, signals=signals)
+    body = format_notification_body(
+        trade_date=trade_date, strategy_runs=strategy_runs, signals=signals
+    )
     return send_configured_notifications(
         title=title,
         content=body,
@@ -674,7 +753,9 @@ def format_notification_body(
         strategy = str(run.get("strategy") or "-")
         items = by_strategy.get(strategy, [])
         preview = ", ".join(
-            f"{item.symbol}(#{item.rank}, {item.score:.2f})" if item.score is not None else f"{item.symbol}(#{item.rank})"
+            f"{item.symbol}(#{item.rank}, {item.score:.2f})"
+            if item.score is not None
+            else f"{item.symbol}(#{item.rank})"
             for item in items[:5]
         )
         lines.append(

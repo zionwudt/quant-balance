@@ -1,4 +1,18 @@
-"""多因子打分与排名引擎。"""
+"""多因子打分与排名引擎。
+
+功能：
+- 内置多种基本面因子（PE、PB、ROE 等）
+- 支持自定义因子权重和方向
+- 对候选股票进行标准化打分和排名
+
+因子方向：
+- higher_better: 数值越大越好（如 ROE）
+- lower_better: 数值越小越好（如 PE）
+
+使用方法：
+    from quant_balance.core.factors import rank_factor_items, DEFAULT_FACTOR_SPECS
+    result = rank_factor_items(candidates, DEFAULT_FACTOR_SPECS)
+"""
 
 from __future__ import annotations
 
@@ -77,7 +91,9 @@ def _field_factor(
         name=field_name,
         description=description,
         default_direction=direction,
-        compute=lambda row, field_name=field_name: _to_optional_float(row.get(field_name)),
+        compute=lambda row, field_name=field_name: _to_optional_float(
+            row.get(field_name)
+        ),
     )
 
 
@@ -108,22 +124,54 @@ FACTOR_REGISTRY: dict[str, FactorDefinition] = {
     factor.name: factor
     for factor in (
         _field_factor("pe", direction="lower_better", description="市盈率（越低越好）"),
-        _field_factor("pe_ttm", direction="lower_better", description="滚动市盈率（越低越好）"),
+        _field_factor(
+            "pe_ttm", direction="lower_better", description="滚动市盈率（越低越好）"
+        ),
         _field_factor("pb", direction="lower_better", description="市净率（越低越好）"),
         _field_factor("ps", direction="lower_better", description="市销率（越低越好）"),
-        _field_factor("ps_ttm", direction="lower_better", description="滚动市销率（越低越好）"),
-        _field_factor("dv_ratio", direction="higher_better", description="股息率（越高越好）"),
-        _field_factor("dv_ttm", direction="higher_better", description="TTM 股息率（越高越好）"),
+        _field_factor(
+            "ps_ttm", direction="lower_better", description="滚动市销率（越低越好）"
+        ),
+        _field_factor(
+            "dv_ratio", direction="higher_better", description="股息率（越高越好）"
+        ),
+        _field_factor(
+            "dv_ttm", direction="higher_better", description="TTM 股息率（越高越好）"
+        ),
         _field_factor("roe", direction="higher_better", description="ROE（越高越好）"),
-        _field_factor("roe_dt", direction="higher_better", description="扣非 ROE（越高越好）"),
+        _field_factor(
+            "roe_dt", direction="higher_better", description="扣非 ROE（越高越好）"
+        ),
         _field_factor("roa", direction="higher_better", description="ROA（越高越好）"),
-        _field_factor("grossprofit_margin", direction="higher_better", description="毛利率（越高越好）"),
-        _field_factor("netprofit_margin", direction="higher_better", description="净利率（越高越好）"),
-        _field_factor("current_ratio", direction="higher_better", description="流动比率（越高越好）"),
-        _field_factor("quick_ratio", direction="higher_better", description="速动比率（越高越好）"),
-        _field_factor("assets_turn", direction="higher_better", description="总资产周转率（越高越好）"),
-        _field_factor("eps", direction="higher_better", description="每股收益（越高越好）"),
-        _field_factor("bps", direction="higher_better", description="每股净资产（越高越好）"),
+        _field_factor(
+            "grossprofit_margin",
+            direction="higher_better",
+            description="毛利率（越高越好）",
+        ),
+        _field_factor(
+            "netprofit_margin",
+            direction="higher_better",
+            description="净利率（越高越好）",
+        ),
+        _field_factor(
+            "current_ratio",
+            direction="higher_better",
+            description="流动比率（越高越好）",
+        ),
+        _field_factor(
+            "quick_ratio", direction="higher_better", description="速动比率（越高越好）"
+        ),
+        _field_factor(
+            "assets_turn",
+            direction="higher_better",
+            description="总资产周转率（越高越好）",
+        ),
+        _field_factor(
+            "eps", direction="higher_better", description="每股收益（越高越好）"
+        ),
+        _field_factor(
+            "bps", direction="higher_better", description="每股净资产（越高越好）"
+        ),
         _derived_factor(
             "market_cap",
             direction="lower_better",
@@ -134,19 +182,25 @@ FACTOR_REGISTRY: dict[str, FactorDefinition] = {
             "debt_to_assets",
             direction="lower_better",
             description="资产负债率（越低越好）",
-            compute=lambda row: _safe_ratio(row.get("total_liab"), row.get("total_assets")),
+            compute=lambda row: _safe_ratio(
+                row.get("total_liab"), row.get("total_assets")
+            ),
         ),
         _derived_factor(
             "cashflow_to_profit",
             direction="higher_better",
             description="经营现金流 / 净利润（越高越好）",
-            compute=lambda row: _safe_ratio(row.get("n_cashflow_act"), row.get("net_profit")),
+            compute=lambda row: _safe_ratio(
+                row.get("n_cashflow_act"), row.get("net_profit")
+            ),
         ),
         _derived_factor(
             "profit_to_assets",
             direction="higher_better",
             description="净利润 / 总资产（越高越好）",
-            compute=lambda row: _safe_ratio(row.get("net_profit"), row.get("total_assets")),
+            compute=lambda row: _safe_ratio(
+                row.get("net_profit"), row.get("total_assets")
+            ),
         ),
     )
 }
@@ -191,7 +245,9 @@ def resolve_factor_specs(
             spec = FactorSpec(
                 name=str(raw.get("name", "")).strip(),
                 weight=float(raw.get("weight", 1.0)),
-                direction=str(raw["direction"]).strip() if raw.get("direction") is not None else None,
+                direction=str(raw["direction"]).strip()
+                if raw.get("direction") is not None
+                else None,
             )
 
         if spec.name not in FACTOR_REGISTRY:
@@ -205,7 +261,9 @@ def resolve_factor_specs(
         if direction not in {"higher_better", "lower_better"}:
             raise ValueError("direction 仅支持 higher_better / lower_better")
 
-        normalized_specs.append(FactorSpec(name=spec.name, weight=float(spec.weight), direction=direction))
+        normalized_specs.append(
+            FactorSpec(name=spec.name, weight=float(spec.weight), direction=direction)
+        )
         total_weight += float(spec.weight)
         seen_names.add(spec.name)
 
@@ -271,9 +329,13 @@ def rank_factor_items(
         return FactorRankingResult(
             rankings=pd.DataFrame(columns=["total_score", "rank"]),
             raw_values=raw_values,
-            scores=pd.DataFrame(columns=[spec.name for spec in resolved_specs], dtype=float),
+            scores=pd.DataFrame(
+                columns=[spec.name for spec in resolved_specs], dtype=float
+            ),
             normalized_weights=_normalize_weights(resolved_specs),
-            factor_directions={spec.name: str(spec.direction) for spec in resolved_specs},
+            factor_directions={
+                spec.name: str(spec.direction) for spec in resolved_specs
+            },
             skipped_symbols=[],
         )
 
@@ -284,9 +346,13 @@ def rank_factor_items(
         return FactorRankingResult(
             rankings=pd.DataFrame(columns=["total_score", "rank"]),
             raw_values=raw_values,
-            scores=pd.DataFrame(columns=[spec.name for spec in resolved_specs], dtype=float),
+            scores=pd.DataFrame(
+                columns=[spec.name for spec in resolved_specs], dtype=float
+            ),
             normalized_weights=_normalize_weights(resolved_specs),
-            factor_directions={spec.name: str(spec.direction) for spec in resolved_specs},
+            factor_directions={
+                spec.name: str(spec.direction) for spec in resolved_specs
+            },
             skipped_symbols=skipped_symbols,
         )
 

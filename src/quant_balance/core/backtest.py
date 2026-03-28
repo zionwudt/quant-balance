@@ -1,4 +1,15 @@
-"""backtesting.py 回测引擎封装。"""
+"""backtesting.py 回测引擎封装。
+
+封装了 backtesting.py 库的 Backtest 和 Strategy 接口，提供：
+- run_backtest(): 单股精细回测
+- optimize(): 参数优化与 Walk-Forward 分析
+
+核心概念：
+- Strategy: 策略类，需实现 init() 和 next() 方法
+- stats: 回测统计结果（pandas.Series）
+- trades: 交易记录（pandas.DataFrame）
+- equity_curve: 权益曲线
+"""
 
 from __future__ import annotations
 
@@ -48,7 +59,9 @@ def run_backtest(
     log_context: dict[str, object] | None = None,
 ) -> BacktestResult:
     """执行单股回测，返回标准化结果。"""
-    resolved_exclusive_orders = _resolve_exclusive_orders(strategy_cls, exclusive_orders)
+    resolved_exclusive_orders = _resolve_exclusive_orders(
+        strategy_cls, exclusive_orders
+    )
     bt = Backtest(
         df,
         strategy_cls,
@@ -100,7 +113,9 @@ def optimize(
     if top_n < 1:
         raise ValueError("top_n 必须 >= 1")
 
-    resolved_exclusive_orders = _resolve_exclusive_orders(strategy_cls, exclusive_orders)
+    resolved_exclusive_orders = _resolve_exclusive_orders(
+        strategy_cls, exclusive_orders
+    )
     bt = Backtest(
         df,
         strategy_cls,
@@ -118,10 +133,7 @@ def optimize(
         kwargs["constraint"] = constraint
     started_at = perf_counter()
     stats, heatmap = bt.optimize(**kwargs)
-    best_params = {
-        key: getattr(stats["_strategy"], key, None)
-        for key in param_ranges
-    }
+    best_params = {key: getattr(stats["_strategy"], key, None) for key in param_ranges}
     top_results = _rank_optimization_candidates(bt, heatmap, top_n)
     log_fields = {
         "stage": "engine",
@@ -171,10 +183,12 @@ def _rank_optimization_candidates(
         values = key if isinstance(key, tuple) else (key,)
         params = dict(zip(index_names, values, strict=False))
         candidate_stats = bt.run(**params)
-        top_results.append({
-            "rank": rank,
-            "score": float(score),
-            "params": params,
-            "stats": normalize_bt_stats(candidate_stats, risk_params=params),
-        })
+        top_results.append(
+            {
+                "rank": rank,
+                "score": float(score),
+                "params": params,
+                "stats": normalize_bt_stats(candidate_stats, risk_params=params),
+            }
+        )
     return top_results

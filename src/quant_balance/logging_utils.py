@@ -1,4 +1,15 @@
-"""QuantBalance 结构化日志工具。"""
+"""QuantBalance 结构化日志工具。
+
+功能：
+- 结构化日志输出（JSON 格式字段）
+- 标准化事件命名（如 BACKTEST_RUN、SCREENING_RUN）
+- 与 Python logging 模块集成
+
+使用方式：
+    from quant_balance.logging_utils import get_logger, log_event
+    logger = get_logger(__name__)
+    log_event(logger, "MY_EVENT", symbol="AAPL", score=0.95)
+"""
 
 from __future__ import annotations
 
@@ -56,7 +67,9 @@ class StructuredLogFormatter(logging.Formatter):
             output = f"[quant_balance] {message}"
 
         if payload:
-            output = f"{output} {json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
+            output = (
+                f"{output} {json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
+            )
 
         if record.exc_info:
             output = f"{output}\n{self.formatException(record.exc_info)}"

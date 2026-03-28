@@ -1,4 +1,15 @@
-"""vectorbt 组合回测引擎。"""
+"""vectorbt 组合回测引擎。
+
+主要功能：
+- 支持多只股票等权或自定义权重的组合回测
+- 支持日/周/月/季频率调仓
+- 自动计算调仓换手率和基准对比收益
+
+核心概念：
+- close_matrix: 收盘价宽表，列=股票代码，行=日期
+- target_weights: 目标权重矩阵，与 close_matrix 对齐
+- rebalance_mask: 调仓日期掩码
+"""
 
 from __future__ import annotations
 
@@ -94,12 +105,14 @@ def run_portfolio_backtest(
         equity_curve,
         initial_equity=cash,
     )
-    report.update({
-        "symbols_count": len(close_matrix.columns),
-        "allocation": allocation,
-        "rebalance_frequency": rebalance_frequency,
-        "rebalance_count": len(rebalances),
-    })
+    report.update(
+        {
+            "symbols_count": len(close_matrix.columns),
+            "allocation": allocation,
+            "rebalance_frequency": rebalance_frequency,
+            "rebalance_count": len(rebalances),
+        }
+    )
     attribution = build_portfolio_attribution(
         close_matrix=close_matrix,
         portfolio=pf,
@@ -144,7 +157,9 @@ def build_target_weights(
     base_weights = _resolve_base_weights(symbols, allocation, custom_weights)
     rebalance_mask = _build_rebalance_mask(close_matrix.index, rebalance_frequency)
 
-    target_weights = pd.DataFrame(index=close_matrix.index, columns=symbols, dtype=float)
+    target_weights = pd.DataFrame(
+        index=close_matrix.index, columns=symbols, dtype=float
+    )
     target_weights.loc[rebalance_mask.to_numpy(), :] = base_weights.to_numpy()
     return target_weights
 
@@ -160,11 +175,13 @@ def build_rebalance_log(target_weights: pd.DataFrame) -> pd.DataFrame:
     for date, row in rebalance_rows.iterrows():
         current = row.astype(float)
         turnover = _turnover_from_weights(previous, current)
-        records.append({
-            "date": date,
-            "turnover_pct": turnover * 100,
-            **current.to_dict(),
-        })
+        records.append(
+            {
+                "date": date,
+                "turnover_pct": turnover * 100,
+                **current.to_dict(),
+            }
+        )
         previous = current
 
     return pd.DataFrame(records).set_index("date")
@@ -174,7 +191,9 @@ def build_benchmark_weights(close_matrix: pd.DataFrame) -> pd.DataFrame:
     """构造首日等权买入并持有的基准权重。"""
 
     weight = 1 / len(close_matrix.columns)
-    weights = pd.DataFrame(index=close_matrix.index, columns=close_matrix.columns, dtype=float)
+    weights = pd.DataFrame(
+        index=close_matrix.index, columns=close_matrix.columns, dtype=float
+    )
     weights.iloc[0] = weight
     return weights
 
@@ -220,7 +239,9 @@ def _resolve_base_weights(
     return weights / total
 
 
-def _build_rebalance_mask(index: pd.Index, rebalance_frequency: RebalanceFrequency) -> pd.Series:
+def _build_rebalance_mask(
+    index: pd.Index, rebalance_frequency: RebalanceFrequency
+) -> pd.Series:
     series = pd.Series(False, index=index, dtype=bool)
     if len(index) == 0:
         return series

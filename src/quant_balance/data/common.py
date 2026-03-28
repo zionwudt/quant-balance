@@ -1,4 +1,12 @@
-"""数据层公共配置与错误定义。"""
+"""数据层公共配置与错误定义。
+
+配置说明：
+- config/config.toml: 主配置文件（需从 config.example.toml 复制）
+- ~/.quant_balance/cache.db: 本地数据缓存（SQLite）
+
+数据源优先级：
+- DEFAULT_DAILY_PROVIDERS: akshare > baostock > tushare
+"""
 
 from __future__ import annotations
 
