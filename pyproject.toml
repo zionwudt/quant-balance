@@ -35,11 +35,11 @@ cn_data = [
 quant-balance = "quant_balance.main:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "src/backend"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src/backend"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src/backend"]

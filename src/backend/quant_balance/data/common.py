@@ -15,7 +15,7 @@ import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "config.toml"
 
 CACHE_DB_PATH = Path.home() / ".quant_balance" / "cache.db"

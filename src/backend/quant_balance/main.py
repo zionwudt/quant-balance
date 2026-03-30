@@ -8,7 +8,7 @@ from pathlib import Path
 
 from quant_balance.data.common import TUSHARE_REGISTER_URL, get_tushare_config_status
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "config.toml"
 
 DEFAULT_HOST = "127.0.0.1"

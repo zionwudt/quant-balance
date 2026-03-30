@@ -25,7 +25,7 @@ from quant_balance.api.schemas import (
 from quant_balance.core.strategies import SIGNAL_REGISTRY, STRATEGY_REGISTRY
 from quant_balance.logging_utils import get_logger, log_event
 
-WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+WEB_DIR = Path(__file__).resolve().parents[4] / "src" / "web"
 
 WEB_DEPENDENCY_HINT = "启动 API 模式需要先安装项目依赖：pip install -e ."
 

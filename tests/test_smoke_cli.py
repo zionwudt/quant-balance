@@ -21,5 +21,5 @@ def test_pyproject_declares_console_entrypoint() -> None:
 def test_pyproject_uses_src_layout() -> None:
     pyproject = _load_pyproject()
 
-    assert pyproject["tool"]["setuptools"]["package-dir"] == {"": "src"}
-    assert pyproject["tool"]["setuptools"]["packages"]["find"]["where"] == ["src"]
+    assert pyproject["tool"]["setuptools"]["package-dir"] == {"": "src/backend"}
+    assert pyproject["tool"]["setuptools"]["packages"]["find"]["where"] == ["src/backend"]
