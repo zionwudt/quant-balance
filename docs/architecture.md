@@ -21,61 +21,127 @@
 ## 分层设计
 
 ```text
+INFRA LAYER (横切关注点)
+  infra/
+    logging.py      -> 结构化日志
+    scheduler.py    -> 盘后自动扫描调度器
+  paths.py          -> 项目路径集中管理
+        │
+        ▼
 DATA LAYER
-  market_loader.py
-  tushare_loader.py
-  akshare_loader.py
-  baostock_loader.py
-  market_cache.py
-  common.py
-  stock_pool.py
-  fundamental_loader.py
+  data/
+    market_loader.py
+    tushare_loader.py
+    akshare_loader.py
+    baostock_loader.py
+    market_cache.py
+    common.py
+    stock_pool.py
+    fundamental_loader.py
+    result_store.py
+    cb_loader.py
         │
         ▼
 ENGINE LAYER
-  backtest.py     -> backtesting.py
-  factors.py      -> cross-sectional scoring
-  portfolio.py    -> vectorbt (portfolio)
-  screening.py    -> vectorbt
-  strategies.py   -> Strategy 类 + signal 函数
-  report.py       -> 统计翻译器
+  core/
+    backtest.py     -> backtesting.py
+    factors.py      -> cross-sectional scoring
+    portfolio.py    -> vectorbt (portfolio)
+    screening.py    -> vectorbt
+    strategies.py   -> Strategy 类 + signal 函数
+    signals.py      -> 信号持久化与查询
+    report.py       -> 统计翻译器
+    indicators.py
+    models.py
         │
         ▼
 SERVICE LAYER
-  backtest_service.py
-  factor_service.py
-  portfolio_service.py
-  screening_service.py
-  stock_pool_service.py
+  services/
+    backtest_service.py
+    factor_service.py
+    portfolio_service.py
+    screening_service.py
+    stock_pool_service.py
+    regime_service.py
+    symbol_search_service.py
+        │
+        ▼
+EXECUTION LAYER
+  execution/
+    paper_trading.py
+    signal_export.py
+    models.py
+    adapters/
+        │
+        ▼
+NOTIFICATION LAYER
+  notify/
+    base.py / dingtalk.py / wecom.py / email_notify.py / serverchan.py
         │
         ▼
 API LAYER
-  app.py
-  schemas.py
-  meta.py
+  api/
+    app.py          -> FastAPI 应用工厂（精简）
+    deps.py         -> API 公共依赖（错误日志等）
+    schemas.py      -> Pydantic 请求/响应模型
+    meta.py         -> API 元信息
+    routes/
+      system.py     -> 健康检查、配置、调度、策略列表、搜索、市场状态、通知
+      backtest.py   -> 单股回测、历史、对比、删除、参数优化
+      screening.py  -> 批量选股、股票池过滤、多因子排名、组合回测
+      signals.py    -> 信号查询、导出、状态更新
+      paper.py      -> 模拟盘启动、暂停、停止、状态查询
+```
+
+### Web 前端目录
+
+```text
+src/web/
+  index.html
+  favicon.svg
+  static/
+    css/
+      variables.css / base.css / components.css / pages.css
+    vendor/
+      echarts.min.js
+    js/
+      core/           -> 核心框架模块
+        app.js        -> 应用入口与路由
+        api.js        -> API 封装
+        settings.js   -> 全局设置与视觉偏好
+        theme.js      -> 主题切换
+      components/     -> 可复用 UI 组件
+        chart-equity.js / chart-kline.js / chart-heatmap.js / chart-attribution.js
+        data-table.js / stock-search.js / toast.js / onboarding.js
+      pages/          -> 页面级模块
+        backtest.js / stock-pool.js / paper-trading.js / signals.js / settings.js
+      data/           -> 客户端数据管理
+        paper-store.js
+      utils/          -> 工具函数
+        download.js
 ```
 
 ## 模块职责
 
 ### 数据层
 
-`src/quant_balance/data/market_loader.py`
+`src/backend/quant_balance/data/market_loader.py`
 
 - 提供统一的 `load_dataframe()` 入口
 - 负责按 provider 顺序回退：`akshare -> baostock -> tushare`
 - 对非 Tushare provider 统一走本地 SQLite 缓存
 
-`src/quant_balance/data/tushare_loader.py`
+`src/backend/quant_balance/data/tushare_loader.py`
 
 - 负责 Tushare 日线与复权因子处理
 - 复用既有 SQLite 缓存表，保持兼容
 
-`src/quant_balance/data/akshare_loader.py` / `src/quant_balance/data/baostock_loader.py`
+`src/backend/quant_balance/data/akshare_loader.py` / `src/backend/quant_balance/data/baostock_loader.py`
 
 - 提供 provider 级日线抓取实现
 - 统一输出标准化 OHLCV 行格式
 
-`src/quant_balance/data/stock_pool.py`
+`src/backend/quant_balance/data/stock_pool.py`
 
 - 提供 `get_pool_at_date(date)`
 - 提供 `filter_pool_at_date(date, filters, symbols=None)`
@@ -85,7 +151,7 @@ API LAYER
 - 用于规避幸存者偏差
 - 当前仍为 Tushare-first
 
-`src/quant_balance/data/fundamental_loader.py`
+`src/backend/quant_balance/data/fundamental_loader.py`
 
 - 提供 `load_financial_at(symbol, as_of_date)`
 - 维护 `daily_basic / income / balancesheet / cashflow / fina_indicator` 多表缓存
@@ -96,7 +162,7 @@ API LAYER
 
 ### 引擎层
 
-`src/quant_balance/core/strategies.py`
+`src/backend/quant_balance/core/strategies.py`
 
 - `SmaCross`、`EmaCross`、`BuyAndHold`
 - `MacdCross`、`RsiStrategy`、`BollingerBreakout`
@@ -106,34 +172,34 @@ API LAYER
 - `dca_signals()`、`ma_rsi_filter_signals()`
 - 同时维护 `STRATEGY_REGISTRY` 和 `SIGNAL_REGISTRY`
 
-`src/quant_balance/core/backtest.py`
+`src/backend/quant_balance/core/backtest.py`
 
 - 薄包装 `backtesting.Backtest`
 - 暴露 `run_backtest()` 和 `optimize()`
 - 支持策略级 `stop_loss_pct` / `take_profit_pct`
 - 输出 `BacktestResult`
 
-`src/quant_balance/core/screening.py`
+`src/backend/quant_balance/core/screening.py`
 
 - 延迟导入 `vectorbt`
 - 对多只股票批量运行信号函数
 - 可将 `signal_params.stop_loss_pct` / `take_profit_pct` 映射到 `vectorbt` 风险退出
 - 输出排名表与明细结果
 
-`src/quant_balance/core/factors.py`
+`src/backend/quant_balance/core/factors.py`
 
 - 提供内置因子定义、方向约定与因子注册表
 - 支持横截面标准化、权重归一化与加权总分
 - 输出可直接消费的多因子排名结果
 
-`src/quant_balance/core/portfolio.py`
+`src/backend/quant_balance/core/portfolio.py`
 
 - 组合回测基于 `vectorbt.Portfolio.from_orders`
 - 输入为对齐后的收盘价宽表与目标权重矩阵
 - 支持 `equal` / `custom` 权重模式与日 / 周 / 月 / 季再平衡
 - 输出组合 summary、equity_curve、weights、rebalances
 
-`src/quant_balance/core/report.py`
+`src/backend/quant_balance/core/report.py`
 
 - 将 `backtesting.py` stats 标准化为稳定字典
 - 将 `vectorbt` stats 标准化为稳定字典
@@ -141,31 +207,31 @@ API LAYER
 
 ### 服务层
 
-`src/quant_balance/services/backtest_service.py`
+`src/backend/quant_balance/services/backtest_service.py`
 
 - 编排 `load_dataframe() -> run_backtest() / optimize()`
 - 负责策略校验、参数透传与 API 返回结构
 - 负责 JSON 序列化清洗
 - 支持可选 `data_provider`
 
-`src/quant_balance/services/screening_service.py`
+`src/backend/quant_balance/services/screening_service.py`
 
 - 编排 `get_pool_at_date() -> load_multi_dataframes() -> run_screening()`
 - 支持把股票池过滤条件作为筛选前置步骤
 - 负责信号校验、Top N 排名与返回结构
 - 支持可选 `data_provider`
 
-`src/quant_balance/services/stock_pool_service.py`
+`src/backend/quant_balance/services/stock_pool_service.py`
 
 - 编排 `filter_pool_at_date()`
 - 返回 API 友好的 `symbols / items / total_count / run_context`
 
-`src/quant_balance/services/factor_service.py`
+`src/backend/quant_balance/services/factor_service.py`
 
 - 编排 `filter_pool_at_date() -> load_financial_at() -> rank_factor_items()`
 - 返回总分、分因子得分、排序与权重信息
 
-`src/quant_balance/services/portfolio_service.py`
+`src/backend/quant_balance/services/portfolio_service.py`
 
 - 编排 `load_multi_dataframes() -> run_portfolio_backtest()`
 - 负责组合参数校验、已加载 / 跳过股票列表与 API 返回结构
@@ -173,36 +239,60 @@ API LAYER
 
 ### API 层
 
-`src/quant_balance/api/app.py`
+`src/backend/quant_balance/api/app.py`
 
-当前公开端点：
+- FastAPI 应用工厂，负责组装路由、静态文件挂载与生命周期事件
+- 管理 `DailyScanScheduler` 和 `PaperTradingManager` 全局单例
 
-- `GET /health`
-- `GET /api/meta`
-- `GET /api/config/status`
-- `GET /api/strategies`
-- `POST /api/config/tushare-token`
-- `POST /api/factors/rank`
-- `POST /api/stock-pool/filter`
-- `POST /api/backtest/run`
-- `POST /api/backtest/optimize`
-- `POST /api/portfolio/run`
-- `POST /api/screening/run`
+`src/backend/quant_balance/api/routes/` — 按领域划分的路由模块：
 
-`src/quant_balance/api/schemas.py`
+- `system.py`：`GET /health`、`GET /api/meta`、`GET /api/config/status`、`POST /api/config/tushare-token`、`GET /api/scheduler/status`、`POST /api/scheduler/run`、`GET /api/strategies`、`GET /api/symbols/search`、`GET /api/market/regime`、`POST /api/notify/test`
+- `backtest.py`：`POST /api/backtest/run`、`GET /api/backtest/history`、`GET /api/backtest/history/{run_id}`、`GET /api/backtest/compare`、`DELETE /api/backtest/history/{run_id}`、`POST /api/backtest/optimize`
+- `screening.py`：`POST /api/screening/run`、`POST /api/stock-pool/filter`、`POST /api/factors/rank`、`POST /api/portfolio/run`
+- `signals.py`：`GET /api/signals/recent`、`GET /api/signals/today`、`GET /api/signals/history`、`GET /api/signals/export`、`PATCH /api/signals/{signal_id}`
+- `paper.py`：`GET /api/paper/status`、`POST /api/paper/start`、`POST /api/paper/pause`、`POST /api/paper/stop`
 
-- `BacktestRunRequest`
-- `FactorsRankRequest`
-- `OptimizeRequest`
-- `PortfolioRunRequest`
-- `ScreeningRunRequest`
-- `StockPoolFilterRequest`
-- `TushareTokenRequest`
+`src/backend/quant_balance/api/deps.py`
 
-`src/quant_balance/main.py`
+- API 公共依赖：统一错误日志 `log_api_error()`
 
-- CLI 启动前先检查 `config/config.toml`
-- 当 Tushare token 缺失时打印首次使用引导，而不是继续启动后在数据请求路径报错
+`src/backend/quant_balance/api/schemas.py`
+
+- `BacktestRunRequest`、`OptimizeRequest`
+- `FactorsRankRequest`、`ScreeningRunRequest`
+- `PortfolioRunRequest`、`StockPoolFilterRequest`
+- `PaperStartRequest`、`PaperPauseRequest`、`PaperStopRequest`
+- `SchedulerRunRequest`、`SignalStatusUpdateRequest`
+- `NotifyTestRequest`、`TushareTokenRequest`
+
+`src/backend/quant_balance/api/meta.py`
+
+- 构建 API 元信息（策略列表、因子列表、默认参数）
+
+### 基础设施层
+
+`src/backend/quant_balance/paths.py`
+
+- 项目路径集中管理（`PROJECT_ROOT`、`CONFIG_PATH`、`WEB_DIR`）
+- 支持 `QUANT_BALANCE_ROOT` 环境变量覆盖
+- 自动检测：向上查找 `pyproject.toml` 定位项目根目录
+
+`src/backend/quant_balance/infra/logging.py`
+
+- 结构化日志工具（`get_logger`、`log_event`）
+- JSON 格式字段输出与标准化事件命名
+
+`src/backend/quant_balance/infra/scheduler.py`
+
+- 盘后自动扫描调度器（`DailyScanScheduler`）
+- APScheduler 封装，定时执行策略筛选并生成信号
+- 信号持久化与通知推送编排
+
+`src/backend/quant_balance/main.py`
+
+- CLI 统一主入口
+- 启动前检查 `config/config.toml`
+- 当 Tushare token 缺失时打印首次使用引导
 
 ## 可观测性
 

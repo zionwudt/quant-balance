@@ -1,13 +1,4 @@
 /**
- * 知衡 QuantBalance — 主题切换
+ * 向后兼容入口 — 请改用 core/theme.js
  */
-
-import { cycleAppearanceMode, initSettings } from './settings.js';
-
-export function initTheme() {
-  initSettings();
-}
-
-export function toggleTheme() {
-  cycleAppearanceMode();
-}
+export { initTheme, toggleTheme } from './core/theme.js';

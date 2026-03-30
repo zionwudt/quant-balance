@@ -8,14 +8,14 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from quant_balance.scheduler import (
+from quant_balance.infra.scheduler import (
     DailyScanScheduler,
-    list_recent_signals,
     load_last_scan_record,
     parse_scan_time,
     resolve_scan_trade_date,
     run_daily_scan,
 )
+from quant_balance.core.signals import list_recent_signals
 
 
 def test_parse_scan_time_accepts_hh_mm():
@@ -24,8 +24,8 @@ def test_parse_scan_time_accepts_hh_mm():
 
 def test_resolve_scan_trade_date_uses_previous_trade_day_when_forced():
     with (
-        patch("quant_balance.scheduler.is_trade_day", return_value=False),
-        patch("quant_balance.scheduler.get_previous_trade_day", return_value="2024-03-29"),
+        patch("quant_balance.infra.scheduler.is_trade_day", return_value=False),
+        patch("quant_balance.infra.scheduler.get_previous_trade_day", return_value="2024-03-29"),
     ):
         trade_date, is_trade_day = resolve_scan_trade_date("2024-03-30", force=True)
 
@@ -43,7 +43,7 @@ def test_run_daily_scan_skips_non_trade_day(tmp_path: Path):
     }
     db_path = tmp_path / "scheduler.db"
 
-    with patch("quant_balance.scheduler.resolve_scan_trade_date", return_value=("2024-03-30", False)):
+    with patch("quant_balance.infra.scheduler.resolve_scan_trade_date", return_value=("2024-03-30", False)):
         payload = run_daily_scan(
             trade_date="2024-03-30",
             force=False,
@@ -93,12 +93,12 @@ def test_run_daily_scan_persists_signals_and_notifications(tmp_path: Path):
     )
 
     with (
-        patch("quant_balance.scheduler.resolve_scan_trade_date", return_value=("2024-03-29", True)),
-        patch("quant_balance.scheduler.run_stock_screening", side_effect=[macd_result, rsi_result]),
-        patch("quant_balance.scheduler.resolve_signal_name", side_effect=["测试A", "测试B", "测试C"]),
-        patch("quant_balance.scheduler._resolve_signal_price", side_effect=[11.0, 12.0, 13.0]),
+        patch("quant_balance.infra.scheduler.resolve_scan_trade_date", return_value=("2024-03-29", True)),
+        patch("quant_balance.infra.scheduler.run_stock_screening", side_effect=[macd_result, rsi_result]),
+        patch("quant_balance.infra.scheduler.resolve_signal_name", side_effect=["测试A", "测试B", "测试C"]),
+        patch("quant_balance.infra.scheduler._resolve_signal_price", side_effect=[11.0, 12.0, 13.0]),
         patch(
-            "quant_balance.scheduler.send_scan_notifications",
+            "quant_balance.infra.scheduler.send_scan_notifications",
             return_value=[{"channel": "wecom", "status": "sent"}],
         ),
         patch("quant_balance.core.signals.current_signal_date", return_value=date(2024, 4, 30)),
@@ -166,14 +166,14 @@ def test_daily_scan_scheduler_start_and_manual_run(tmp_path: Path):
 
     scheduler = DailyScanScheduler(config_loader=lambda: config, db_path=tmp_path / "scheduler.db")
 
-    with patch("quant_balance.scheduler._load_apscheduler", return_value=(FakeScheduler, FakeTrigger)):
+    with patch("quant_balance.infra.scheduler._load_apscheduler", return_value=(FakeScheduler, FakeTrigger)):
         assert scheduler.start() is True
         status = scheduler.get_status()
 
     assert status["running"] is True
     assert status["next_run_time"] == "2024-03-29T16:05:00"
 
-    with patch("quant_balance.scheduler.run_daily_scan", return_value={"scan_id": "scan-1"}) as mock_run:
+    with patch("quant_balance.infra.scheduler.run_daily_scan", return_value={"scan_id": "scan-1"}) as mock_run:
         payload = scheduler.run_manual_scan(force=True)
 
     assert payload == {"scan_id": "scan-1"}

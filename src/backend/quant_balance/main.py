@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import sys
 import tomllib
-from pathlib import Path
 
 from quant_balance.data.common import TUSHARE_REGISTER_URL, get_tushare_config_status
-
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_CONFIG_PATH = _PROJECT_ROOT / "config" / "config.toml"
+from quant_balance.paths import CONFIG_PATH
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -17,9 +14,9 @@ DEFAULT_PORT = 8765
 
 def _load_server_config() -> dict:
     """从 config/config.toml 读取 [server] 配置。"""
-    if not _CONFIG_PATH.exists():
+    if not CONFIG_PATH.exists():
         return {}
-    with open(_CONFIG_PATH, "rb") as f:
+    with open(CONFIG_PATH, "rb") as f:
         return tomllib.load(f).get("server", {})
 
 

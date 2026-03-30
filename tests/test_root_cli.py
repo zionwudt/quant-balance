@@ -14,6 +14,7 @@ def test_root_command_can_be_imported() -> None:
         check=True,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": str(root / 'src')},
+        env={**os.environ, "PYTHONPATH": str(root / 'src' / 'backend')},
     )
     assert "ok" in result.stdout
+
