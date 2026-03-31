@@ -678,6 +678,38 @@ class _PaperMarketDataCache:
         dates.add(self.end_date)
         return sorted(dates)
 
+    def build_close_dict(self) -> dict[str, dict[str, float]]:
+        """预构建 {symbol: {date_str: close_price}} 字典，供批量查询。"""
+        result: dict[str, dict[str, float]] = {}
+        for symbol in self.symbols:
+            frame = self.frame(symbol)
+            if frame is None or frame.empty or "Close" not in frame:
+                continue
+            closes: dict[str, float] = {}
+            for idx, row in frame.iterrows():
+                closes[idx.date().isoformat()] = float(row["Close"])
+            result[symbol.upper()] = closes
+        return result
+
+    def close_price_from_dict(
+        self,
+        close_dict: dict[str, dict[str, float]],
+        symbol: str,
+        trade_date: str,
+    ) -> float | None:
+        """从预构建字典快速查询收盘价，回退到最近前一日。"""
+        symbol_closes = close_dict.get(symbol.upper())
+        if not symbol_closes:
+            return None
+        price = symbol_closes.get(trade_date)
+        if price is not None:
+            return price
+        # 回退：找 <= trade_date 的最近日期
+        candidates = [d for d in symbol_closes if d <= trade_date]
+        if not candidates:
+            return None
+        return symbol_closes[max(candidates)]
+
 
 def get_paper_connection(*, db_path: Path | None = None) -> sqlite3.Connection:
     """获取模拟盘 SQLite 连接并确保 schema 已就绪。"""
@@ -782,6 +814,9 @@ def _replay_session_state(
     if not dates:
         dates = [end_date]
 
+    # 预构建收盘价字典，避免逐日逐持仓查 DataFrame
+    close_dict = market.build_close_dict()
+
     for trade_date in dates:
         for trade in trade_map.get(trade_date, []):
             cash = _apply_replayed_trade(
@@ -801,7 +836,7 @@ def _replay_session_state(
 
         holdings_value = 0.0
         for position in positions.values():
-            close_price = market.close_price(str(position["symbol"]), trade_date)
+            close_price = market.close_price_from_dict(close_dict, str(position["symbol"]), trade_date)
             if close_price is None:
                 close_price = float(position["cost_price"])
             market_value = close_price * int(position["qty"])
