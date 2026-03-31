@@ -110,6 +110,21 @@ class RiskManagedStrategy(Strategy):
             kwargs["size"] = float(resolved_size)
         self.buy(**kwargs)
 
+    def _sell_with_risk_controls(self, *, size: float | None = None) -> None:
+        """做空入场，带风控参数。"""
+        self._validate_risk_params()
+        if len(self.trades) >= int(self.max_holdings):
+            return
+        kwargs: dict[str, float] = {}
+        resolved_size = size
+        if resolved_size is None and 0 < float(self.max_position_pct) < 1:
+            resolved_size = float(self.max_position_pct)
+        elif resolved_size is not None and 0 < float(self.max_position_pct) < 1:
+            resolved_size = min(float(resolved_size), float(self.max_position_pct))
+        if resolved_size is not None:
+            kwargs["size"] = float(resolved_size)
+        self.sell(**kwargs)
+
     def _sync_risk_orders(self) -> None:
         self._validate_risk_params()
         for trade in self.trades:

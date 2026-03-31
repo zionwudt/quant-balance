@@ -59,7 +59,7 @@ from quant_balance.data.stock_pool import filter_pool_at_date
 from quant_balance.services.symbol_search_service import BENCHMARK_PRESETS
 
 SIGNAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
-VALID_SIGNAL_SIDES = frozenset({"BUY", "SELL"})
+VALID_SIGNAL_SIDES = frozenset({"BUY", "SELL", "SHORT", "COVER"})
 VALID_SIGNAL_STATUSES = frozenset({"pending", "executed", "ignored", "expired"})
 TRACKING_WINDOWS = (1, 5, 10, 20)
 
@@ -665,7 +665,7 @@ def _serialize_signal_payload(payload: dict[str, object]) -> dict[str, object]:
     signal_payload = {
         **payload,
         "side": side,
-        "side_label": "买入" if side == "BUY" else "卖出",
+        "side_label": {"BUY": "买入", "SELL": "卖出", "SHORT": "做空", "COVER": "平空"}.get(side, side),
         "status": status,
         "status_label": _signal_status_label(status),
         "price": signal_price,
@@ -695,7 +695,7 @@ def _directional_return(side: str, value: object) -> float | None:
     raw = optional_float(value)
     if raw is None:
         return None
-    return round((-raw if side == "SELL" else raw), 4)
+    return round((-raw if side in ("SELL", "SHORT") else raw), 4)
 
 
 def _build_outcome_label(payload: dict[str, object]) -> str:
