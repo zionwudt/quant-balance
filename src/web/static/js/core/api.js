@@ -4,6 +4,23 @@
 
 const API_TIMEOUT = 30_000;
 
+function getApiKey() {
+  return localStorage.getItem('qb_api_key') || '';
+}
+
+function setApiKey(key) {
+  if (key) {
+    localStorage.setItem('qb_api_key', key.trim());
+  } else {
+    localStorage.removeItem('qb_api_key');
+  }
+}
+
+function authHeaders() {
+  const key = getApiKey();
+  return key ? { Authorization: `Bearer ${key}` } : {};
+}
+
 class ApiError extends Error {
   constructor(message, status) {
     super(message);
@@ -21,6 +38,7 @@ async function request(url, options = {}) {
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders(),
         ...options.headers,
       },
     });
@@ -50,6 +68,7 @@ async function requestBinary(url, options = {}) {
       ...options,
       signal: controller.signal,
       headers: {
+        ...authHeaders(),
         ...options.headers,
       },
     });
@@ -167,4 +186,5 @@ export const api = {
 };
 
 export { ApiError };
+export { getApiKey, setApiKey };
 
