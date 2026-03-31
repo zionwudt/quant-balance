@@ -25,6 +25,15 @@ _connections: set[WebSocket] = set()
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """WebSocket 连接端点，客户端连接后自动接收推送事件。"""
+    from quant_balance.api.deps import load_api_key
+
+    api_key = load_api_key()
+    if api_key is not None:
+        token = websocket.query_params.get("token", "")
+        if token != api_key:
+            await websocket.close(code=4001)
+            return
+
     await websocket.accept()
     _connections.add(websocket)
     try:
