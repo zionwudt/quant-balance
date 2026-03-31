@@ -320,8 +320,14 @@ def build_factor_matrix(
 def rank_factor_items(
     items: Iterable[Mapping[str, object]],
     factor_specs: Sequence[FactorSpec | Mapping[str, object]] | None = None,
+    *,
+    min_factor_coverage: float = 0.5,
 ) -> FactorRankingResult:
-    """对候选样本做多因子标准化与加权打分。"""
+    """对候选样本做多因子标准化与加权打分。
+
+    参数:
+        min_factor_coverage: 至少有多少比例的因子非空才参与排名 (0~1)，默认 0.5
+    """
 
     resolved_specs = resolve_factor_specs(factor_specs)
     raw_values = build_factor_matrix(items, resolved_specs)
@@ -339,9 +345,11 @@ def rank_factor_items(
             skipped_symbols=[],
         )
 
-    complete_mask = raw_values.notna().all(axis=1)
-    skipped_symbols = raw_values.index[~complete_mask].tolist()
-    scored_raw_values = raw_values.loc[complete_mask].copy()
+    factor_count = len(resolved_specs)
+    coverage = raw_values.notna().sum(axis=1) / factor_count
+    coverage_mask = coverage >= min_factor_coverage
+    skipped_symbols = raw_values.index[~coverage_mask].tolist()
+    scored_raw_values = raw_values.loc[coverage_mask].copy()
     if scored_raw_values.empty:
         return FactorRankingResult(
             rankings=pd.DataFrame(columns=["total_score", "rank"]),
@@ -365,8 +373,15 @@ def rank_factor_items(
 
     normalized_weights = _normalize_weights(resolved_specs)
     total_score = pd.Series(0.0, index=scores.index)
+    weight_sum = pd.Series(0.0, index=scores.index)
     for spec in resolved_specs:
-        total_score = total_score + scores[spec.name] * normalized_weights[spec.name]
+        factor_scores = scores[spec.name]
+        valid_mask = factor_scores.notna()
+        total_score = total_score + factor_scores.fillna(0.0) * normalized_weights[spec.name]
+        weight_sum = weight_sum + valid_mask.astype(float) * normalized_weights[spec.name]
+
+    # 按实际参与打分的权重归一化
+    total_score = total_score / weight_sum.replace(0.0, 1.0) * weight_sum.clip(upper=1.0).replace(0.0, 1.0)
 
     rankings = pd.DataFrame({"total_score": total_score})
     rankings = rankings.sort_values("total_score", ascending=False)
