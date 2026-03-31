@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 EXECUTION_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
-ExecutionSide = Literal["BUY", "SELL"]
+ExecutionSide = Literal["BUY", "SELL", "SHORT", "COVER"]
 OrderStatus = Literal["submitted", "filled", "rejected"]
 
 
@@ -48,8 +48,8 @@ class ExecutionSignal:
             raise ValueError("signal.symbol 不能为空。")
 
         side = str(self.side or "").strip().upper()
-        if side not in {"BUY", "SELL"}:
-            raise ValueError(f"不支持的 signal.side {self.side!r}，当前支持: BUY / SELL")
+        if side not in {"BUY", "SELL", "SHORT", "COVER"}:
+            raise ValueError(f"不支持的 signal.side {self.side!r}，当前支持: BUY / SELL / SHORT / COVER")
         self.side = side  # type: ignore[assignment]
 
         self.quantity = int(self.quantity)
