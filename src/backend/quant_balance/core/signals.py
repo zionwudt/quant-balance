@@ -256,11 +256,9 @@ def optional_int(value: object) -> int | None:
 def get_signal_connection(*, db_path: Path | None = None) -> sqlite3.Connection:
     """获取信号 SQLite 连接并完成 schema 迁移。"""
 
-    path = db_path or CACHE_DB_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    from quant_balance.data.connection import get_shared_connection
+
+    conn = get_shared_connection(db_path)
     ensure_signal_schema(conn)
     return conn
 

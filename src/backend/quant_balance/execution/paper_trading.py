@@ -714,11 +714,9 @@ class _PaperMarketDataCache:
 def get_paper_connection(*, db_path: Path | None = None) -> sqlite3.Connection:
     """获取模拟盘 SQLite 连接并确保 schema 已就绪。"""
 
-    path = db_path or CACHE_DB_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    from quant_balance.data.connection import get_shared_connection
+
+    conn = get_shared_connection(db_path)
     ensure_paper_schema(conn)
     return conn
 

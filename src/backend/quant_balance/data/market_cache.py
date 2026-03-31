@@ -25,10 +25,9 @@ CREATE TABLE IF NOT EXISTS provider_daily_bars (
 
 def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     """获取 provider 行情缓存连接。"""
-    path = db_path or CACHE_DB_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=10)
-    conn.execute("PRAGMA journal_mode=WAL")
+    from quant_balance.data.connection import get_shared_connection
+
+    conn = get_shared_connection(db_path)
     conn.execute(_CREATE_PROVIDER_DAILY_SQL)
     return conn
 

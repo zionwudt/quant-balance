@@ -581,11 +581,9 @@ def load_last_scan_record(*, db_path: Path | None = None) -> dict[str, object] |
 def get_scheduler_connection(*, db_path: Path | None = None) -> sqlite3.Connection:
     """获取调度器 SQLite 连接。"""
 
-    path = db_path or CACHE_DB_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    from quant_balance.data.connection import get_shared_connection
+
+    conn = get_shared_connection(db_path)
     conn.execute(_CREATE_SCAN_RUNS_SQL)
     return conn
 
