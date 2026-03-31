@@ -22,6 +22,7 @@ import pandas as pd
 from quant_balance.data.cb_loader import load_dataframe as load_cb_dataframe
 from quant_balance.data.akshare_loader import (
     fetch_daily_bar_rows as fetch_akshare_daily_bar_rows,
+    fetch_minute_bar_dataframe as fetch_akshare_minute_dataframe,
 )
 from quant_balance.data.baostock_loader import (
     fetch_daily_bar_rows as fetch_baostock_daily_bar_rows,
@@ -149,7 +150,25 @@ def load_dataframe(
             return df
 
         if timeframe in MINUTE_TIMEFRAMES:
-            errors.append(f"{provider_name}: 分钟线当前仅支持 tushare 数据源")
+            if provider_name == "akshare":
+                try:
+                    period_map = {"1min": "1", "5min": "5", "15min": "15", "30min": "30", "60min": "60"}
+                    df = fetch_akshare_minute_dataframe(
+                        ts_code, start, end,
+                        period=period_map.get(timeframe, "5"),
+                        adjust=adjust,
+                    )
+                    if df is not None and not df.empty:
+                        df.attrs["data_provider"] = provider_name
+                        df.attrs["asset_type"] = "stock"
+                        df.attrs["timeframe"] = timeframe
+                        df.attrs["price_adjustment"] = adjust
+                        return df
+                except DataLoadError as exc:
+                    errors.append(f"{provider_name}: {exc}")
+                    continue
+            else:
+                errors.append(f"{provider_name}: 分钟线当前仅支持 tushare 和 akshare 数据源")
             continue
 
         conn = get_connection(db_path)

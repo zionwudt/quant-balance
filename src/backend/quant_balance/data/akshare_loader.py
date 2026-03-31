@@ -72,3 +72,62 @@ def fetch_daily_bar_rows(
         ))
     return rows
 
+
+def fetch_minute_bar_dataframe(
+    ts_code: str,
+    start_date: str,
+    end_date: str,
+    period: str = "5",
+    adjust: Literal["none", "qfq"] = "qfq",
+) -> pd.DataFrame:
+    """通过 AkShare 拉取分钟线行情。
+
+    参数:
+        period: "1", "5", "15", "30", "60"
+    """
+    try:
+        import akshare as ak
+    except ImportError as exc:
+        raise DataLoadError(
+            "需要安装 akshare 才能获取分钟线数据，请运行：pip install akshare"
+        ) from exc
+
+    adjust_param = "" if adjust == "none" else "qfq"
+    try:
+        df = ak.stock_zh_a_hist_min_em(
+            symbol=_to_akshare_symbol(ts_code),
+            period=period,
+            start_date=f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]} 09:30:00"
+            if len(start_date) == 8
+            else start_date,
+            end_date=f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]} 15:00:00"
+            if len(end_date) == 8
+            else end_date,
+            adjust=adjust_param,
+        )
+    except Exception as exc:
+        raise DataLoadError(f"AkShare 分钟线加载失败: {exc}") from exc
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    date_col = _pick_column(df, "时间", "datetime", "date")
+    open_col = _pick_column(df, "开盘", "open")
+    high_col = _pick_column(df, "最高", "high")
+    low_col = _pick_column(df, "最低", "low")
+    close_col = _pick_column(df, "收盘", "close")
+    volume_col = _pick_column(df, "成交量", "volume")
+
+    result = pd.DataFrame({
+        "Date": pd.to_datetime(df[date_col]),
+        "Open": df[open_col].astype(float),
+        "High": df[high_col].astype(float),
+        "Low": df[low_col].astype(float),
+        "Close": df[close_col].astype(float),
+        "Volume": df[volume_col].astype(float),
+    })
+    result.set_index("Date", inplace=True)
+    result.attrs["data_provider"] = "akshare"
+    result.attrs["asset_type"] = "stock"
+    return result
+
