@@ -189,18 +189,11 @@ class MacdCross(RiskManagedStrategy):
 
     def init(self):
         price = self.data.Close
-        self.macd_line = self.I(
-            lambda values: macd(
-                values, self.fast_period, self.slow_period, self.signal_period
-            )[0],
-            price,
+        macd_line, signal_line, _ = macd(
+            price, self.fast_period, self.slow_period, self.signal_period
         )
-        self.signal_line = self.I(
-            lambda values: macd(
-                values, self.fast_period, self.slow_period, self.signal_period
-            )[1],
-            price,
-        )
+        self.macd_line = self.I(lambda _: macd_line, price)
+        self.signal_line = self.I(lambda _: signal_line, price)
 
     def next(self):
         self._sync_risk_orders()
