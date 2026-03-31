@@ -98,6 +98,18 @@ def create_api_app() -> Any:
 
     app.add_middleware(RequestIdMiddleware)
 
+    # ── CORS 中间件 ──
+    from fastapi.middleware.cors import CORSMiddleware
+    from quant_balance.data.common import load_app_config as _load_cors_config
+
+    cors_origins = list((_load_cors_config().get("server") or {}).get("cors_origins", ["*"]))
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     # ── Web 前端静态文件 ──
     static_dir = WEB_DIR / "static"
     if static_dir.is_dir():

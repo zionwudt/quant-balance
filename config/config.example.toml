@@ -15,6 +15,8 @@ host = "127.0.0.1"
 port = 8765
 # API Key 认证（可选）；配置后所有 API 请求需携带 Authorization: Bearer <key>
 # api_key = "your-secret-api-key"
+# CORS 允许的源列表（默认 ["*"]）
+# cors_origins = ["http://localhost:3000", "https://your-domain.com"]
 
 [scheduler]
 enabled = false
