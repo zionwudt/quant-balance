@@ -53,6 +53,9 @@ def create_api_app() -> Any:
         app.state.scheduler_manager = _scheduler_manager
         app.state.paper_manager = _paper_manager
         _scheduler_manager.start()
+        # 后台预加载 vectorbt，减少首次请求延迟
+        import threading
+        threading.Thread(target=_preload_vectorbt, daemon=True).start()
         yield
         _scheduler_manager.shutdown()
 
@@ -120,3 +123,12 @@ def run_api_server(*, host: str, port: int) -> None:
     print(f"QuantBalance API is ready to start: http://{host}:{port}")
     print(f"接口文档地址：http://{host}:{port}/docs")
     uvicorn.run(app, host=host, port=port)
+
+
+def _preload_vectorbt() -> None:
+    """后台线程预加载 vectorbt，避免首次请求 2-3 秒延迟。"""
+    try:
+        import vectorbt  # noqa: F401
+        logger.info("vectorbt 预加载完成")
+    except ImportError:
+        pass
