@@ -1,4 +1,14 @@
-"""QMT 执行适配器预留实现。"""
+"""QMT 执行适配器实现。
+
+支持两种模式：
+1. 注入模式：外部传入 order_executor/positions_provider/balance_provider
+2. miniQMT 模式：自动连接 miniQMT 进程（需安装 xtquant SDK）
+
+miniQMT 使用说明：
+- 安装 xtquant: pip install xtquant（或从 QMT 客户端目录复制）
+- 配置 qmt_path 指向 QMT 安装目录
+- 确保 miniQMT 进程已启动
+"""
 
 from __future__ import annotations
 
@@ -31,6 +41,30 @@ class QmtAdapter(BrokerAdapter):
         self._order_executor = order_executor
         self._positions_provider = positions_provider
         self._balance_provider = balance_provider
+        self._xt_trader = None
+        self._xt_connected = False
+
+    def connect(self) -> bool:
+        """尝试连接 miniQMT。成功返回 True，未安装 xtquant 返回 False。"""
+        if self._xt_connected:
+            return True
+        try:
+            from xtquant.xttrader import XtQuantTrader
+            from xtquant.xttype import StockAccount
+        except ImportError:
+            return False
+
+        if not self.qmt_path:
+            raise RuntimeError("QMT 适配器需要配置 qmt_path。")
+
+        self._xt_trader = XtQuantTrader(self.qmt_path, self.session_id or "quant_balance")
+        account = StockAccount(self.account_id, self.account_type)
+        self._xt_trader.start()
+        connect_result = self._xt_trader.connect()
+        if connect_result != 0:
+            raise RuntimeError(f"miniQMT 连接失败，错误码: {connect_result}")
+        self._xt_connected = True
+        return True
 
     def place_order(self, signal: ExecutionSignal | Mapping[str, object]) -> OrderResult:
         normalized = self.normalize_signal(signal)
