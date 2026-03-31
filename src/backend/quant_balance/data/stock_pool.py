@@ -559,3 +559,120 @@ def filter_pool_at_date(
         return records
     finally:
         conn.close()
+
+
+# ── 可转债池支持 ──
+
+_CREATE_CB_LIST_SQL = """
+CREATE TABLE IF NOT EXISTS cb_list (
+    ts_code TEXT PRIMARY KEY,
+    bond_short_name TEXT,
+    stk_code TEXT,
+    stk_short_name TEXT,
+    list_date TEXT,
+    delist_date TEXT,
+    maturity_date TEXT,
+    par_value REAL,
+    issue_size REAL,
+    convert_price REAL
+);
+"""
+
+
+@dataclass(slots=True)
+class CbPoolRecord:
+    """可转债池记录。"""
+
+    ts_code: str
+    bond_short_name: str
+    stk_code: str
+    stk_short_name: str
+    list_date: str
+    delist_date: str | None
+    maturity_date: str | None
+    par_value: float
+    issue_size: float | None
+    convert_price: float | None
+
+
+def get_cb_pool_at_date(
+    trade_date: str,
+    *,
+    db_path: Path | None = None,
+) -> list[CbPoolRecord]:
+    """获取指定日期仍在交易的可转债列表。"""
+
+    conn = _get_connection(db_path)
+    try:
+        conn.execute(_CREATE_CB_LIST_SQL)
+        count = conn.execute("SELECT COUNT(*) FROM cb_list").fetchone()[0]
+        if count == 0:
+            _fetch_and_cache_cb_list(conn)
+
+        normalized_date = trade_date.replace("-", "")
+        rows = conn.execute(
+            "SELECT * FROM cb_list WHERE list_date <= ? AND (delist_date IS NULL OR delist_date > ?)",
+            (normalized_date, normalized_date),
+        ).fetchall()
+
+        records: list[CbPoolRecord] = []
+        for row in rows:
+            records.append(CbPoolRecord(
+                ts_code=str(row["ts_code"]),
+                bond_short_name=str(row["bond_short_name"] or ""),
+                stk_code=str(row["stk_code"] or ""),
+                stk_short_name=str(row["stk_short_name"] or ""),
+                list_date=str(row["list_date"] or ""),
+                delist_date=str(row["delist_date"] or "") or None,
+                maturity_date=str(row["maturity_date"] or "") or None,
+                par_value=float(row["par_value"] or 100),
+                issue_size=float(row["issue_size"]) if row["issue_size"] else None,
+                convert_price=float(row["convert_price"]) if row["convert_price"] else None,
+            ))
+        return records
+    finally:
+        conn.close()
+
+
+def _fetch_and_cache_cb_list(conn: sqlite3.Connection) -> None:
+    """从 tushare 拉取可转债基础信息并缓存。"""
+    try:
+        import tushare as ts
+    except ImportError as exc:
+        raise DataLoadError("当前环境未安装 tushare，无法获取可转债列表。") from exc
+
+    pro = ts.pro_api(load_tushare_token())
+    df = pro.cb_basic(fields=[
+        "ts_code", "bond_short_name", "stk_code", "stk_short_name",
+        "list_date", "delist_date", "maturity_date", "par_value",
+        "issue_size", "conv_price",
+    ])
+    if df is None or df.empty:
+        return
+
+    rows = []
+    for _, row_data in df.iterrows():
+        list_date = str(row_data.get("list_date") or "")
+        if not list_date or list_date == "None":
+            continue
+        rows.append((
+            str(row_data["ts_code"]),
+            str(row_data.get("bond_short_name") or ""),
+            str(row_data.get("stk_code") or ""),
+            str(row_data.get("stk_short_name") or ""),
+            list_date,
+            str(row_data.get("delist_date") or "") or None,
+            str(row_data.get("maturity_date") or "") or None,
+            float(row_data.get("par_value") or 100),
+            float(row_data["issue_size"]) if row_data.get("issue_size") else None,
+            float(row_data["conv_price"]) if row_data.get("conv_price") else None,
+        ))
+
+    conn.executemany(
+        "INSERT OR REPLACE INTO cb_list "
+        "(ts_code, bond_short_name, stk_code, stk_short_name, list_date, delist_date, "
+        "maturity_date, par_value, issue_size, convert_price) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    conn.commit()
