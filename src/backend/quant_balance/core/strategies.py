@@ -244,14 +244,9 @@ class BollingerBreakout(RiskManagedStrategy):
 
     def init(self):
         price = self.data.Close
-        self.upper_band = self.I(
-            lambda values: bollinger(values, self.period, self.num_std)[0],
-            price,
-        )
-        self.middle_band = self.I(
-            lambda values: bollinger(values, self.period, self.num_std)[1],
-            price,
-        )
+        upper, middle, _ = bollinger(price, self.period, self.num_std)
+        self.upper_band = self.I(lambda _: upper, price)
+        self.middle_band = self.I(lambda _: middle, price)
 
     def next(self):
         self._sync_risk_orders()
