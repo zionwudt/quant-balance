@@ -5,6 +5,7 @@ from quant_balance.api.routes.paper import router as paper_router
 from quant_balance.api.routes.screening import router as screening_router
 from quant_balance.api.routes.signals import router as signals_router
 from quant_balance.api.routes.system import router as system_router
+from quant_balance.api.routes.ws import router as ws_router
 
 all_routers = [
     system_router,
@@ -12,6 +13,7 @@ all_routers = [
     screening_router,
     signals_router,
     paper_router,
+    ws_router,
 ]
 
 __all__ = [
@@ -21,5 +23,6 @@ __all__ = [
     "screening_router",
     "signals_router",
     "system_router",
+    "ws_router",
 ]
 
