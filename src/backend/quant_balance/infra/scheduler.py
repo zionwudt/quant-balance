@@ -439,6 +439,12 @@ def run_daily_scan(
             notifications_count=len(notifications),
             status="completed",
         )
+        _notify_ws("scan_complete", {
+            "scan_id": scan_id,
+            "trade_date": effective_trade_date,
+            "signals_count": len(signals),
+            "strategies": scheduler_config.strategies,
+        })
         return payload
     except Exception as exc:  # noqa: BLE001
         payload = {
@@ -835,4 +841,13 @@ def _load_apscheduler() -> tuple[type | None, type | None]:
     except ImportError:
         return None, None
     return BackgroundScheduler, CronTrigger
+
+
+def _notify_ws(event_type: str, payload: dict) -> None:
+    """尝试通过 WebSocket 推送事件，失败静默。"""
+    try:
+        from quant_balance.api.routes.ws import notify_event
+        notify_event(event_type, payload)
+    except Exception:  # noqa: BLE001
+        pass
 
