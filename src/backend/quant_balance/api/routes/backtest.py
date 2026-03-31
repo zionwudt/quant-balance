@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+from uuid import uuid4
+
 from fastapi import APIRouter, HTTPException
 
 from quant_balance.api.deps import log_api_error
@@ -9,6 +12,9 @@ from quant_balance.api.schemas import BacktestRunRequest, OptimizeRequest
 from quant_balance.data import DataLoadError
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
+
+# ── 异步优化任务存储 ──
+_optimize_tasks: dict[str, dict] = {}
 
 
 @router.post("/run")
@@ -213,4 +219,50 @@ def backtest_optimize(req: OptimizeRequest) -> dict:
     except Exception as exc:  # noqa: BLE001
         log_api_error(endpoint="/api/backtest/optimize", status_code=500, exc=exc, context=context)
         raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+
+@router.post("/optimize/async")
+def backtest_optimize_async(req: OptimizeRequest) -> dict:
+    """异步参数优化 — 立即返回 task_id，后台执行。"""
+    from quant_balance.services.backtest_service import run_optimize
+
+    task_id = uuid4().hex[:12]
+    _optimize_tasks[task_id] = {"status": "running", "result": None, "error": None}
+
+    kwargs: dict = {
+        "symbol": req.symbol,
+        "start_date": req.start_date,
+        "end_date": req.end_date,
+        "asset_type": req.asset_type,
+        "strategy": req.strategy,
+        "cash": req.cash,
+        "commission": req.commission,
+        "maximize": req.maximize,
+        "param_ranges": req.param_ranges,
+        "top_n": req.top_n,
+        "constraints": [item.model_dump(exclude_none=True) for item in req.constraints],
+    }
+    if req.walk_forward is not None:
+        kwargs["walk_forward"] = req.walk_forward.model_dump(exclude_none=True)
+    if req.data_provider is not None:
+        kwargs["data_provider"] = req.data_provider
+
+    def _run() -> None:
+        try:
+            result = run_optimize(**kwargs)
+            _optimize_tasks[task_id] = {"status": "completed", "result": result, "error": None}
+        except Exception as exc:  # noqa: BLE001
+            _optimize_tasks[task_id] = {"status": "failed", "result": None, "error": str(exc)}
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"task_id": task_id, "status": "running"}
+
+
+@router.get("/optimize/async/{task_id}")
+def backtest_optimize_status(task_id: str) -> dict:
+    """查询异步优化任务状态。"""
+    task = _optimize_tasks.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 不存在")
+    return {"task_id": task_id, **task}
 
