@@ -63,6 +63,23 @@ def create_api_app() -> Any:
         lifespan=lifespan,
     )
 
+    # ── API Key 认证中间件 ──
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import JSONResponse
+    from quant_balance.api.deps import load_api_key, verify_api_key
+
+    _api_key = load_api_key()
+
+    class ApiKeyMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            auth = request.headers.get("Authorization") or request.headers.get("X-API-Key")
+            if not verify_api_key(request.url.path, auth, _api_key):
+                return JSONResponse({"detail": "未授权，请提供有效的 API Key。"}, status_code=401)
+            return await call_next(request)
+
+    if _api_key:
+        app.add_middleware(ApiKeyMiddleware)
+
     # ── Web 前端静态文件 ──
     static_dir = WEB_DIR / "static"
     if static_dir.is_dir():

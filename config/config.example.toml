@@ -13,6 +13,8 @@ daily_providers = ["akshare", "baostock", "tushare"]
 [server]
 host = "127.0.0.1"
 port = 8765
+# API Key 认证（可选）；配置后所有 API 请求需携带 Authorization: Bearer <key>
+# api_key = "your-secret-api-key"
 
 [scheduler]
 enabled = false
