@@ -215,9 +215,9 @@ class RsiStrategy(RiskManagedStrategy):
 
     def next(self):
         self._sync_risk_orders()
-        if not self.position and _latest_cross_above(self.rsi_value, self.oversold):
+        if not self.position and crossover(self.rsi_value, self.oversold):
             self._buy_with_risk_controls()
-        elif self.position and _latest_cross_above(self.rsi_value, self.overbought):
+        elif self.position and crossover(self.rsi_value, self.overbought):
             self.position.close()
 
 
@@ -260,9 +260,9 @@ class GridStrategy(RiskManagedStrategy):
         self._sync_risk_orders()
         lower = self.anchor * (1 - self.grid_pct)
         upper = self.anchor * (1 + self.grid_pct)
-        if not self.position and _latest_cross_below(self.data.Close, lower):
+        if not self.position and crossover(lower, self.data.Close):
             self._buy_with_risk_controls()
-        elif self.position and _latest_cross_above(self.data.Close, upper):
+        elif self.position and crossover(self.data.Close, upper):
             self.position.close()
 
 
