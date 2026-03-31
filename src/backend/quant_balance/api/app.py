@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from quant_balance import __version__
@@ -42,25 +44,24 @@ def create_api_app() -> Any:
     from quant_balance.infra.scheduler import DailyScanScheduler
     from quant_balance.api.routes import all_routers
 
+    # ── 全局单例管理器 ──
+    _scheduler_manager = DailyScanScheduler()
+    _paper_manager = PaperTradingManager()
+
+    @asynccontextmanager
+    async def lifespan(app: Any) -> AsyncIterator[None]:
+        app.state.scheduler_manager = _scheduler_manager
+        app.state.paper_manager = _paper_manager
+        _scheduler_manager.start()
+        yield
+        _scheduler_manager.shutdown()
+
     app = FastAPI(
         title="QuantBalance API",
         version=__version__,
         description="QuantBalance 回测与研究接口 — backtesting.py + vectorbt",
+        lifespan=lifespan,
     )
-
-    # ── 全局单例管理器 ──
-    _scheduler_manager = DailyScanScheduler()
-    _paper_manager = PaperTradingManager()
-    app.state.scheduler_manager = _scheduler_manager
-    app.state.paper_manager = _paper_manager
-
-    @app.on_event("startup")
-    def startup_scheduler() -> None:
-        _scheduler_manager.start()
-
-    @app.on_event("shutdown")
-    def shutdown_scheduler() -> None:
-        _scheduler_manager.shutdown()
 
     # ── Web 前端静态文件 ──
     static_dir = WEB_DIR / "static"
