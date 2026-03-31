@@ -85,6 +85,19 @@ def create_api_app() -> Any:
     if _api_key:
         app.add_middleware(ApiKeyMiddleware)
 
+    # ── Request ID 追踪中间件 ──
+    from uuid import uuid4
+
+    class RequestIdMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            request_id = request.headers.get("X-Request-Id") or uuid4().hex[:12]
+            request.state.request_id = request_id
+            response = await call_next(request)
+            response.headers["X-Request-Id"] = request_id
+            return response
+
+    app.add_middleware(RequestIdMiddleware)
+
     # ── Web 前端静态文件 ──
     static_dir = WEB_DIR / "static"
     if static_dir.is_dir():
