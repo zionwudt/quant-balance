@@ -52,6 +52,8 @@ def create_api_app() -> Any:
     async def lifespan(app: Any) -> AsyncIterator[None]:
         app.state.scheduler_manager = _scheduler_manager
         app.state.paper_manager = _paper_manager
+        # 启动前校验调度器配置，快速失败
+        _validate_scheduler_config()
         _scheduler_manager.start()
         # 后台预加载 vectorbt，减少首次请求延迟
         import threading
@@ -132,3 +134,13 @@ def _preload_vectorbt() -> None:
         logger.info("vectorbt 预加载完成")
     except ImportError:
         pass
+
+
+def _validate_scheduler_config() -> None:
+    """启动时校验调度器配置，配置错误立即报告。"""
+    try:
+        from quant_balance.infra.scheduler import load_scheduler_config
+        load_scheduler_config()
+        logger.info("调度器配置校验通过")
+    except Exception as exc:
+        logger.warning("调度器配置校验失败: %s", exc)
