@@ -684,8 +684,9 @@ def get_paper_connection(*, db_path: Path | None = None) -> sqlite3.Connection:
 
     path = db_path or CACHE_DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
     ensure_paper_schema(conn)
     return conn
 
