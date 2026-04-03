@@ -4,7 +4,7 @@
 
 import { api, ApiError } from '../api.js';
 import { toast } from '../components/toast.js';
-import { getAppSettings, updateAppSettings } from '../settings.js';
+import { getAppSettings, updateAppSettings, getDataProvider } from '../settings.js';
 import { downloadJson } from '../utils/download.js';
 
 let latestConfigStatus = null;
@@ -69,6 +69,29 @@ function buildHTML(settings, status) {
             <button class="btn btn-primary" id="settings-token-save">保存 Token</button>
           </div>
           <div class="settings-inline-status" id="settings-token-status"></div>
+        </div>
+
+        <div class="card">
+          <div class="results-card-head">
+            <div>
+              <div class="card-title">全局行情数据源</div>
+              <p class="card-subtitle">选择后全局生效，所有页面的行情数据均使用此数据源；选择"自动"则按 akshare → baostock → tushare 优先级自动回退。</p>
+            </div>
+          </div>
+          <div class="settings-section-grid">
+            <div class="advanced-field">
+              <span class="form-label">数据源</span>
+              <div class="choice-group">
+                ${buildRadio('data-provider', '', '自动选择', !settings.data_provider)}
+                ${buildRadio('data-provider', 'akshare', 'AkShare（免费）', settings.data_provider === 'akshare')}
+                ${buildRadio('data-provider', 'baostock', 'BaoStock（免费）', settings.data_provider === 'baostock')}
+                ${buildRadio('data-provider', 'tushare', 'Tushare（需Token）', settings.data_provider === 'tushare')}
+              </div>
+              <span class="field-help">
+                AkShare 和 BaoStock 免费无需配置；Tushare 需要先在上方配置有效 Token。股票列表和财务数据始终使用 Tushare 缓存（仅在缓存过期时才请求）。
+              </span>
+            </div>
+          </div>
         </div>
 
         <div class="card">
@@ -229,6 +252,24 @@ function bindEvents(container) {
     input.addEventListener('change', syncVisualPreview);
   });
 
+  container.querySelectorAll('input[name="data-provider"]').forEach((input) => {
+    input.addEventListener('change', async () => {
+      const provider = container.querySelector('input[name="data-provider"]:checked')?.value || '';
+      const previousProvider = getDataProvider();
+      updateAppSettings({ data_provider: provider });
+      try {
+        await api.setDataProvider(provider);
+        toast.success(`全局数据源已切换为：${provider || '自动选择'}`);
+      } catch (error) {
+        updateAppSettings({ data_provider: previousProvider });
+        const prev = container.querySelector(`input[name="data-provider"][value="${previousProvider}"]`);
+        if (prev) prev.checked = true;
+        const message = error instanceof ApiError ? error.message : '数据源切换失败';
+        toast.error(message);
+      }
+    });
+  });
+
   container.querySelector('#settings-token-test')?.addEventListener('click', async () => {
     const token = container.querySelector('#settings-token').value.trim();
     const statusEl = container.querySelector('#settings-token-status');
@@ -314,6 +355,7 @@ function collectSettingsPatch(container) {
   return {
     appearance: container.querySelector('input[name="appearance"]:checked')?.value || 'dark',
     rise_fall_style: container.querySelector('input[name="rise-style"]:checked')?.value || 'international',
+    data_provider: container.querySelector('input[name="data-provider"]:checked')?.value || '',
     notifications: collectNotificationSettings(container),
     trading_defaults: {
       cash: Number(container.querySelector('#settings-cash').value || 100000),

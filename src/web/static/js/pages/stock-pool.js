@@ -5,6 +5,7 @@
 import { api, ApiError } from '../api.js';
 import { toast } from '../components/toast.js';
 import { downloadCsv } from '../utils/download.js';
+import { getDataProvider } from '../settings.js';
 
 let pageState = createInitialState();
 
@@ -106,7 +107,7 @@ function buildHTML(meta, params = {}) {
       <div class="card stock-pool-toolbar expanded">
         <button type="button" class="advanced-panel-toggle" id="sp-filter-toggle" aria-expanded="true">
           <span>筛选器</span>
-          <span class="advanced-panel-meta">股票池日期 / 行业 / 市值 / PE / 次新过滤</span>
+          <span class="advanced-panel-meta">数据源 / 股票池日期 / 行业 / 市值 / PE / 次新过滤</span>
           <span class="advanced-panel-caret">⌄</span>
         </button>
         <div class="advanced-panel-body stock-pool-filter-body" style="grid-template-rows:1fr">
@@ -116,6 +117,14 @@ function buildHTML(meta, params = {}) {
                 <span class="form-label">股票池日期</span>
                 <input class="input" id="sp-pool-date" type="date" value="${today}">
                 <span class="field-help">按照该日期的历史股票池和财务快照做筛选。</span>
+              </label>
+
+              <label class="advanced-field">
+                <span class="form-label">行情数据源</span>
+                <input class="input" id="sp-data-provider-display" type="text" readonly
+                  value="${_dataProviderLabel()}"
+                  title="在「设置」页面切换全局数据源">
+                <span class="field-help">全局数据源在「设置 → 全局行情数据源」中统一管理。</span>
               </label>
 
               <label class="advanced-field">
@@ -282,7 +291,7 @@ function bindEvents(container) {
   });
 
   container.querySelector('#sp-launch')?.addEventListener('click', () => {
-    launchPortfolioBacktest();
+    launchPortfolioBacktest(container);
   });
 }
 
@@ -308,18 +317,18 @@ async function refreshStockPool(container) {
     const filters = collectFilters(container);
     const factors = collectFactorSpecs(container);
     const topN = Number(container.querySelector('#sp-top-n').value || 50);
+    const dataProvider = getDataProvider();
+
+    const poolReq = { pool_date: poolDate, filters };
+    const rankReq = { pool_date: poolDate, pool_filters: filters, factors, top_n: topN };
+    if (dataProvider) {
+      poolReq.data_provider = dataProvider;
+      rankReq.data_provider = dataProvider;
+    }
 
     const [poolPayload, rankingPayload] = await Promise.all([
-      api.filterStockPool({
-        pool_date: poolDate,
-        filters,
-      }),
-      api.runFactorRanking({
-        pool_date: poolDate,
-        pool_filters: filters,
-        factors,
-        top_n: topN,
-      }),
+      api.filterStockPool(poolReq),
+      api.runFactorRanking(rankReq),
     ]);
 
     if (requestId !== pageState.requestSerial) {
@@ -536,18 +545,23 @@ function syncSelectionStatus(container) {
   container.querySelector('#sp-launch').disabled = selected.length === 0;
 }
 
-function launchPortfolioBacktest() {
+function launchPortfolioBacktest(container) {
   const symbols = [...pageState.selectedSymbols];
   if (!symbols.length) {
     toast.error('请先在表格中选择股票');
     return;
   }
   const params = { symbols: symbols.join(',') };
+  const dataProvider = getDataProvider();
+  if (dataProvider) {
+    params.data_provider = dataProvider;
+  }
   if (pageState.navigateTo) {
     void pageState.navigateTo('backtest', params);
     return;
   }
-  window.location.hash = `#/backtest?symbols=${encodeURIComponent(params.symbols)}`;
+  const qs = new URLSearchParams(params).toString();
+  window.location.hash = `#/backtest?${qs}`;
 }
 
 function exportRankings() {
@@ -606,4 +620,12 @@ function formatDateInput(date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function _dataProviderLabel() {
+  const provider = getDataProvider();
+  if (provider === 'tushare') return 'Tushare（全局）';
+  if (provider === 'akshare') return 'AkShare（全局）';
+  if (provider === 'baostock') return 'BaoStock（全局）';
+  return '自动选择（全局）';
 }

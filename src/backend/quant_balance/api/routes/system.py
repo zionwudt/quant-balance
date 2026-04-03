@@ -12,6 +12,10 @@ from quant_balance.api.schemas import (
 )
 from quant_balance.core.strategies import SIGNAL_REGISTRY, STRATEGY_REGISTRY
 from quant_balance.data import DataLoadError
+from quant_balance.data.common import (
+    DEFAULT_DAILY_PROVIDERS,
+    SUPPORTED_DAILY_PROVIDERS,
+)
 
 router = APIRouter()
 
@@ -82,6 +86,64 @@ def save_tushare_config(req: TushareTokenRequest) -> dict[str, object]:
             context=context,
         )
         raise HTTPException(status_code=500, detail="内部服务器错误") from exc
+
+
+@router.get("/api/config/data-provider")
+def get_data_provider() -> dict[str, object]:
+    """返回当前全局行情数据源配置。"""
+    from quant_balance.data.common import load_app_config
+
+    config = load_app_config()
+    data_cfg = config.get("data") or {}
+    providers = data_cfg.get("daily_providers", list(DEFAULT_DAILY_PROVIDERS))
+    primary = data_cfg.get("daily_provider")
+    return {
+        "daily_providers": providers,
+        "primary": primary or (providers[0] if providers else None),
+        "supported": sorted(SUPPORTED_DAILY_PROVIDERS),
+    }
+
+
+@router.post("/api/config/data-provider")
+def set_data_provider(req: dict) -> dict[str, object]:
+    """设置全局行情数据源优先级。"""
+    from quant_balance.data.common import (
+        get_app_config_path,
+        load_app_config,
+    )
+
+    provider = req.get("provider", "").strip().lower()
+
+    if provider and provider not in SUPPORTED_DAILY_PROVIDERS:
+        supported = ", ".join(sorted(SUPPORTED_DAILY_PROVIDERS))
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的数据源 {provider!r}，当前支持: {supported}",
+        )
+
+    config = load_app_config()
+    data_cfg = dict(config.get("data") or {})
+
+    if provider:
+        remaining = [p for p in DEFAULT_DAILY_PROVIDERS if p != provider]
+        data_cfg["daily_providers"] = [provider] + list(remaining)
+    else:
+        data_cfg["daily_providers"] = list(DEFAULT_DAILY_PROVIDERS)
+
+    data_cfg.pop("daily_provider", None)
+    config["data"] = data_cfg
+
+    from quant_balance.data.common import dump_toml
+
+    config_path = get_app_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(dump_toml(config), encoding="utf-8")
+
+    return {
+        "daily_providers": data_cfg["daily_providers"],
+        "primary": data_cfg["daily_providers"][0],
+        "message": f"全局数据源已更新为：{data_cfg['daily_providers']}",
+    }
 
 
 @router.get("/api/scheduler/status")

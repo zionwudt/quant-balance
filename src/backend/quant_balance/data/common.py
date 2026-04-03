@@ -130,11 +130,11 @@ def save_tushare_token(token: str) -> Path:
     config["tushare"] = tushare_cfg
 
     _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _CONFIG_PATH.write_text(_dump_toml(config), encoding="utf-8")
+    _CONFIG_PATH.write_text(dump_toml(config), encoding="utf-8")
     return _CONFIG_PATH
 
 
-def _dump_toml(config: dict) -> str:
+def dump_toml(config: dict) -> str:
     lines: list[str] = []
 
     for key, value in config.items():

@@ -73,13 +73,17 @@ def stock_pool_filter(req: StockPoolFilterRequest) -> dict:
         "pool_date": req.pool_date,
         "filters": filters,
         "symbols_count": len(req.symbols) if req.symbols is not None else None,
+        "data_provider": req.data_provider,
     }
     try:
-        return run_stock_pool_filter(
-            pool_date=req.pool_date,
-            filters=filters,
-            symbols=req.symbols,
-        )
+        kwargs: dict = {
+            "pool_date": req.pool_date,
+            "filters": filters,
+            "symbols": req.symbols,
+        }
+        if req.data_provider is not None:
+            kwargs["data_provider"] = req.data_provider
+        return run_stock_pool_filter(**kwargs)
     except (ValueError, DataLoadError) as exc:
         log_api_error(endpoint="/api/stock-pool/filter", status_code=400, exc=exc, context=context)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -106,17 +110,21 @@ def factors_rank(req: FactorsRankRequest) -> dict:
         "market_regime_symbol": req.market_regime_symbol,
         "top_n": req.top_n,
         "symbols_count": len(req.symbols) if req.symbols is not None else None,
+        "data_provider": req.data_provider,
     }
     try:
-        return run_factor_ranking(
-            pool_date=req.pool_date,
-            factors=factors,
-            pool_filters=pool_filters,
-            market_regime=req.market_regime,
-            market_regime_symbol=req.market_regime_symbol,
-            top_n=req.top_n,
-            symbols=req.symbols,
-        )
+        kwargs: dict = {
+            "pool_date": req.pool_date,
+            "factors": factors,
+            "pool_filters": pool_filters,
+            "market_regime": req.market_regime,
+            "market_regime_symbol": req.market_regime_symbol,
+            "top_n": req.top_n,
+            "symbols": req.symbols,
+        }
+        if req.data_provider is not None:
+            kwargs["data_provider"] = req.data_provider
+        return run_factor_ranking(**kwargs)
     except (ValueError, DataLoadError) as exc:
         log_api_error(endpoint="/api/factors/rank", status_code=400, exc=exc, context=context)
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -42,6 +42,7 @@ def run_factor_ranking(
     pool_filters: dict | None = None,
     market_regime: str | None = None,
     market_regime_symbol: str = DEFAULT_REGIME_SYMBOL,
+    data_provider: str | None = None,
 ) -> dict[str, object]:
     """执行多因子打分与排名。"""
 
@@ -193,6 +194,7 @@ def run_factor_ranking(
                 }
                 for spec in factor_specs
             ],
+            "data_provider": data_provider,
         },
     }
     log_event(

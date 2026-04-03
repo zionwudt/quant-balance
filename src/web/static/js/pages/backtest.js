@@ -10,7 +10,7 @@ import { renderMonthlyHeatmap, disposeMonthlyHeatmap } from '../components/chart
 import { renderPortfolioAttributionCharts, disposePortfolioAttributionCharts } from '../components/chart-attribution.js';
 import { renderTradesTable } from '../components/data-table.js';
 import { createMultiStockSearch } from '../components/stock-search.js';
-import { getAppSettings } from '../settings.js';
+import { getAppSettings, getDataProvider } from '../settings.js';
 import { downloadJson } from '../utils/download.js';
 
 const DEFAULT_STRATEGY_NAMES = [
@@ -182,6 +182,7 @@ function createInitialState(params = {}) {
     currentStrategy: 'sma_cross',
     strategyValues: {},
     symbolSearch: null,
+    dataProvider: params?.data_provider || getDataProvider(),
     tradingDefaults: {
       cash: Number(tradingDefaults.cash || 100000),
       commission: Number(tradingDefaults.commission || 0.001),
@@ -296,12 +297,20 @@ function buildHTML() {
           <div class="advanced-panel" id="bt-advanced-panel">
             <button type="button" class="advanced-panel-toggle" id="bt-advanced-toggle" aria-expanded="false">
               <span>高级设置</span>
-              <span class="advanced-panel-meta">滑点 / 风控 / 基准 / 再平衡</span>
+              <span class="advanced-panel-meta">数据源 / 滑点 / 风控 / 基准 / 再平衡</span>
               <span class="advanced-panel-caret">⌄</span>
             </button>
             <div class="advanced-panel-body">
               <div class="advanced-panel-inner">
                 <div class="advanced-settings-grid">
+                  <label class="advanced-field">
+                    <span class="form-label">行情数据源</span>
+                    <input class="input" id="bt-data-provider" type="text" readonly
+                      value="${_btDataProviderLabel(pageState.dataProvider)}"
+                      title="在「设置」页面切换全局数据源">
+                    <span class="field-help">全局数据源在「设置 → 全局行情数据源」中统一管理。</span>
+                  </label>
+
                   <label class="advanced-field" id="bt-benchmark-field">
                     <span class="form-label">基准指数</span>
                     <select class="input" id="bt-benchmark-symbol">
@@ -599,9 +608,11 @@ async function runBacktest(container) {
   resultsEl.innerHTML = buildSkeleton(isPortfolio ? 4 : 5);
   document.querySelector('.progress-bar')?.classList.add('active');
 
+  const dataProvider = getDataProvider();
+
   try {
     if (isPortfolio) {
-      const result = await api.runPortfolio({
+      const portfolioPayload = {
         symbols: selectedSymbols,
         start_date: startDate,
         end_date: endDate,
@@ -609,7 +620,11 @@ async function runBacktest(container) {
         rebalance_frequency: container.querySelector('#bt-rebalance-frequency').value,
         cash,
         commission,
-      });
+      };
+      if (dataProvider) {
+        portfolioPayload.data_provider = dataProvider;
+      }
+      const result = await api.runPortfolio(portfolioPayload);
       lastPortfolioResult = result;
       renderPortfolioResults(resultsEl, result);
     } else {
@@ -633,6 +648,9 @@ async function runBacktest(container) {
       }
       if (slippageRate > 0) {
         payload.slippage_rate = slippageRate;
+      }
+      if (dataProvider) {
+        payload.data_provider = dataProvider;
       }
 
       const result = await api.runBacktest(payload);
@@ -1253,4 +1271,11 @@ function parseSymbolsParam(value) {
     .split(',')
     .map(item => item.trim().toUpperCase())
     .filter(Boolean);
+}
+
+function _btDataProviderLabel(provider) {
+  if (provider === 'tushare') return 'Tushare（全局）';
+  if (provider === 'akshare') return 'AkShare（全局）';
+  if (provider === 'baostock') return 'BaoStock（全局）';
+  return '自动选择（全局）';
 }

@@ -8,6 +8,7 @@ token = "你的token"
 
 [data]
 # 日线数据源优先级；会按顺序自动回退
+# 可在 Web 端「设置 → 全局行情数据源」中切换，保存后会自动更新此配置
 daily_providers = ["akshare", "baostock", "tushare"]
 
 [server]

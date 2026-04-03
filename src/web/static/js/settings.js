@@ -11,4 +11,5 @@ export {
   applyVisualSettings,
   cycleAppearanceMode,
   getVisualPalette,
+  getDataProvider,
 } from './core/settings.js';

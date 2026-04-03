@@ -9,6 +9,7 @@ const RISE_STYLE_KEY = 'qb-rise-fall-style';
 const DEFAULT_SETTINGS = {
   appearance: 'dark',
   rise_fall_style: 'international',
+  data_provider: '',
   notifications: {
     enabled: [],
     wecom: {
@@ -74,6 +75,10 @@ export function updateAppearance(appearance) {
 
 export function updateRiseFallStyle(style) {
   return updateAppSettings({ rise_fall_style: style });
+}
+
+export function getDataProvider() {
+  return getAppSettings().data_provider || '';
 }
 
 export function resolveTheme(appearance) {

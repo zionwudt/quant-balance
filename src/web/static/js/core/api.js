@@ -161,6 +161,17 @@ export const api = {
     return request('/api/config/status');
   },
 
+  getDataProvider() {
+    return request('/api/config/data-provider');
+  },
+
+  setDataProvider(provider) {
+    return request('/api/config/data-provider', {
+      method: 'POST',
+      body: JSON.stringify({ provider: provider || '' }),
+    });
+  },
+
   saveTushareToken(token, validateOnly = false) {
     return request('/api/config/tushare-token', {
       method: 'POST',

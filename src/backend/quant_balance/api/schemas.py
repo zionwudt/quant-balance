@@ -30,6 +30,10 @@ class StockPoolFilterRequest(BaseModel):
     pool_date: str = Field(..., description="股票池基准日期 YYYY-MM-DD")
     filters: StockPoolFiltersRequest = Field(default_factory=StockPoolFiltersRequest)
     symbols: list[str] | None = Field(None, description="可选候选股票列表；传入时会与历史股票池取交集")
+    data_provider: str | None = Field(
+        None,
+        description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",
+    )
 
 
 class FactorSpecRequest(BaseModel):
@@ -61,6 +65,10 @@ class FactorsRankRequest(BaseModel):
     market_regime_symbol: str = Field("000300.SH", description="市场状态识别基准指数，默认沪深300")
     top_n: int = Field(50, gt=0, description="返回前 N 名")
     symbols: list[str] | None = Field(None, description="可选候选股票列表；传入时会与历史股票池取交集")
+    data_provider: str | None = Field(
+        None,
+        description="可选行情数据源：tushare / akshare / baostock；不传则按配置顺序回退",
+    )
 
 
 class BacktestRunRequest(BaseModel):

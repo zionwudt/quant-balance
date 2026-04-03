@@ -16,6 +16,7 @@ def run_stock_pool_filter(
     pool_date: str,
     filters: dict | None = None,
     symbols: list[str] | None = None,
+    data_provider: str | None = None,
 ) -> dict[str, object]:
     """执行历史股票池过滤并返回 API 友好结构。"""
 
@@ -33,6 +34,7 @@ def run_stock_pool_filter(
             "pool_date": pool_date,
             "filters": filters or {},
             "symbols_count": len(symbols) if symbols is not None else None,
+            "data_provider": data_provider,
         },
     }
     log_event(
