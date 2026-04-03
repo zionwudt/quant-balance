@@ -29,17 +29,9 @@ def fetch_stock_list() -> list[StockListRow]:
         raise DataLoadError(f"BaoStock 登录失败: {login_result.error_msg}")
 
     try:
-        # query_all_stock 返回当日可交易股票: code, tradeStatus, code_name
-        rs = bs.query_all_stock(day="")
-        if rs.error_code != "0":
-            raise DataLoadError(f"BaoStock query_all_stock 失败: {rs.error_msg}")
-
-        all_stocks = rs.get_data()
-        if all_stocks is None or all_stocks.empty:
-            raise DataLoadError("BaoStock 未返回任何股票数据")
-
-        # 获取行业分类
-        industry_map: dict[str, str] = {}
+        # query_stock_industry 返回全量股票及行业分类（不依赖交易日）
+        # 列: updateDate, code, code_name, industry, industryClassification
+        industry_map: dict[str, tuple[str, str]] = {}
         try:
             rs_ind = bs.query_stock_industry()
             if rs_ind.error_code == "0":
@@ -47,52 +39,88 @@ def fetch_stock_list() -> list[StockListRow]:
                 if ind_df is not None and not ind_df.empty:
                     for _, row in ind_df.iterrows():
                         bs_code = str(row.get("code", "")).strip()
+                        code_name = str(row.get("code_name", "")).strip()
                         ind = str(row.get("industry", "")).strip()
-                        if bs_code and ind:
-                            industry_map[bs_code] = ind
+                        if bs_code:
+                            industry_map[bs_code] = (code_name, ind)
         except Exception:  # noqa: BLE001
             pass
 
+        # 如果 industry 数据充足，直接用作股票列表来源
         rows: list[StockListRow] = []
         seen: set[str] = set()
 
-        for _, r in all_stocks.iterrows():
-            bs_code = str(r.get("code", "")).strip()
-            code_name = str(r.get("code_name", "")).strip()
+        if industry_map:
+            for bs_code, (code_name, industry) in industry_map.items():
+                ts_code = _bs_code_to_ts_code(bs_code)
+                if ts_code is None or ts_code in seen:
+                    continue
+                seen.add(ts_code)
+                market_name = "沪市" if ts_code.endswith(".SH") else "深市"
+                rows.append((ts_code, code_name, "", None, industry, market_name))
 
-            if not bs_code or "." not in bs_code:
-                continue
-
-            parts = bs_code.split(".")
-            if len(parts) != 2:
-                continue
-            market_prefix, stock_code = parts
-            market = market_prefix.upper()
-            if market not in ("SH", "SZ"):
-                continue
-            # 过滤非 A 股（指数、B 股等）
-            if not stock_code.isdigit() or len(stock_code) != 6:
-                continue
-            # 简单过滤：A 股代码通常以 0/3/6 开头
-            first_digit = stock_code[0]
-            if first_digit not in ("0", "3", "6"):
-                continue
-
-            ts_code = f"{stock_code}.{market}"
-            if ts_code in seen:
-                continue
-            seen.add(ts_code)
-
-            industry = industry_map.get(bs_code, "")
-            market_name = "沪市" if market == "SH" else "深市"
-            # BaoStock query_all_stock 不提供 list_date，留空
-            rows.append((ts_code, code_name, "", None, industry, market_name))
+        # 如果行业数据不足，用 query_all_stock 补充（需要有效交易日）
+        if len(rows) < 1000:
+            _supplement_from_all_stock(bs, rows, seen)
 
         if not rows:
             raise DataLoadError("BaoStock 未能获取到任何 A 股股票信息")
         return rows
     finally:
         bs.logout()
+
+
+def _bs_code_to_ts_code(bs_code: str) -> str | None:
+    """将 BaoStock 代码 (sh.600000) 转为 Tushare 格式 (600000.SH)。"""
+    if "." not in bs_code:
+        return None
+    parts = bs_code.split(".")
+    if len(parts) != 2:
+        return None
+    market_prefix, stock_code = parts
+    market = market_prefix.upper()
+    if market not in ("SH", "SZ"):
+        return None
+    if not stock_code.isdigit() or len(stock_code) != 6:
+        return None
+    # A 股代码以 0/3/6 开头
+    if stock_code[0] not in ("0", "3", "6"):
+        return None
+    return f"{stock_code}.{market}"
+
+
+def _supplement_from_all_stock(
+    bs_module: object,
+    rows: list[StockListRow],
+    seen: set[str],
+) -> None:
+    """用 query_all_stock 补充遗漏的股票。"""
+    from datetime import date, timedelta
+
+    # 尝试最近 7 个日期（跳过周末/节假日）
+    today = date.today()
+    for delta in range(0, 7):
+        day = today - timedelta(days=delta)
+        day_str = day.strftime("%Y-%m-%d")
+        try:
+            rs = bs_module.query_all_stock(day=day_str)
+            if rs.error_code != "0":
+                continue
+            df = rs.get_data()
+            if df is None or df.empty:
+                continue
+            for _, r in df.iterrows():
+                bs_code = str(r.get("code", "")).strip()
+                code_name = str(r.get("code_name", "")).strip()
+                ts_code = _bs_code_to_ts_code(bs_code)
+                if ts_code is None or ts_code in seen:
+                    continue
+                seen.add(ts_code)
+                market_name = "沪市" if ts_code.endswith(".SH") else "深市"
+                rows.append((ts_code, code_name, "", None, "", market_name))
+            break  # 成功获取即退出
+        except Exception:  # noqa: BLE001
+            continue
 
 
 def _to_baostock_code(ts_code: str) -> str:

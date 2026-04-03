@@ -30,8 +30,10 @@ def fetch_stock_list() -> list[StockListRow]:
     seen: set[str] = set()
 
     # 深市 A 股 — 包含上市日期与行业
+    # stock_info_sz_name_code(symbol="A股列表") 返回:
+    #   板块, A股代码, A股简称, A股上市日期, A股总股本, A股流通股本, 所属行业
     try:
-        df_sz = ak.stock_info_sz_name_code(indicator="A股列表")
+        df_sz = ak.stock_info_sz_name_code("A股列表")
         if df_sz is not None and not df_sz.empty:
             for _, r in df_sz.iterrows():
                 code = str(r.get("A股代码", "") or "").strip()
@@ -49,16 +51,16 @@ def fetch_stock_list() -> list[StockListRow]:
     except Exception:  # noqa: BLE001
         pass
 
-    # 沪市主板 A 股
-    for indicator, market_label in (
+    # 沪市 A 股 — stock_info_sh_name_code(symbol) 返回:
+    #   证券代码, 证券简称, 证券全称, 公司简称, 公司全称, 上市日期
+    for symbol_arg, market_label in (
         ("主板A股", "沪市主板"),
         ("科创板", "沪市科创板"),
     ):
         try:
-            df_sh = ak.stock_info_sh_name_code(indicator=indicator)
+            df_sh = ak.stock_info_sh_name_code(symbol_arg)
             if df_sh is None or df_sh.empty:
                 continue
-            # 上交所 API 列名不完全统一，做兼容处理
             code_col = _first_match(df_sh.columns, "证券代码", "公司代码", "代码")
             name_col = _first_match(df_sh.columns, "证券简称", "公司简称", "简称")
             date_col = _first_match(df_sh.columns, "上市日期", "上市时间")

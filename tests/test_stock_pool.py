@@ -261,5 +261,6 @@ class TestSearchStockCandidates:
             type("FakeTushare", (), {"pro_api": staticmethod(lambda token: FakePro())})(),
         )
 
+        # 明确指定 tushare 以跳过其他数据源的自动回退
         with pytest.raises(DataLoadError, match="获取股票列表失败"):
-            search_stock_candidates("600519", db_path=db_path)
+            search_stock_candidates("600519", db_path=db_path, data_provider="tushare")
