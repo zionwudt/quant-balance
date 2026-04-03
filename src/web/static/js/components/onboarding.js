@@ -12,7 +12,8 @@ import { toast } from '../components/toast.js';
 export async function checkOnboarding() {
   try {
     const status = await api.getConfigStatus();
-    if (status.token_configured && status.connection_ok) {
+    // 只要配置文件中有 token 就跳过引导，不再要求连接成功
+    if (status.token_configured) {
       return true;
     }
     await showOnboardingDialog(status);
