@@ -106,11 +106,16 @@ def run_factor_ranking(
         data_provider=data_provider,
     )
 
+    _is_tushare = not data_provider or data_provider == "tushare"
     candidate_rows: list[dict[str, object]] = []
     metadata_by_symbol: dict[str, dict[str, object]] = {}
     missing_financial_symbols: list[str] = []
     for record in records:
-        snapshot = load_financial_at(record.ts_code, pool_date)
+        if _is_tushare:
+            snapshot = load_financial_at(record.ts_code, pool_date)
+        else:
+            # 非 tushare 数据源无财务数据，降级跳过
+            snapshot = None
         if snapshot is None:
             missing_financial_symbols.append(record.ts_code)
             continue
@@ -196,6 +201,11 @@ def run_factor_ranking(
                 for spec in factor_specs
             ],
             "data_provider": data_provider,
+            "financial_data_available": _is_tushare,
+            "degraded_reason": None if _is_tushare else (
+                f"当前数据源 {data_provider} 不提供财务数据（PE/PB/ROE 等），"
+                "因子排名需要切换到 Tushare 数据源才能使用。"
+            ),
         },
     }
     log_event(

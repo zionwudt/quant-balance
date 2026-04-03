@@ -558,7 +558,11 @@ def _load_snapshot_fields(
     *,
     date: str,
     db_path: Path | None,
+    data_provider: str | None = None,
 ) -> tuple[float | None, float | None]:
+    # 非 tushare 数据源无财务数据，降级跳过
+    if data_provider and data_provider != "tushare":
+        return None, None
     from quant_balance.data.fundamental_loader import load_financial_at
 
     snapshot = load_financial_at(ts_code, date, db_path=db_path)
@@ -710,7 +714,9 @@ def filter_pool_at_date(
     yyyymmdd = date.replace("-", "")
     normalized_filters = _normalize_filters(filters)
     selected_symbols = set(symbols) if symbols is not None else None
-    requires_snapshot = any(
+    _is_tushare = not data_provider or data_provider == "tushare"
+    # 非 tushare 数据源无财务快照，降级跳过 PE/市值筛选
+    requires_snapshot = _is_tushare and any(
         value is not None
         for value in (
             normalized_filters.min_market_cap,
@@ -752,12 +758,14 @@ def filter_pool_at_date(
             current_name = fallback_name
             is_st = _looks_like_st(fallback_name)
             if normalized_filters.exclude_st:
-                current_name = _resolve_name_at_date(
-                    conn,
-                    ts_code=str(row["ts_code"]),
-                    date=yyyymmdd,
-                    fallback_name=fallback_name,
-                )
+                # 非 tushare 时用当前名称判断 ST，不调 Tushare namechange API
+                if _is_tushare:
+                    current_name = _resolve_name_at_date(
+                        conn,
+                        ts_code=str(row["ts_code"]),
+                        date=yyyymmdd,
+                        fallback_name=fallback_name,
+                    )
                 is_st = _looks_like_st(current_name)
                 if is_st:
                     continue
@@ -769,6 +777,7 @@ def filter_pool_at_date(
                     str(row["ts_code"]),
                     date=date,
                     db_path=db_path,
+                    data_provider=data_provider,
                 )
                 if not _passes_range(
                     total_mv,

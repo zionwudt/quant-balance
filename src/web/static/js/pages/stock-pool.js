@@ -337,6 +337,7 @@ async function refreshStockPool(container) {
 
     pageState.filteredCount = poolPayload.total_count || 0;
     pageState.rankings = rankingPayload.rankings || [];
+    pageState.rankingContext = rankingPayload.run_context || {};
     reconcileSelection();
     renderStats(container, rankingPayload);
     renderRankingsTable(container);
@@ -417,12 +418,17 @@ function collectFactorSpecs(container) {
 
 function renderStats(container, rankingPayload) {
   const runContext = rankingPayload.run_context || {};
-  container.querySelector('#sp-stats').innerHTML = `
+  const degraded = runContext.degraded_reason;
+  let html = `
     <span class="result-tag">候选池 ${pageState.filteredCount}</span>
     <span class="result-tag">可评分 ${runContext.scored_count ?? pageState.rankings.length}</span>
     <span class="result-tag">已选 ${pageState.selectedSymbols.size}</span>
     <span class="result-tag">跳过财报 ${runContext.skipped_symbols_no_financial?.length || 0}</span>
   `;
+  if (degraded) {
+    html += `<span class="result-tag" style="background:var(--warning-bg,#fff3cd);color:var(--warning-text,#856404);">⚠️ 降级: ${degraded}</span>`;
+  }
+  container.querySelector('#sp-stats').innerHTML = html;
 }
 
 function reconcileSelection() {
@@ -438,7 +444,12 @@ function renderRankingsTable(container) {
   const host = container.querySelector('#sp-table');
   const rows = getSortedRankings();
   if (!rows.length) {
-    host.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>当前过滤条件下没有可显示的股票</p></div>';
+    const ctx = pageState.rankingContext || {};
+    if (ctx.degraded_reason) {
+      host.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><p>${ctx.degraded_reason}</p><p style="font-size:12px;color:var(--text-tertiary);margin-top:8px;">候选池共 ${ctx.candidate_count || 0} 只股票，但因子排名需要财务数据支持。</p></div>`;
+    } else {
+      host.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>当前过滤条件下没有可显示的股票</p></div>';
+    }
     return;
   }
 

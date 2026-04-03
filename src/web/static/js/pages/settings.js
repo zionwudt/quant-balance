@@ -75,7 +75,7 @@ function buildHTML(settings, status) {
           <div class="results-card-head">
             <div>
               <div class="card-title">全局行情数据源</div>
-              <p class="card-subtitle">选择后全局生效，所有页面的行情数据均使用此数据源；选择"自动"则按 akshare → baostock → tushare 优先级自动回退。</p>
+              <p class="card-subtitle">选择后全局生效，所有页面的数据均使用此数据源。如某些功能该数据源不支持，会自动降级（跳过该筛选条件）。</p>
             </div>
           </div>
           <div class="settings-section-grid">
@@ -88,10 +88,41 @@ function buildHTML(settings, status) {
                 ${buildRadio('data-provider', 'tushare', 'Tushare（需Token）', settings.data_provider === 'tushare')}
               </div>
               <span class="field-help">
-                AkShare 和 BaoStock 免费无需配置；Tushare 需要先在上方配置有效 Token。股票列表和财务数据始终使用 Tushare 缓存（仅在缓存过期时才请求）。
+                切换数据源后全局生效。AkShare / BaoStock 免费无需配置，Tushare 需在上方配置有效 Token。
               </span>
             </div>
           </div>
+          <details class="provider-compare-details" style="margin:12px 16px 16px;">
+            <summary style="cursor:pointer;font-size:13px;color:var(--text-secondary);user-select:none;">📊 三个数据源能力对比</summary>
+            <div style="overflow-x:auto;margin-top:8px;">
+              <table class="provider-compare-table" style="width:100%;border-collapse:collapse;font-size:12px;line-height:1.8;">
+                <thead>
+                  <tr style="background:var(--bg-secondary);text-align:left;">
+                    <th style="padding:6px 8px;border-bottom:1px solid var(--border-color);">功能</th>
+                    <th style="padding:6px 8px;border-bottom:1px solid var(--border-color);">AkShare</th>
+                    <th style="padding:6px 8px;border-bottom:1px solid var(--border-color);">BaoStock</th>
+                    <th style="padding:6px 8px;border-bottom:1px solid var(--border-color);">Tushare</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td style="padding:4px 8px;">A 股股票列表</td><td>✅ 沪深5100+</td><td>✅ 沪深5500+</td><td>✅ 沪深京全量</td></tr>
+                  <tr><td style="padding:4px 8px;">上市日期</td><td>✅ 完整</td><td>❌ 不提供</td><td>✅ 完整</td></tr>
+                  <tr><td style="padding:4px 8px;">行业分类</td><td>✅ 深市有</td><td>✅ 证监会分类</td><td>✅ 完整</td></tr>
+                  <tr><td style="padding:4px 8px;">日线行情 (OHLCV)</td><td>✅ 东方财富源</td><td>✅ 证交所源</td><td>✅ 需积分</td></tr>
+                  <tr><td style="padding:4px 8px;">分钟线行情</td><td>✅ 东方财富源</td><td>❌ 不提供</td><td>✅ 需高积分</td></tr>
+                  <tr><td style="padding:4px 8px;">财务数据 (PE/PB/ROE)</td><td>❌ 降级跳过</td><td>❌ 降级跳过</td><td>✅ 完整</td></tr>
+                  <tr><td style="padding:4px 8px;">历史更名 (ST检测)</td><td>❌ 用当前名称</td><td>❌ 用当前名称</td><td>✅ 精确历史</td></tr>
+                  <tr><td style="padding:4px 8px;">可转债数据</td><td>❌ 不支持</td><td>❌ 不支持</td><td>✅ 完整</td></tr>
+                  <tr><td style="padding:4px 8px;">免费额度</td><td>✅ 完全免费</td><td>✅ 完全免费</td><td>⚠️ 有频率限制</td></tr>
+                  <tr><td style="padding:4px 8px;">Token 配置</td><td>✅ 无需</td><td>✅ 无需</td><td>❌ 必须配置</td></tr>
+                </tbody>
+              </table>
+              <p style="margin:8px 0 0;font-size:11px;color:var(--text-tertiary);">
+                💡 降级说明：选择 AkShare/BaoStock 后，因子排名中的 PE/PB/ROE 等财务指标将不可用（自动跳过）；
+                市值/PE 筛选条件将不生效；ST 检测使用当前名称而非历史名称。如需完整财务分析功能，请使用 Tushare。
+              </p>
+            </div>
+          </details>
         </div>
 
         <div class="card">
