@@ -51,6 +51,7 @@ from quant_balance.data.common import (
     load_app_config,
     load_tushare_token,
 )
+from quant_balance.data.result_store import result_store_now, save_backtest_run
 from quant_balance.infra.logging import get_logger, log_event
 from quant_balance.notify import send_configured_notifications
 from quant_balance.services.screening_service import run_stock_screening
@@ -510,6 +511,14 @@ def build_scan_signals(
             ),
             db_path=db_path,
         )
+        total_return = _optional_float(item.get("total_return"))
+        sharpe_ratio = _optional_float(item.get("sharpe_ratio"))
+        max_drawdown = _optional_float(item.get("max_drawdown"))
+        total_trades = _optional_int(item.get("total_trades"))
+        win_rate = _optional_float(item.get("win_rate"))
+        profit_factor = _optional_float(item.get("profit_factor"))
+        final_value = _optional_float(item.get("final_value"))
+
         signals.append(
             Signal(
                 scan_id=scan_id,
@@ -541,15 +550,27 @@ def build_scan_signals(
                 ),
                 rank=index,
                 score=_pick_signal_score(item),
-                total_return=_optional_float(item.get("total_return")),
-                sharpe_ratio=_optional_float(item.get("sharpe_ratio")),
-                max_drawdown=_optional_float(item.get("max_drawdown")),
-                total_trades=_optional_int(item.get("total_trades")),
-                win_rate=_optional_float(item.get("win_rate")),
-                profit_factor=_optional_float(item.get("profit_factor")),
-                final_value=_optional_float(item.get("final_value")),
+                total_return=total_return,
+                sharpe_ratio=sharpe_ratio,
+                max_drawdown=max_drawdown,
+                total_trades=total_trades,
+                win_rate=win_rate,
+                profit_factor=profit_factor,
+                final_value=final_value,
                 raw_payload=dict(item),
             )
+        )
+
+        # 同时写入 backtest_runs 表，可在 /api/backtest/history 追溯
+        _persist_screening_backtest_run(
+            scan_id=scan_id,
+            trade_date=trade_date,
+            generated_at=generated_at,
+            strategy=strategy,
+            asset_type=asset_type,
+            data_provider=data_provider,
+            item=item,
+            db_path=db_path,
         )
     return signals
 
@@ -832,6 +853,85 @@ def _optional_int(value: object) -> int | None:
     if value in (None, ""):
         return None
     return int(value)
+
+
+def _persist_screening_backtest_run(
+    *,
+    scan_id: str,
+    trade_date: str,
+    generated_at: datetime,
+    strategy: str,
+    asset_type: str,
+    data_provider: str | None,
+    item: dict[str, object],
+    db_path: Path | None = None,
+) -> None:
+    """将单条筛选排名结果写入 backtest_runs 表，供历史追溯。"""
+    symbol = str(item.get("symbol", "")).upper()
+    if not symbol:
+        return
+
+    total_return = _optional_float(item.get("total_return"))
+    sharpe_ratio = _optional_float(item.get("sharpe_ratio"))
+    max_drawdown = _optional_float(item.get("max_drawdown"))
+    total_trades = _optional_int(item.get("total_trades"))
+    win_rate = _optional_float(item.get("win_rate"))
+    profit_factor = _optional_float(item.get("profit_factor"))
+    final_value = _optional_float(item.get("final_value"))
+
+    # 构建最小 summary（与 core.report.normalize_bt_stats 格式一致）
+    summary: dict[str, object] = {}
+    if total_return is not None:
+        summary["total_return_pct"] = total_return
+    if sharpe_ratio is not None:
+        summary["sharpe_ratio"] = sharpe_ratio
+    if max_drawdown is not None:
+        summary["max_drawdown_pct"] = max_drawdown
+    if total_trades is not None:
+        summary["trades_count"] = total_trades
+    if win_rate is not None:
+        summary["win_rate_pct"] = win_rate
+    if profit_factor is not None:
+        summary["profit_factor"] = profit_factor
+    if final_value is not None:
+        summary["final_equity"] = final_value
+
+    request_payload: dict[str, object] = {
+        "scan_id": scan_id,
+        "source": "scheduler_screening",
+        "trade_date": trade_date,
+        "generated_at": generated_at.isoformat(),
+        "signal": strategy,
+        "asset_type": asset_type,
+        "data_provider": data_provider,
+        "raw_ranking": dict(item),
+    }
+    result_payload: dict[str, object] = {
+        "summary": summary,
+        "trades": [],
+        "equity_curve": [],
+        "price_bars": [],
+        "chart_overlays": {},
+        "run_context": {
+            "symbol": symbol,
+            "trade_date": trade_date,
+            "strategy": strategy,
+            "asset_type": asset_type,
+            "scan_id": scan_id,
+            "data_provider": data_provider,
+        },
+    }
+
+    try:
+        save_backtest_run(
+            request_payload=request_payload,
+            result_payload=result_payload,
+            db_path=db_path,
+            created_at=generated_at.isoformat(timespec="seconds"),
+        )
+    except Exception:  # noqa: BLE001
+        # 写入失败不影响信号生成流程，仅静默跳过
+        pass
 
 
 def _load_apscheduler() -> tuple[type | None, type | None]:

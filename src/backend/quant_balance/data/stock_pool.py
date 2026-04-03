@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 from pathlib import Path
 
@@ -45,6 +45,16 @@ CREATE TABLE IF NOT EXISTS stock_name_change_fetch_log (
     ts_code TEXT PRIMARY KEY
 );
 """
+
+_CREATE_STOCK_LIST_FETCH_LOG_SQL = """
+CREATE TABLE IF NOT EXISTS stock_list_fetch_log (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_fetched_at TEXT NOT NULL
+);
+"""
+
+# 超过此天数未刷新则触发增量更新
+_CACHE_STALENESS_DAYS = 7
 
 
 @dataclass(slots=True)
@@ -84,6 +94,7 @@ def _get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     conn.execute(_CREATE_STOCK_LIST_SQL)
     conn.execute(_CREATE_NAME_CHANGE_SQL)
     conn.execute(_CREATE_NAME_CHANGE_FETCH_LOG_SQL)
+    conn.execute(_CREATE_STOCK_LIST_FETCH_LOG_SQL)
     return conn
 
 
@@ -92,8 +103,46 @@ def _is_cache_populated(conn: sqlite3.Connection) -> bool:
     return row[0] > 0
 
 
-def _fetch_and_cache_stock_list(conn: sqlite3.Connection) -> None:
-    """从 Tushare 全量拉取上市 + 退市股票并写入缓存。"""
+def _get_last_fetched_at(conn: sqlite3.Connection) -> datetime | None:
+    row = conn.execute(
+        "SELECT last_fetched_at FROM stock_list_fetch_log WHERE id = 1"
+    ).fetchone()
+    if row is None:
+        return None
+    text = str(row["last_fetched_at"] or "")
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _should_refresh_cache(conn: sqlite3.Connection) -> bool:
+    """缓存超过 _CACHE_STALENESS_DAYS 天未更新时返回 True。"""
+    last_fetched = _get_last_fetched_at(conn)
+    if last_fetched is None:
+        return True
+    cutoff = datetime.now() - timedelta(days=_CACHE_STALENESS_DAYS)
+    return last_fetched < cutoff
+
+
+def _update_fetch_timestamp(conn: sqlite3.Connection) -> None:
+    """更新 stock_list_fetch_log 时间戳。"""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        "INSERT OR REPLACE INTO stock_list_fetch_log (id, last_fetched_at) VALUES (1, ?)",
+        (now,),
+    )
+    conn.commit()
+
+
+def _fetch_and_cache_stock_list(conn: sqlite3.Connection, incremental: bool = False) -> None:
+    """从 Tushare 拉取上市 + 退市股票并写入缓存。
+
+    - 首次（全量）拉取：清空旧数据，写入所有记录
+    - 增量拉取：只拉取 list_date >= 上次拉取时间 的新上市股票
+    """
     try:
         import tushare as ts
     except ImportError as exc:
@@ -106,34 +155,95 @@ def _fetch_and_cache_stock_list(conn: sqlite3.Connection) -> None:
 
     rows: list[tuple] = []
     try:
-        for status in ("L", "D", "P"):
-            df = pro.stock_basic(
-                list_status=status,
+        if incremental:
+            # 增量模式：只拉取新上市和退市变更的股票
+            last_fetched = _get_last_fetched_at(conn)
+            cutoff_date = (
+                last_fetched.strftime("%Y%m%d") if last_fetched else None
+            )
+            for status in ("L", "P"):  # 上市 / 暂停上市
+                df = pro.stock_basic(
+                    list_status=status,
+                    fields="ts_code,name,list_date,delist_date,industry,market",
+                )
+                if df is None or df.empty:
+                    continue
+                for _, record in df.iterrows():
+                    list_date_val = record.get("list_date")
+                    # 跳过已存在且未退市的记录
+                    if cutoff_date and list_date_val:
+                        if str(list_date_val) < cutoff_date:
+                            # 检查是否已在缓存中
+                            existing = conn.execute(
+                                "SELECT 1 FROM stock_list WHERE ts_code = ?",
+                                (str(record["ts_code"]),),
+                            ).fetchone()
+                            if existing:
+                                continue
+                    rows.append(
+                        (
+                            str(record["ts_code"]),
+                            record.get("name", "") or "",
+                            _normalize_date(list_date_val),
+                            _normalize_date(record.get("delist_date")),
+                            record.get("industry", "") or "",
+                            record.get("market", "") or "",
+                        )
+                    )
+            # 退市股票：L->D 变更
+            df_delist = pro.stock_basic(
+                list_status="D",
                 fields="ts_code,name,list_date,delist_date,industry,market",
             )
-            if df is None or df.empty:
-                continue
-            for _, record in df.iterrows():
-                rows.append(
-                    (
-                        record["ts_code"],
-                        record.get("name", "") or "",
-                        record.get("list_date", "") or "",
-                        _normalize_date(record.get("delist_date")),
-                        record.get("industry", "") or "",
-                        record.get("market", "") or "",
+            if df_delist is not None and not df_delist.empty:
+                for _, record in df_delist.iterrows():
+                    delist_date_val = record.get("delist_date")
+                    if cutoff_date and delist_date_val:
+                        if str(delist_date_val) < cutoff_date:
+                            continue
+                    rows.append(
+                        (
+                            str(record["ts_code"]),
+                            record.get("name", "") or "",
+                            _normalize_date(record.get("list_date")),
+                            _normalize_date(delist_date_val),
+                            record.get("industry", "") or "",
+                            record.get("market", "") or "",
+                        )
                     )
+        else:
+            # 全量模式
+            for status in ("L", "D", "P"):
+                df = pro.stock_basic(
+                    list_status=status,
+                    fields="ts_code,name,list_date,delist_date,industry,market",
                 )
+                if df is None or df.empty:
+                    continue
+                for _, record in df.iterrows():
+                    rows.append(
+                        (
+                            str(record["ts_code"]),
+                            record.get("name", "") or "",
+                            _normalize_date(record.get("list_date")),
+                            _normalize_date(record.get("delist_date")),
+                            record.get("industry", "") or "",
+                            record.get("market", "") or "",
+                        )
+                    )
+            # 全量写入前清空旧数据
+            conn.execute("DELETE FROM stock_list")
     except Exception as exc:  # noqa: BLE001
         raise DataLoadError(f"获取股票列表失败：{exc}") from exc
 
-    conn.executemany(
-        "INSERT OR REPLACE INTO stock_list "
-        "(ts_code, name, list_date, delist_date, industry, market) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        rows,
-    )
-    conn.commit()
+    if rows:
+        conn.executemany(
+            "INSERT OR REPLACE INTO stock_list "
+            "(ts_code, name, list_date, delist_date, industry, market) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+    _update_fetch_timestamp(conn)
 
 
 def _normalize_date(value: object) -> str | None:
@@ -351,8 +461,8 @@ def get_pool_at_date(
     yyyymmdd = date.replace("-", "")
     conn = _get_connection(db_path)
     try:
-        if not _is_cache_populated(conn):
-            _fetch_and_cache_stock_list(conn)
+        if not _is_cache_populated(conn) or _should_refresh_cache(conn):
+            _fetch_and_cache_stock_list(conn, incremental=True if _is_cache_populated(conn) else False)
         return [row["ts_code"] for row in _query_pool_rows(conn, date=yyyymmdd)]
     finally:
         conn.close()
@@ -372,8 +482,8 @@ def search_stock_candidates(
 
     conn = _get_connection(db_path)
     try:
-        if not _is_cache_populated(conn):
-            _fetch_and_cache_stock_list(conn)
+        if not _is_cache_populated(conn) or _should_refresh_cache(conn):
+            _fetch_and_cache_stock_list(conn, incremental=True if _is_cache_populated(conn) else False)
 
         code_exact = normalized.upper()
         code_prefix = f"{code_exact}%"
@@ -485,8 +595,8 @@ def filter_pool_at_date(
 
     conn = _get_connection(db_path)
     try:
-        if not _is_cache_populated(conn):
-            _fetch_and_cache_stock_list(conn)
+        if not _is_cache_populated(conn) or _should_refresh_cache(conn):
+            _fetch_and_cache_stock_list(conn, incremental=True if _is_cache_populated(conn) else False)
 
         rows = _query_pool_rows(conn, date=yyyymmdd, symbols=selected_symbols)
         records: list[StockPoolRecord] = []

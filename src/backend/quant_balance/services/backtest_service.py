@@ -125,15 +125,16 @@ def run_single_backtest(
         spread=spread,
         commission=effective_commission,
         strategy_params=params,
-        log_context={
-            "symbol": symbol,
-            "start_date": start_date,
-            "end_date": end_date,
-            "asset_type": asset_type,
-            "strategy": strategy,
-            "timeframe": df.attrs.get("timeframe", timeframe),
-            "data_provider": df.attrs.get("data_provider", data_provider),
-        },
+        log_context=_build_run_context(
+            df,
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            asset_type=asset_type,
+            strategy=strategy,
+            timeframe=timeframe,
+            data_provider=data_provider,
+        ),
     )
     summary = normalize_bt_stats(
         result.stats,
@@ -148,6 +149,44 @@ def run_single_backtest(
         params=params,
     )
 
+    price_adjustment = df.attrs.get(
+        "price_adjustment", "qfq" if timeframe == "1d" else "none"
+    )
+    df_asset_type = df.attrs.get("asset_type", asset_type)
+    df_data_provider = df.attrs.get("data_provider", data_provider)
+    resolved_benchmark_asset_type_val = (
+        benchmark_df.attrs.get("asset_type", resolved_benchmark_asset_type)
+        if benchmark_df is not None
+        else None
+    )
+    resolved_benchmark_data_provider_val = (
+        benchmark_df.attrs.get("data_provider", resolved_benchmark_data_provider)
+        if benchmark_df is not None
+        else None
+    )
+
+    run_context = _build_run_context(
+        df,
+        symbol=symbol,
+        start_date=start_date,
+        end_date=end_date,
+        asset_type=asset_type,
+        strategy=strategy,
+        timeframe=timeframe,
+        data_provider=data_provider,
+        extra={
+            "cash": cash,
+            "commission": commission,
+            "effective_commission": effective_commission,
+            "spread": spread,
+            "slippage_mode": slippage_mode,
+            "slippage_rate": slippage_rate,
+            "params": params or {},
+            "benchmark_symbol": benchmark_symbol,
+            "benchmark_asset_type": resolved_benchmark_asset_type_val,
+            "benchmark_data_provider": resolved_benchmark_data_provider_val,
+        },
+    )
     payload = {
         "summary": summary,
         "trades": bt_trades_to_dicts(result.trades, params),
@@ -155,74 +194,24 @@ def run_single_backtest(
             result.equity_curve, benchmark_df=benchmark_df
         ),
         **chart_payload,
-        "run_context": {
-            "symbol": symbol,
-            "start_date": start_date,
-            "end_date": end_date,
-            "asset_type": df.attrs.get("asset_type", asset_type),
-            "strategy": strategy,
-            "timeframe": df.attrs.get("timeframe", timeframe),
-            "cash": cash,
-            "commission": commission,
-            "effective_commission": effective_commission,
-            "spread": spread,
-            "slippage_mode": slippage_mode,
-            "slippage_rate": slippage_rate,
-            "price_adjustment": df.attrs.get(
-                "price_adjustment", "qfq" if timeframe == "1d" else "none"
-            ),
-            "params": params or {},
-            "bars_count": len(df),
-            "data_provider": df.attrs.get("data_provider", data_provider),
-            "benchmark_symbol": benchmark_symbol,
-            "benchmark_asset_type": (
-                benchmark_df.attrs.get("asset_type", resolved_benchmark_asset_type)
-                if benchmark_df is not None
-                else None
-            ),
-            "benchmark_data_provider": (
-                benchmark_df.attrs.get(
-                    "data_provider", resolved_benchmark_data_provider
-                )
-                if benchmark_df is not None
-                else None
-            ),
-        },
+        "run_context": run_context,
     }
     log_event(
         logger,
         "BACKTEST_RUN",
         stage="service",
-        symbol=symbol,
-        start_date=start_date,
-        end_date=end_date,
-        asset_type=df.attrs.get("asset_type", asset_type),
-        strategy=strategy,
-        timeframe=df.attrs.get("timeframe", timeframe),
+        **run_context,
         cash=cash,
         commission=commission,
         effective_commission=effective_commission,
         spread=spread,
         slippage_mode=slippage_mode,
         slippage_rate=slippage_rate,
-        price_adjustment=df.attrs.get(
-            "price_adjustment", "qfq" if timeframe == "1d" else "none"
-        ),
         params=params or {},
-        bars_count=len(df),
         trades_count=len(result.trades),
-        data_provider=df.attrs.get("data_provider", data_provider),
         benchmark_symbol=benchmark_symbol,
-        benchmark_asset_type=(
-            benchmark_df.attrs.get("asset_type", resolved_benchmark_asset_type)
-            if benchmark_df is not None
-            else None
-        ),
-        benchmark_data_provider=(
-            benchmark_df.attrs.get("data_provider", resolved_benchmark_data_provider)
-            if benchmark_df is not None
-            else None
-        ),
+        benchmark_asset_type=resolved_benchmark_asset_type_val,
+        benchmark_data_provider=resolved_benchmark_data_provider_val,
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )
     return payload
@@ -243,6 +232,37 @@ def _resolve_execution_costs(
     if slippage_mode == "commission":
         return commission + slippage_rate, 0.0
     raise ValueError("slippage_mode 必须是 off / spread / commission")
+
+
+def _build_run_context(
+    df: pd.DataFrame,
+    *,
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    asset_type: str,
+    strategy: str,
+    timeframe: str,
+    data_provider: str | None,
+    extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """构建 run_context 字典，消除 run_single_backtest 与 run_optimize 的重复拼装。"""
+    context = {
+        "symbol": symbol,
+        "start_date": start_date,
+        "end_date": end_date,
+        "asset_type": df.attrs.get("asset_type", asset_type),
+        "strategy": strategy,
+        "timeframe": df.attrs.get("timeframe", timeframe),
+        "price_adjustment": df.attrs.get(
+            "price_adjustment", "qfq" if timeframe == "1d" else "none"
+        ),
+        "data_provider": df.attrs.get("data_provider", data_provider),
+        "bars_count": len(df),
+    }
+    if extra:
+        context.update(extra)
+    return context
 
 
 def run_optimize(
@@ -296,21 +316,39 @@ def run_optimize(
         maximize=maximize,
         constraint=constraint_fn,
         top_n=top_n,
-        log_context={
-            "symbol": symbol,
-            "start_date": start_date,
-            "end_date": end_date,
-            "asset_type": asset_type,
-            "strategy": strategy,
-            "timeframe": "1d",
-            "data_provider": df.attrs.get("data_provider", data_provider),
-        },
+        log_context=_build_run_context(
+            df,
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            asset_type=asset_type,
+            strategy=strategy,
+            timeframe="1d",
+            data_provider=data_provider,
+        ),
         **normalized_param_ranges,
     )
     execution = _build_execution_payload(
         optimize_result.candidate_count, walk_forward_windows
     )
 
+    run_context = _build_run_context(
+        df,
+        symbol=symbol,
+        start_date=start_date,
+        end_date=end_date,
+        asset_type=asset_type,
+        strategy=strategy,
+        timeframe="1d",
+        data_provider=data_provider,
+        extra={
+            "maximize": maximize,
+            "param_ranges": _jsonable_value(normalized_param_ranges),
+            "top_n": top_n,
+            "constraints": _jsonable_value(normalized_constraints),
+            "walk_forward": _jsonable_value(walk_forward_config),
+        },
+    )
     payload = {
         "best_params": _jsonable_value(optimize_result.best_params),
         "best_stats": normalize_bt_stats(
@@ -318,20 +356,7 @@ def run_optimize(
         ),
         "top_results": _jsonable_value(optimize_result.top_results),
         "execution": execution,
-        "run_context": {
-            "symbol": symbol,
-            "start_date": start_date,
-            "end_date": end_date,
-            "asset_type": df.attrs.get("asset_type", asset_type),
-            "strategy": strategy,
-            "maximize": maximize,
-            "param_ranges": _jsonable_value(normalized_param_ranges),
-            "top_n": top_n,
-            "constraints": _jsonable_value(normalized_constraints),
-            "walk_forward": _jsonable_value(walk_forward_config),
-            "bars_count": len(df),
-            "data_provider": df.attrs.get("data_provider", data_provider),
-        },
+        "run_context": run_context,
     }
     if walk_forward_config is not None:
         payload["walk_forward"] = _run_walk_forward(
@@ -343,35 +368,28 @@ def run_optimize(
             param_ranges=normalized_param_ranges,
             constraint=constraint_fn,
             walk_forward_config=walk_forward_config,
-            log_context={
-                "symbol": symbol,
-                "start_date": start_date,
-                "end_date": end_date,
-                "asset_type": asset_type,
-                "strategy": strategy,
-                "timeframe": "1d",
-                "data_provider": df.attrs.get("data_provider", data_provider),
-            },
+            log_context=_build_run_context(
+                df,
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                asset_type=asset_type,
+                strategy=strategy,
+                timeframe="1d",
+                data_provider=data_provider,
+            ),
         )
     log_event(
         logger,
         "BACKTEST_OPTIMIZE",
         stage="service",
-        symbol=symbol,
-        start_date=start_date,
-        end_date=end_date,
-        asset_type=df.attrs.get("asset_type", asset_type),
-        strategy=strategy,
-        maximize=maximize,
-        param_ranges=_jsonable_value(normalized_param_ranges),
-        top_n=top_n,
+        **run_context,
         constraints=_jsonable_value(normalized_constraints),
         best_params=_jsonable_value(optimize_result.best_params),
         candidate_count=optimize_result.candidate_count,
         walk_forward_windows=walk_forward_windows,
         async_recommended=execution["async_recommended"],
         estimated_total_runs=execution["estimated_total_runs"],
-        data_provider=df.attrs.get("data_provider", data_provider),
         duration_ms=round((perf_counter() - started_at) * 1000, 2),
     )
     return payload
