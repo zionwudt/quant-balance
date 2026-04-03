@@ -16,6 +16,7 @@ from quant_balance.data.stock_pool import (
     _CREATE_STOCK_LIST_SQL,
     _CREATE_NAME_CHANGE_FETCH_LOG_SQL,
     _CREATE_NAME_CHANGE_SQL,
+    _CREATE_STOCK_LIST_FETCH_LOG_SQL,
     filter_pool_at_date,
     get_pool_at_date,
     search_stock_candidates,
@@ -34,10 +35,17 @@ def _seed_db(
     conn.execute(_CREATE_STOCK_LIST_SQL)
     conn.execute(_CREATE_NAME_CHANGE_SQL)
     conn.execute(_CREATE_NAME_CHANGE_FETCH_LOG_SQL)
+    conn.execute(_CREATE_STOCK_LIST_FETCH_LOG_SQL)
     conn.executemany(
         "INSERT INTO stock_list (ts_code, name, list_date, delist_date, industry, market) "
         "VALUES (?, ?, ?, ?, ?, ?)",
         rows,
+    )
+    # 设置 fetch 时间戳，防止测试中触发远程数据源刷新
+    from datetime import datetime
+    conn.execute(
+        "INSERT OR REPLACE INTO stock_list_fetch_log (id, last_fetched_at) VALUES (1, ?)",
+        (datetime.now().isoformat(timespec="seconds"),),
     )
     if name_changes:
         conn.executemany(

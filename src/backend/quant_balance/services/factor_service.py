@@ -103,6 +103,7 @@ def run_factor_ranking(
         pool_date,
         filters=pool_filters if _has_active_pool_filters(pool_filters) else None,
         symbols=symbols,
+        data_provider=data_provider,
     )
 
     candidate_rows: list[dict[str, object]] = []

@@ -8,6 +8,92 @@ from quant_balance.data.common import DataLoadError
 
 MarketRow = tuple[str, str, float, float, float, float, float]
 
+StockListRow = tuple[str, str, str, str | None, str, str]
+
+
+def fetch_stock_list() -> list[StockListRow]:
+    """通过 BaoStock 拉取 A 股股票列表。
+
+    Returns:
+        list of (ts_code, name, list_date, delist_date, industry, market)
+    """
+    try:
+        import baostock as bs
+    except ImportError as exc:
+        raise DataLoadError(
+            "需要安装 baostock 才能获取股票列表，请运行：pip install baostock"
+        ) from exc
+
+    login_result = bs.login()
+    if login_result.error_code != "0":
+        raise DataLoadError(f"BaoStock 登录失败: {login_result.error_msg}")
+
+    try:
+        # query_all_stock 返回当日可交易股票: code, tradeStatus, code_name
+        rs = bs.query_all_stock(day="")
+        if rs.error_code != "0":
+            raise DataLoadError(f"BaoStock query_all_stock 失败: {rs.error_msg}")
+
+        all_stocks = rs.get_data()
+        if all_stocks is None or all_stocks.empty:
+            raise DataLoadError("BaoStock 未返回任何股票数据")
+
+        # 获取行业分类
+        industry_map: dict[str, str] = {}
+        try:
+            rs_ind = bs.query_stock_industry()
+            if rs_ind.error_code == "0":
+                ind_df = rs_ind.get_data()
+                if ind_df is not None and not ind_df.empty:
+                    for _, row in ind_df.iterrows():
+                        bs_code = str(row.get("code", "")).strip()
+                        ind = str(row.get("industry", "")).strip()
+                        if bs_code and ind:
+                            industry_map[bs_code] = ind
+        except Exception:  # noqa: BLE001
+            pass
+
+        rows: list[StockListRow] = []
+        seen: set[str] = set()
+
+        for _, r in all_stocks.iterrows():
+            bs_code = str(r.get("code", "")).strip()
+            code_name = str(r.get("code_name", "")).strip()
+
+            if not bs_code or "." not in bs_code:
+                continue
+
+            parts = bs_code.split(".")
+            if len(parts) != 2:
+                continue
+            market_prefix, stock_code = parts
+            market = market_prefix.upper()
+            if market not in ("SH", "SZ"):
+                continue
+            # 过滤非 A 股（指数、B 股等）
+            if not stock_code.isdigit() or len(stock_code) != 6:
+                continue
+            # 简单过滤：A 股代码通常以 0/3/6 开头
+            first_digit = stock_code[0]
+            if first_digit not in ("0", "3", "6"):
+                continue
+
+            ts_code = f"{stock_code}.{market}"
+            if ts_code in seen:
+                continue
+            seen.add(ts_code)
+
+            industry = industry_map.get(bs_code, "")
+            market_name = "沪市" if market == "SH" else "深市"
+            # BaoStock query_all_stock 不提供 list_date，留空
+            rows.append((ts_code, code_name, "", None, industry, market_name))
+
+        if not rows:
+            raise DataLoadError("BaoStock 未能获取到任何 A 股股票信息")
+        return rows
+    finally:
+        bs.logout()
+
 
 def _to_baostock_code(ts_code: str) -> str:
     try:

@@ -66,7 +66,7 @@ def test_run_stock_screening_uses_pool_and_top_n():
 
     assert result["total_screened"] == 2
     assert result["rankings"] == [{"symbol": "BBB", "total_return": 15.0, "sharpe_ratio": 1.5}]
-    mock_pool.assert_called_once_with("2024-01-01")
+    mock_pool.assert_called_once_with("2024-01-01", data_provider=None)
     mock_load.assert_called_once()
     mock_run.assert_called_once()
 
@@ -129,6 +129,7 @@ def test_run_stock_screening_applies_pool_filters_before_loading_data():
         "2024-01-01",
         filters={"industries": ["银行"], "exclude_st": True},
         symbols=["AAA", "BBB"],
+        data_provider=None,
     )
     mock_load.assert_called_once_with(
         ["BBB"],

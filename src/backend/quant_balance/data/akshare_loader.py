@@ -10,6 +10,84 @@ from quant_balance.data.common import DataLoadError
 
 MarketRow = tuple[str, str, float, float, float, float, float]
 
+StockListRow = tuple[str, str, str, str | None, str, str]
+
+
+def fetch_stock_list() -> list[StockListRow]:
+    """通过 AkShare 拉取 A 股股票列表。
+
+    Returns:
+        list of (ts_code, name, list_date, delist_date, industry, market)
+    """
+    try:
+        import akshare as ak
+    except ImportError as exc:
+        raise DataLoadError(
+            "需要安装 akshare 才能获取股票列表，请运行：pip install akshare"
+        ) from exc
+
+    rows: list[StockListRow] = []
+    seen: set[str] = set()
+
+    # 深市 A 股 — 包含上市日期与行业
+    try:
+        df_sz = ak.stock_info_sz_name_code(indicator="A股列表")
+        if df_sz is not None and not df_sz.empty:
+            for _, r in df_sz.iterrows():
+                code = str(r.get("A股代码", "") or "").strip()
+                if not code or len(code) != 6:
+                    continue
+                ts_code = f"{code}.SZ"
+                if ts_code in seen:
+                    continue
+                seen.add(ts_code)
+                name = str(r.get("A股简称", "") or "").strip()
+                raw_date = str(r.get("A股上市日期", "") or "").strip()
+                list_date = raw_date.replace("-", "").replace("/", "")
+                industry = str(r.get("所属行业", "") or "").strip()
+                rows.append((ts_code, name, list_date, None, industry, "深市"))
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 沪市主板 A 股
+    for indicator, market_label in (
+        ("主板A股", "沪市主板"),
+        ("科创板", "沪市科创板"),
+    ):
+        try:
+            df_sh = ak.stock_info_sh_name_code(indicator=indicator)
+            if df_sh is None or df_sh.empty:
+                continue
+            # 上交所 API 列名不完全统一，做兼容处理
+            code_col = _first_match(df_sh.columns, "证券代码", "公司代码", "代码")
+            name_col = _first_match(df_sh.columns, "证券简称", "公司简称", "简称")
+            date_col = _first_match(df_sh.columns, "上市日期", "上市时间")
+            for _, r in df_sh.iterrows():
+                code = str(r[code_col] if code_col else "").strip()
+                if not code or len(code) != 6:
+                    continue
+                ts_code = f"{code}.SH"
+                if ts_code in seen:
+                    continue
+                seen.add(ts_code)
+                name = str(r[name_col] if name_col else "").strip()
+                raw_date = str(r[date_col] if date_col else "").strip()
+                list_date = raw_date.replace("-", "").replace("/", "")
+                rows.append((ts_code, name, list_date, None, "", market_label))
+        except Exception:  # noqa: BLE001
+            continue
+
+    if not rows:
+        raise DataLoadError("AkShare 未能获取到任何 A 股股票信息")
+    return rows
+
+
+def _first_match(columns: pd.Index, *candidates: str) -> str | None:
+    for c in candidates:
+        if c in columns:
+            return c
+    return None
+
 
 def _to_akshare_symbol(ts_code: str) -> str:
     try:

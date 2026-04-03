@@ -17,7 +17,12 @@ from datetime import datetime, timedelta
 import sqlite3
 from pathlib import Path
 
-from quant_balance.data.common import CACHE_DB_PATH, DataLoadError, load_tushare_token
+from quant_balance.data.common import (
+    CACHE_DB_PATH,
+    DataLoadError,
+    load_tushare_token,
+    resolve_daily_provider_order,
+)
 
 _CREATE_STOCK_LIST_SQL = """
 CREATE TABLE IF NOT EXISTS stock_list (
@@ -137,7 +142,113 @@ def _update_fetch_timestamp(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _fetch_and_cache_stock_list(conn: sqlite3.Connection, incremental: bool = False) -> None:
+def _resolve_stock_list_provider(data_provider: str | None) -> str:
+    """确定用于股票列表的数据源。"""
+    if data_provider:
+        return data_provider.strip().lower()
+    # 从全局配置读取首选数据源
+    try:
+        order = resolve_daily_provider_order()
+        return order[0]
+    except Exception:  # noqa: BLE001
+        return "tushare"
+
+
+def _fetch_and_cache_stock_list(
+    conn: sqlite3.Connection,
+    incremental: bool = False,
+    *,
+    data_provider: str | None = None,
+) -> None:
+    """从指定数据源拉取上市 + 退市股票并写入缓存。
+
+    - 首次（全量）拉取：清空旧数据，写入所有记录
+    - 增量拉取：只拉取 list_date >= 上次拉取时间 的新上市股票
+
+    当 data_provider 为 None 时按全局配置优先级逐一尝试。
+    """
+    if data_provider:
+        # 用户明确指定了数据源，只用该数据源
+        _dispatch_stock_list_fetch(conn, data_provider.strip().lower(), incremental)
+        return
+
+    # 自动模式：按优先级尝试
+    try:
+        providers = resolve_daily_provider_order()
+    except Exception:  # noqa: BLE001
+        providers = ["tushare"]
+
+    last_error: Exception | None = None
+    for provider in providers:
+        try:
+            _dispatch_stock_list_fetch(conn, provider, incremental)
+            return
+        except DataLoadError as exc:
+            last_error = exc
+            continue
+
+    if last_error is not None:
+        raise last_error
+    raise DataLoadError("无法获取股票列表，所有数据源均不可用。")
+
+
+def _dispatch_stock_list_fetch(
+    conn: sqlite3.Connection,
+    provider: str,
+    incremental: bool,
+) -> None:
+    """根据数据源调度股票列表拉取。"""
+    if provider == "tushare":
+        _fetch_stock_list_via_tushare(conn, incremental)
+    elif provider in ("akshare", "baostock"):
+        _fetch_stock_list_via_alternative(conn, provider=provider)
+    else:
+        raise DataLoadError(f"不支持的股票列表数据源: {provider}")
+
+
+def _fetch_stock_list_via_alternative(
+    conn: sqlite3.Connection,
+    *,
+    provider: str,
+) -> None:
+    """通过 AkShare 或 BaoStock 拉取股票列表并全量写入缓存。"""
+    if provider == "akshare":
+        from quant_balance.data.akshare_loader import fetch_stock_list
+    elif provider == "baostock":
+        from quant_balance.data.baostock_loader import fetch_stock_list
+    else:
+        raise DataLoadError(f"不支持的股票列表数据源: {provider}")
+
+    try:
+        raw_rows = fetch_stock_list()
+    except Exception as exc:  # noqa: BLE001
+        raise DataLoadError(f"获取股票列表失败（{provider}）：{exc}") from exc
+
+    if not raw_rows:
+        return
+
+    rows: list[tuple] = []
+    for ts_code, name, list_date, delist_date, industry, market in raw_rows:
+        rows.append((
+            str(ts_code),
+            str(name or ""),
+            _normalize_date(list_date) or "",
+            _normalize_date(delist_date),
+            str(industry or ""),
+            str(market or ""),
+        ))
+
+    conn.execute("DELETE FROM stock_list")
+    conn.executemany(
+        "INSERT OR REPLACE INTO stock_list "
+        "(ts_code, name, list_date, delist_date, industry, market) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    _update_fetch_timestamp(conn)
+
+
+def _fetch_stock_list_via_tushare(conn: sqlite3.Connection, incremental: bool = False) -> None:
     """从 Tushare 拉取上市 + 退市股票并写入缓存。
 
     - 首次（全量）拉取：清空旧数据，写入所有记录
@@ -271,7 +382,7 @@ def _query_pool_rows(
     cursor = conn.execute(
         "SELECT ts_code, name, list_date, delist_date, industry, market "
         "FROM stock_list "
-        "WHERE list_date <= ? AND (delist_date IS NULL OR delist_date > ?) "
+        "WHERE (list_date = '' OR list_date <= ?) AND (delist_date IS NULL OR delist_date > ?) "
         "ORDER BY ts_code",
         (date, date),
     )
@@ -418,9 +529,14 @@ def _looks_like_st(name: str) -> bool:
 
 
 def _listing_days(list_date: str, as_of_date: str) -> int:
-    listed_at = datetime.strptime(list_date, "%Y%m%d")
-    snapshot_at = datetime.strptime(as_of_date, "%Y%m%d")
-    return (snapshot_at - listed_at).days
+    if not list_date or not list_date.strip():
+        return -1  # 未知上市日期
+    try:
+        listed_at = datetime.strptime(list_date, "%Y%m%d")
+        snapshot_at = datetime.strptime(as_of_date, "%Y%m%d")
+        return (snapshot_at - listed_at).days
+    except ValueError:
+        return -1
 
 
 def _passes_range(
@@ -455,6 +571,7 @@ def get_pool_at_date(
     date: str,
     *,
     db_path: Path | None = None,
+    data_provider: str | None = None,
 ) -> list[str]:
     """返回指定历史日期当天处于上市状态的股票代码列表。"""
 
@@ -462,7 +579,11 @@ def get_pool_at_date(
     conn = _get_connection(db_path)
     try:
         if not _is_cache_populated(conn) or _should_refresh_cache(conn):
-            _fetch_and_cache_stock_list(conn, incremental=True if _is_cache_populated(conn) else False)
+            _fetch_and_cache_stock_list(
+                conn,
+                incremental=True if _is_cache_populated(conn) else False,
+                data_provider=data_provider,
+            )
         return [row["ts_code"] for row in _query_pool_rows(conn, date=yyyymmdd)]
     finally:
         conn.close()
@@ -473,6 +594,7 @@ def search_stock_candidates(
     *,
     limit: int = 10,
     db_path: Path | None = None,
+    data_provider: str | None = None,
 ) -> list[dict[str, str]]:
     """按代码/名称模糊搜索股票候选。"""
 
@@ -483,7 +605,11 @@ def search_stock_candidates(
     conn = _get_connection(db_path)
     try:
         if not _is_cache_populated(conn) or _should_refresh_cache(conn):
-            _fetch_and_cache_stock_list(conn, incremental=True if _is_cache_populated(conn) else False)
+            _fetch_and_cache_stock_list(
+                conn,
+                incremental=True if _is_cache_populated(conn) else False,
+                data_provider=data_provider,
+            )
 
         code_exact = normalized.upper()
         code_prefix = f"{code_exact}%"
@@ -577,6 +703,7 @@ def filter_pool_at_date(
     filters: StockPoolFilters | dict | None = None,
     symbols: list[str] | None = None,
     db_path: Path | None = None,
+    data_provider: str | None = None,
 ) -> list[StockPoolRecord]:
     """在历史股票池之上叠加过滤条件，返回结构化结果。"""
 
@@ -596,7 +723,11 @@ def filter_pool_at_date(
     conn = _get_connection(db_path)
     try:
         if not _is_cache_populated(conn) or _should_refresh_cache(conn):
-            _fetch_and_cache_stock_list(conn, incremental=True if _is_cache_populated(conn) else False)
+            _fetch_and_cache_stock_list(
+                conn,
+                incremental=True if _is_cache_populated(conn) else False,
+                data_provider=data_provider,
+            )
 
         rows = _query_pool_rows(conn, date=yyyymmdd, symbols=selected_symbols)
         records: list[StockPoolRecord] = []
@@ -612,6 +743,7 @@ def filter_pool_at_date(
             listing_days = _listing_days(str(row["list_date"]), yyyymmdd)
             if (
                 normalized_filters.min_listing_days is not None
+                and listing_days >= 0
                 and listing_days < normalized_filters.min_listing_days
             ):
                 continue

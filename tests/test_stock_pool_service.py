@@ -37,4 +37,5 @@ def test_run_stock_pool_filter_returns_api_ready_payload():
         "2024-01-01",
         filters={"industries": ["白酒"]},
         symbols=["600519.SH"],
+        data_provider=None,
     )

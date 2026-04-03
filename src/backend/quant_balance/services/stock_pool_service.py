@@ -25,6 +25,7 @@ def run_stock_pool_filter(
         pool_date,
         filters=filters,
         symbols=symbols,
+        data_provider=data_provider,
     )
     payload = {
         "symbols": [record.ts_code for record in records],

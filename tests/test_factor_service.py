@@ -60,6 +60,7 @@ def test_run_factor_ranking_returns_api_ready_payload():
         "2024-01-15",
         filters={"industries": ["银行"]},
         symbols=None,
+        data_provider=None,
     )
     assert mock_financial.call_count == 2
 

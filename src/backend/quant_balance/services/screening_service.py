@@ -143,10 +143,11 @@ def run_stock_screening(
             pool_date,
             filters=pool_filters,
             symbols=symbols,
+            data_provider=data_provider,
         )
         symbols = [record.ts_code for record in records]
     elif symbols is None:
-        symbols = get_pool_at_date(pool_date)
+        symbols = get_pool_at_date(pool_date, data_provider=data_provider)
     requested_symbols_count = len(symbols)
 
     load_kwargs = {
