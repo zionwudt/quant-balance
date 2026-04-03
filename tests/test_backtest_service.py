@@ -140,6 +140,38 @@ def test_run_single_backtest_returns_api_ready_payload():
     mock_run.assert_called_once()
 
 
+def test_run_single_backtest_emits_structured_log(caplog: pytest.LogCaptureFixture):
+    sample_df = _make_sample_df()
+    sample_df.attrs["data_provider"] = "tushare"
+    caplog.set_level(logging.INFO, logger="quant_balance")
+
+    with (
+        patch("quant_balance.services.backtest_service.load_dataframe", return_value=sample_df),
+        patch("quant_balance.services.backtest_service.run_backtest", return_value=_fake_backtest_result()),
+    ):
+        run_single_backtest(
+            symbol="600519.SH",
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            strategy="sma_cross",
+            cash=100_000.0,
+            commission=0.001,
+            params={"fast_period": 3, "slow_period": 5},
+        )
+
+    records = [
+        record for record in caplog.records
+        if getattr(record, "qb_event", None) == "BACKTEST_RUN"
+        and getattr(record, "qb_payload", {}).get("stage") == "service"
+    ]
+    assert len(records) == 1
+    payload = records[0].qb_payload
+    assert payload["symbol"] == "600519.SH"
+    assert payload["cash"] == 100_000.0
+    assert payload["commission"] == 0.001
+    assert payload["trades_count"] == 1
+
+
 def test_run_optimize_requires_param_ranges():
     with pytest.raises(ValueError, match="param_ranges 不能为空"):
         run_optimize(
