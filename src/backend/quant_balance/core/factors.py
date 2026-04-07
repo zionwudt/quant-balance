@@ -321,13 +321,15 @@ def rank_factor_items(
     items: Iterable[Mapping[str, object]],
     factor_specs: Sequence[FactorSpec | Mapping[str, object]] | None = None,
     *,
-    min_factor_coverage: float = 0.5,
+    min_factor_coverage: float = 1.0,
 ) -> FactorRankingResult:
     """对候选样本做多因子标准化与加权打分。
 
     参数:
-        min_factor_coverage: 至少有多少比例的因子非空才参与排名 (0~1)，默认 0.5
+        min_factor_coverage: 至少有多少比例的因子非空才参与排名 (0~1)，默认 1.0
     """
+    if not 0 <= min_factor_coverage <= 1:
+        raise ValueError("min_factor_coverage 必须位于 [0, 1] 区间")
 
     resolved_specs = resolve_factor_specs(factor_specs)
     raw_values = build_factor_matrix(items, resolved_specs)
