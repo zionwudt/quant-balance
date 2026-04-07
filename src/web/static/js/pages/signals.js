@@ -4,30 +4,43 @@
 
 import { api, ApiError } from '../api.js';
 import { toast } from '../components/toast.js';
-import { addSignalToPaperTrading, getSignalCenterSnapshot, subscribePaperState } from '../data/paper-store.js';
-import { downloadBlob, downloadCsv } from '../utils/download.js';
+import { downloadBlob } from '../utils/download.js';
 
-let currentSnapshot = null;
+let pageState = createInitialState();
 
 export async function initSignalsPage(container, routeContext = {}) {
+  pageState = createInitialState(routeContext.navigateTo);
   container.innerHTML = buildHTML();
-  bindEvents(container, routeContext.navigateTo);
-  renderSignals(container);
-
-  const unsubscribe = subscribePaperState(() => {
-    renderSignals(container);
-  });
+  bindEvents(container);
+  await refreshSignals(container);
+  pageState.refreshTimer = window.setInterval(() => {
+    void refreshSignals(container, { silent: true });
+  }, 30_000);
 
   return {
     exportCurrent() {
       void downloadSignalsExport(container, 'csv');
     },
     focusPrimary() {
-      container.querySelector('[data-action="view-kline"]')?.focus();
+      container.querySelector('#signals-date')?.focus();
     },
     dispose() {
-      unsubscribe();
+      window.clearInterval(pageState.refreshTimer);
+      pageState.refreshTimer = null;
     },
+  };
+}
+
+function createInitialState(navigateTo = null) {
+  return {
+    navigateTo,
+    todayPayload: { date: todayDateText(), total: 0, items: [] },
+    recentPayload: { items: [] },
+    historyPayload: { page: 1, page_size: 20, total: 0, has_more: false, items: [] },
+    historyDays: 30,
+    historyPage: 1,
+    refreshTimer: null,
+    loading: false,
   };
 }
 
@@ -37,11 +50,12 @@ function buildHTML() {
       <div class="results-overview">
         <div>
           <div class="results-title">信号中心</div>
-          <p class="results-subtitle">把当天的买卖建议拆分为可执行卡片，并保留后续表现追踪，便于人工复核与加入模拟盘。</p>
+          <p class="results-subtitle">读取后端持久化信号，支持今日筛选、历史跟踪、状态流转与导出。</p>
         </div>
         <div class="results-tags">
           <span class="result-tag" id="signals-generated-tag">--</span>
-          <input class="input mono input-sm" id="signals-export-date" type="date" value="${todayDateText()}">
+          <input class="input mono input-sm" id="signals-date" type="date" value="${todayDateText()}">
+          <button class="btn btn-secondary btn-sm" id="signals-refresh">刷新</button>
           <button class="btn btn-secondary btn-sm" data-export-format="csv">导出 CSV</button>
           <button class="btn btn-secondary btn-sm" data-export-format="qmt">导出 QMT</button>
           <button class="btn btn-primary btn-sm" data-export-format="json">导出 JSON</button>
@@ -53,7 +67,7 @@ function buildHTML() {
           <div class="results-card-head">
             <div>
               <div class="card-title">买入信号</div>
-              <p class="card-subtitle">更适合直接加入模拟盘的新开仓候选。</p>
+              <p class="card-subtitle">当日后端持久化买入候选，支持标记执行或忽略。</p>
             </div>
           </div>
           <div class="signal-card-grid" id="signals-buy"></div>
@@ -63,27 +77,65 @@ function buildHTML() {
           <div class="results-card-head">
             <div>
               <div class="card-title">卖出信号</div>
-              <p class="card-subtitle">针对已有持仓的减仓 / 止损 / 锁盈建议。</p>
+              <p class="card-subtitle">当日后端持久化卖出候选，可直接联动到回测或模拟盘页。</p>
             </div>
           </div>
           <div class="signal-card-grid" id="signals-sell"></div>
         </div>
       </div>
 
-      <div class="card">
-        <div class="results-card-head">
-          <div>
-            <div class="card-title">历史跟踪</div>
-            <p class="card-subtitle">保留近 40 条历史信号，并记录 1 / 5 / 10 日后表现，便于观察命中率与信号衰减速度。</p>
+      <div class="signals-secondary-grid">
+        <div class="card">
+          <div class="results-card-head">
+            <div>
+              <div class="card-title">最近持久化信号</div>
+              <p class="card-subtitle">最近 12 条信号快照，便于快速确认调度器是否有持续产出。</p>
+            </div>
           </div>
+          <div class="portfolio-table-wrapper" id="signals-recent"></div>
         </div>
-        <div class="portfolio-table-wrapper" id="signals-history"></div>
+
+        <div class="card">
+          <div class="results-card-head">
+            <div>
+              <div class="card-title">历史跟踪</div>
+              <p class="card-subtitle">按天数窗口查看历史信号，并保留 1 / 5 / 10 / 20 日跟踪收益。</p>
+            </div>
+            <div class="signals-history-toolbar">
+              <label class="advanced-field">
+                <span class="form-label">窗口天数</span>
+                <select class="input" id="signals-history-days">
+                  <option value="7">7 天</option>
+                  <option value="30" selected>30 天</option>
+                  <option value="90">90 天</option>
+                  <option value="365">365 天</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="portfolio-table-wrapper" id="signals-history"></div>
+          <div class="history-pagination" id="signals-history-pagination"></div>
+        </div>
       </div>
     </div>
   `;
 }
 
-function bindEvents(container, navigateTo) {
+function bindEvents(container) {
+  container.querySelector('#signals-refresh')?.addEventListener('click', () => {
+    void refreshSignals(container);
+  });
+
+  container.querySelector('#signals-date')?.addEventListener('change', () => {
+    void refreshSignals(container);
+  });
+
+  container.querySelector('#signals-history-days')?.addEventListener('change', (event) => {
+    pageState.historyDays = Number(event.target.value || 30);
+    pageState.historyPage = 1;
+    void refreshSignals(container);
+  });
+
   container.querySelectorAll('[data-export-format]').forEach((button) => {
     button.addEventListener('click', () => {
       void downloadSignalsExport(container, button.dataset.exportFormat || 'csv');
@@ -91,46 +143,100 @@ function bindEvents(container, navigateTo) {
   });
 
   container.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-action]');
-    if (!button) {
+    const target = event.target.closest('[data-action]');
+    if (!target) {
       return;
     }
-    const signalId = button.dataset.signalId;
-    const signal = findSignal(signalId);
-    if (!signal) {
-      toast.error('信号已失效，请刷新后重试');
+    const action = target.dataset.action;
+    if (action === 'history-page') {
+      pageState.historyPage = Number(target.dataset.page || 1);
+      void refreshSignals(container, { silent: true });
       return;
     }
 
-    const action = button.dataset.action;
+    const signalId = Number(target.dataset.signalId || 0);
+    const signal = findSignal(signalId);
+    if (!signal) {
+      toast.error('信号不存在或已失效，请刷新后重试');
+      return;
+    }
+
     if (action === 'view-kline') {
-      navigateTo?.('backtest', { symbols: signal.symbol });
+      pageState.navigateTo?.('backtest', { symbols: signal.symbol });
       return;
     }
-    if (action === 'add-paper') {
-      try {
-        addSignalToPaperTrading(signal);
-        toast.success(`${signal.name} 已加入模拟盘`);
-      } catch (error) {
-        toast.error(error.message || '加入模拟盘失败');
-      }
+    if (action === 'start-paper') {
+      pageState.navigateTo?.('paper-trading', {
+        symbols: signal.symbol,
+        strategy: signal.strategy,
+        asset_type: signal.asset_type || 'stock',
+        start_date: String(signal.trade_date || signal.created_at || '').slice(0, 10),
+      });
       return;
     }
-    if (action === 'export-signal') {
-      exportSignals([signal]);
+    if (action === 'mark-status') {
+      void mutateSignalStatus(container, signalId, target.dataset.status || 'pending');
     }
   });
 }
 
+async function refreshSignals(container, options = {}) {
+  const { silent = false } = options;
+  if (pageState.loading) {
+    return;
+  }
+  pageState.loading = true;
+  if (!silent) {
+    container.querySelector('#signals-generated-tag').textContent = '加载中...';
+  }
+
+  const signalDate = container.querySelector('#signals-date')?.value || todayDateText();
+
+  try {
+    const [todayPayload, recentPayload, historyPayload] = await Promise.all([
+      api.getSignalsToday(200, signalDate),
+      api.getSignalsRecent(12, signalDate),
+      api.getSignalsHistory(pageState.historyDays, pageState.historyPage, 20),
+    ]);
+    pageState.todayPayload = todayPayload;
+    pageState.recentPayload = recentPayload;
+    pageState.historyPayload = historyPayload;
+    renderSignals(container);
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : '信号读取失败';
+    if (!silent) {
+      toast.error(message);
+    }
+    renderErrorState(container, message);
+  } finally {
+    pageState.loading = false;
+  }
+}
+
 function renderSignals(container) {
-  currentSnapshot = getSignalCenterSnapshot();
-  container.querySelector('#signals-generated-tag').textContent = `生成于 ${formatDateTime(currentSnapshot.generated_at)}`;
-  container.querySelector('#signals-buy').innerHTML = renderSignalCards(currentSnapshot.buy_signals, 'buy');
-  container.querySelector('#signals-sell').innerHTML = renderSignalCards(currentSnapshot.sell_signals, 'sell');
-  container.querySelector('#signals-history').innerHTML = renderHistoryTable(currentSnapshot.history);
+  const todayItems = pageState.todayPayload.items || [];
+  const buySignals = todayItems.filter(item => item.side === 'BUY');
+  const sellSignals = todayItems.filter(item => item.side === 'SELL');
+
+  container.querySelector('#signals-generated-tag').textContent = `日期 ${pageState.todayPayload.date} · 共 ${pageState.todayPayload.total || 0} 条`;
+  container.querySelector('#signals-buy').innerHTML = renderSignalCards(buySignals, 'buy');
+  container.querySelector('#signals-sell').innerHTML = renderSignalCards(sellSignals, 'sell');
+  container.querySelector('#signals-recent').innerHTML = renderRecentTable(pageState.recentPayload.items || []);
+  container.querySelector('#signals-history').innerHTML = renderHistoryTable(pageState.historyPayload.items || []);
+  container.querySelector('#signals-history-pagination').innerHTML = renderHistoryPagination(pageState.historyPayload);
   window.dispatchEvent(new CustomEvent('qb-status-message', {
-    detail: { text: `信号中心 · 买入 ${currentSnapshot.buy_signals.length} / 卖出 ${currentSnapshot.sell_signals.length}` },
+    detail: {
+      text: `信号中心 · 今日 ${pageState.todayPayload.total || 0} / 历史 ${pageState.historyPayload.total || 0}`,
+    },
   }));
+}
+
+function renderErrorState(container, message) {
+  container.querySelector('#signals-buy').innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠</div><p>${message}</p></div>`;
+  container.querySelector('#signals-sell').innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠</div><p>${message}</p></div>`;
+  container.querySelector('#signals-recent').innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><p>暂无最近信号</p></div>';
+  container.querySelector('#signals-history').innerHTML = '<div class="empty-state"><div class="empty-state-icon">📜</div><p>暂无历史信号</p></div>';
+  container.querySelector('#signals-history-pagination').innerHTML = '';
 }
 
 function renderSignalCards(items, type) {
@@ -138,38 +244,73 @@ function renderSignalCards(items, type) {
     return `
       <div class="empty-state">
         <div class="empty-state-icon">${type === 'buy' ? '🛒' : '🛡'}</div>
-        <p>${type === 'buy' ? '当前没有新的买入候选' : '当前没有需要处理的卖出信号'}</p>
+        <p>${type === 'buy' ? '当前没有新的买入候选' : '当前没有新的卖出候选'}</p>
       </div>
     `;
   }
 
   return items.map((item) => `
-    <div class="signal-card signal-card-${item.side}">
+    <div class="signal-card signal-card-${type}">
       <div class="signal-card-head">
         <div>
-          <div class="signal-card-title">${item.name}</div>
+          <div class="signal-card-title">${escapeHtml(item.name || item.symbol)}</div>
           <div class="signal-card-symbol mono">${item.symbol}</div>
         </div>
-        <span class="result-tag">${item.side_label} · 置信度 ${item.confidence}</span>
+        <div class="signal-status-stack">
+          <span class="result-tag">${item.side_label} · ${item.status_label}</span>
+          <span class="result-tag mono">${formatDateTime(item.created_at)}</span>
+        </div>
       </div>
       <div class="signal-card-meta">
-        <span>策略 <span class="mono">${item.strategy}</span></span>
-        <span>价格 <span class="mono">${Number(item.price || 0).toFixed(3)}</span></span>
-        <span>建议数量 <span class="mono">${item.suggested_qty}</span></span>
+        <span>策略 <span class="mono">${escapeHtml(item.strategy || '-')}</span></span>
+        <span>价格 <span class="mono">${formatPrice(item.price)}</span></span>
+        <span>数量 <span class="mono">${item.suggested_qty || 0}</span></span>
+        <span>20 日 <span class="mono ${pctClass(item.performance_20d_pct)}">${formatSignedPct(item.performance_20d_pct)}</span></span>
       </div>
-      <p class="signal-card-reason">${item.trigger_reason}</p>
+      <p class="signal-card-reason">${escapeHtml(item.trigger_reason || item.reason || '-')}</p>
       <div class="signal-card-actions">
         <button class="btn btn-secondary btn-sm" data-action="view-kline" data-signal-id="${item.id}">查看 K 线</button>
-        <button class="btn btn-primary btn-sm" data-action="add-paper" data-signal-id="${item.id}">加入模拟盘</button>
-        <button class="btn btn-ghost btn-sm" data-action="export-signal" data-signal-id="${item.id}">导出 CSV</button>
+        <button class="btn btn-secondary btn-sm" data-action="start-paper" data-signal-id="${item.id}">去模拟盘</button>
+        ${buildStatusButtons(item)}
       </div>
     </div>
   `).join('');
 }
 
+function renderRecentTable(items) {
+  if (!items.length) {
+    return '<div class="empty-state"><div class="empty-state-icon">📭</div><p>最近没有可显示的信号</p></div>';
+  }
+
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>时间</th>
+          <th>标的</th>
+          <th>动作</th>
+          <th>状态</th>
+          <th data-align="right">价格</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((item) => `
+          <tr data-pnl="${rowPnlType(item.performance_5d_pct)}">
+            <td class="mono">${formatDateTime(item.created_at)}</td>
+            <td>${escapeHtml(item.name || item.symbol)} <span class="mono text-muted">${item.symbol}</span></td>
+            <td>${item.side_label}</td>
+            <td>${item.status_label}</td>
+            <td data-align="right" class="mono">${formatPrice(item.price)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 function renderHistoryTable(items) {
   if (!items.length) {
-    return '<div class="empty-state"><div class="empty-state-icon">📜</div><p>暂无历史信号</p></div>';
+    return '<div class="empty-state"><div class="empty-state-icon">📜</div><p>当前窗口内没有历史信号</p></div>';
   }
 
   return `
@@ -181,24 +322,33 @@ function renderHistoryTable(items) {
           <th>动作</th>
           <th>策略</th>
           <th data-align="right">信号价</th>
-          <th data-align="right">1日</th>
-          <th data-align="right">5日</th>
-          <th data-align="right">10日</th>
+          <th data-align="right">1 日</th>
+          <th data-align="right">5 日</th>
+          <th data-align="right">10 日</th>
+          <th data-align="right">20 日</th>
           <th>状态</th>
         </tr>
       </thead>
       <tbody>
         ${items.map((item) => `
-          <tr data-pnl="${item.performance_5d_pct >= 0 ? 'profit' : 'loss'}">
-            <td class="mono">${formatDateTime(item.generated_at)}</td>
-            <td>${item.name} <span class="mono text-muted">${item.symbol}</span></td>
+          <tr data-pnl="${rowPnlType(item.performance_5d_pct)}">
+            <td class="mono">${formatDateTime(item.created_at)}</td>
+            <td>${escapeHtml(item.name || item.symbol)} <span class="mono text-muted">${item.symbol}</span></td>
             <td>${item.side_label}</td>
-            <td class="mono">${item.strategy}</td>
-            <td data-align="right" class="mono">${Number(item.signal_price || 0).toFixed(3)}</td>
-            <td data-align="right" class="mono ${item.performance_1d_pct >= 0 ? 'text-profit' : 'text-loss'}">${formatSignedPct(item.performance_1d_pct)}</td>
-            <td data-align="right" class="mono ${item.performance_5d_pct >= 0 ? 'text-profit' : 'text-loss'}">${formatSignedPct(item.performance_5d_pct)}</td>
-            <td data-align="right" class="mono ${item.performance_10d_pct >= 0 ? 'text-profit' : 'text-loss'}">${formatSignedPct(item.performance_10d_pct)}</td>
-            <td>${item.outcome_label}</td>
+            <td class="mono">${escapeHtml(item.strategy || '-')}</td>
+            <td data-align="right" class="mono">${formatPrice(item.signal_price)}</td>
+            <td data-align="right" class="mono ${pctClass(item.performance_1d_pct)}">${formatSignedPct(item.performance_1d_pct)}</td>
+            <td data-align="right" class="mono ${pctClass(item.performance_5d_pct)}">${formatSignedPct(item.performance_5d_pct)}</td>
+            <td data-align="right" class="mono ${pctClass(item.performance_10d_pct)}">${formatSignedPct(item.performance_10d_pct)}</td>
+            <td data-align="right" class="mono ${pctClass(item.performance_20d_pct)}">${formatSignedPct(item.performance_20d_pct)}</td>
+            <td>
+              <div class="signals-history-status">
+                <span>${item.status_label}</span>
+                <div class="signals-inline-actions">
+                  ${buildStatusButtons(item)}
+                </div>
+              </div>
+            </td>
           </tr>
         `).join('')}
       </tbody>
@@ -206,48 +356,46 @@ function renderHistoryTable(items) {
   `;
 }
 
-function findSignal(signalId) {
-  if (!currentSnapshot) {
-    return null;
+function renderHistoryPagination(payload) {
+  const total = Number(payload.total || 0);
+  const page = Number(payload.page || 1);
+  const pageSize = Number(payload.page_size || 20);
+  if (!total) {
+    return '';
   }
-  return [...currentSnapshot.buy_signals, ...currentSnapshot.sell_signals].find((item) => item.id === signalId) || null;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return `
+    <span class="text-muted">第 ${page} / ${totalPages} 页，共 ${total} 条</span>
+    <div class="signals-inline-actions">
+      <button class="btn btn-ghost btn-sm" data-action="history-page" data-page="${Math.max(1, page - 1)}"${page <= 1 ? ' disabled' : ''}>上一页</button>
+      <button class="btn btn-ghost btn-sm" data-action="history-page" data-page="${Math.min(totalPages, page + 1)}"${page >= totalPages ? ' disabled' : ''}>下一页</button>
+    </div>
+  `;
 }
 
-function exportSignals(signals = null) {
-  const rows = (signals || [...(currentSnapshot?.buy_signals || []), ...(currentSnapshot?.sell_signals || [])]).map((item) => ({
-    generated_at: item.generated_at,
-    side: item.side_label,
-    symbol: item.symbol,
-    name: item.name,
-    strategy: item.strategy,
-    trigger_reason: item.trigger_reason,
-    price: Number(item.price || 0).toFixed(3),
-    suggested_qty: item.suggested_qty,
-    confidence: item.confidence,
-  }));
+function buildStatusButtons(item) {
+  const status = String(item.status || 'pending');
+  return `
+    <button class="btn btn-ghost btn-sm" data-action="mark-status" data-signal-id="${item.id}" data-status="pending"${status === 'pending' ? ' disabled' : ''}>待处理</button>
+    <button class="btn btn-primary btn-sm" data-action="mark-status" data-signal-id="${item.id}" data-status="executed"${status === 'executed' ? ' disabled' : ''}>已执行</button>
+    <button class="btn btn-secondary btn-sm" data-action="mark-status" data-signal-id="${item.id}" data-status="ignored"${status === 'ignored' ? ' disabled' : ''}>忽略</button>
+  `;
+}
 
-  if (!rows.length) {
-    toast.info('当前没有可导出的信号');
-    return;
+async function mutateSignalStatus(container, signalId, status) {
+  try {
+    await api.updateSignalStatus(signalId, status);
+    toast.success(`信号已更新为${statusLabel(status)}`);
+    await refreshSignals(container, { silent: true });
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : '信号状态更新失败';
+    toast.error(message);
   }
-
-  downloadCsv(`signals-${Date.now()}.csv`, rows, [
-    'generated_at',
-    'side',
-    'symbol',
-    'name',
-    'strategy',
-    'trigger_reason',
-    'price',
-    'suggested_qty',
-    'confidence',
-  ]);
-  toast.success('信号 CSV 已导出');
 }
 
 async function downloadSignalsExport(container, format) {
   const normalizedFormat = String(format || 'csv').toLowerCase();
-  const exportDate = container.querySelector('#signals-export-date')?.value || todayDateText();
+  const exportDate = container.querySelector('#signals-date')?.value || todayDateText();
 
   try {
     const result = await api.exportSignals(normalizedFormat, exportDate);
@@ -260,9 +408,42 @@ async function downloadSignalsExport(container, format) {
   }
 }
 
+function findSignal(signalId) {
+  const buckets = [
+    ...(pageState.todayPayload.items || []),
+    ...(pageState.recentPayload.items || []),
+    ...(pageState.historyPayload.items || []),
+  ];
+  return buckets.find(item => Number(item.id) === Number(signalId)) || null;
+}
+
+function rowPnlType(value) {
+  if (value == null) {
+    return 'profit';
+  }
+  return Number(value) >= 0 ? 'profit' : 'loss';
+}
+
+function pctClass(value) {
+  if (value == null) {
+    return '';
+  }
+  return Number(value) >= 0 ? 'text-profit' : 'text-loss';
+}
+
 function formatSignedPct(value) {
-  const number = Number(value || 0);
+  if (value == null || !Number.isFinite(Number(value))) {
+    return '-';
+  }
+  const number = Number(value);
   return `${number >= 0 ? '+' : ''}${number.toFixed(2)}%`;
+}
+
+function formatPrice(value) {
+  if (value == null || !Number.isFinite(Number(value))) {
+    return '-';
+  }
+  return Number(value).toFixed(3);
 }
 
 function formatDateTime(value) {
@@ -279,10 +460,28 @@ function formatDateTime(value) {
   });
 }
 
+function statusLabel(status) {
+  return {
+    pending: '待处理',
+    executed: '已执行',
+    ignored: '已忽略',
+    expired: '已过期',
+  }[status] || status;
+}
+
 function todayDateText() {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }

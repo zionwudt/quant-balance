@@ -2,18 +2,22 @@
  * 知衡 QuantBalance — 设置页面
  */
 
-import { api, ApiError } from '../api.js';
+import { api, ApiError, getApiKey, setApiKey } from '../api.js';
 import { toast } from '../components/toast.js';
 import { getAppSettings, updateAppSettings, getDataProvider } from '../settings.js';
 import { downloadJson } from '../utils/download.js';
 
 let latestConfigStatus = null;
+let latestSchedulerStatus = null;
+let latestMarketRegime = null;
 
 export async function initSettingsPage(container) {
   latestConfigStatus = await loadConfigStatus();
   container.innerHTML = buildHTML(getAppSettings(), latestConfigStatus);
   bindEvents(container);
   renderConfigStatus(container, latestConfigStatus);
+  void refreshSchedulerStatus(container, { silent: true });
+  void refreshMarketRegime(container, { silent: true });
   window.dispatchEvent(new CustomEvent('qb-status-message', {
     detail: { text: '设置 · 已加载当前偏好' },
   }));
@@ -123,6 +127,83 @@ function buildHTML(settings, status) {
               </p>
             </div>
           </details>
+        </div>
+
+        <div class="card">
+          <div class="results-card-head">
+            <div>
+              <div class="card-title">API Key</div>
+              <p class="card-subtitle">当后端启用 API Key 中间件时，Web 端会从这里读取本地凭证并自动附加请求头。</p>
+            </div>
+          </div>
+          <div class="settings-section-grid">
+            <label class="advanced-field" style="grid-column: span 2;">
+              <span class="form-label">当前 API Key</span>
+              <input class="input mono" id="settings-api-key" type="password" value="${escapeAttr(getApiKey())}" placeholder="留空表示不附带 Authorization">
+              <span class="field-help">仅保存在当前浏览器本地，不会自动写入后端配置。</span>
+            </label>
+          </div>
+          <div class="settings-actions">
+            <button class="btn btn-secondary" id="settings-api-key-clear">清除 API Key</button>
+            <button class="btn btn-primary" id="settings-api-key-save">保存 API Key</button>
+          </div>
+          <div class="settings-inline-status" id="settings-api-key-status"></div>
+        </div>
+
+        <div class="card">
+          <div class="results-card-head">
+            <div>
+              <div class="card-title">调度器</div>
+              <p class="card-subtitle">查看每日盘后扫描调度器状态，并支持手动触发一次扫描。</p>
+            </div>
+            <div class="results-tags" id="settings-scheduler-tags">
+              <span class="result-tag">等待加载</span>
+            </div>
+          </div>
+          <div class="settings-section-grid">
+            <label class="advanced-field">
+              <span class="form-label">手动扫描日期</span>
+              <input class="input" id="settings-scheduler-date" type="date" value="${formatDateInput(new Date())}">
+            </label>
+            <div class="advanced-field">
+              <span class="form-label">操作</span>
+              <div class="settings-actions">
+                <button class="btn btn-secondary" id="settings-scheduler-refresh">刷新状态</button>
+                <button class="btn btn-primary" id="settings-scheduler-run">立即扫描</button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-inline-status" id="settings-scheduler-status"></div>
+        </div>
+
+        <div class="card">
+          <div class="results-card-head">
+            <div>
+              <div class="card-title">市场状态</div>
+              <p class="card-subtitle">直接查询 <span class="mono">market/regime</span>，便于核对当前筛选与因子研究的市场环境。</p>
+            </div>
+          </div>
+          <div class="settings-section-grid">
+            <label class="advanced-field">
+              <span class="form-label">指数代码</span>
+              <input class="input mono" id="settings-regime-symbol" type="text" value="000300.SH">
+            </label>
+            <label class="advanced-field">
+              <span class="form-label">开始日期</span>
+              <input class="input" id="settings-regime-start" type="date" value="${formatDateInput(new Date(Date.now() - 120 * 24 * 3600 * 1000))}">
+            </label>
+            <label class="advanced-field">
+              <span class="form-label">结束日期</span>
+              <input class="input" id="settings-regime-end" type="date" value="${formatDateInput(new Date())}">
+            </label>
+            <div class="advanced-field">
+              <span class="form-label">操作</span>
+              <div class="settings-actions">
+                <button class="btn btn-secondary" id="settings-regime-refresh">刷新市场状态</button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-inline-status" id="settings-regime-status"></div>
         </div>
 
         <div class="card">
@@ -301,6 +382,22 @@ function bindEvents(container) {
     });
   });
 
+  container.querySelector('#settings-api-key-save')?.addEventListener('click', () => {
+    const key = container.querySelector('#settings-api-key').value.trim();
+    setApiKey(key);
+    container.querySelector('#settings-api-key-status').innerHTML = key
+      ? '<span class="text-profit">API Key 已保存到当前浏览器。</span>'
+      : '<span class="text-muted">当前未配置 API Key。</span>';
+    toast.success(key ? 'API Key 已保存' : 'API Key 已清空');
+  });
+
+  container.querySelector('#settings-api-key-clear')?.addEventListener('click', () => {
+    setApiKey('');
+    container.querySelector('#settings-api-key').value = '';
+    container.querySelector('#settings-api-key-status').innerHTML = '<span class="text-muted">API Key 已清除。</span>';
+    toast.success('API Key 已清除');
+  });
+
   container.querySelector('#settings-token-test')?.addEventListener('click', async () => {
     const token = container.querySelector('#settings-token').value.trim();
     const statusEl = container.querySelector('#settings-token-status');
@@ -373,6 +470,32 @@ function bindEvents(container) {
       statusEl.innerHTML = `<span class="text-loss">${message}</span>`;
       toast.error(message);
     }
+  });
+
+  container.querySelector('#settings-scheduler-refresh')?.addEventListener('click', async () => {
+    await refreshSchedulerStatus(container);
+  });
+
+  container.querySelector('#settings-scheduler-run')?.addEventListener('click', async () => {
+    const statusEl = container.querySelector('#settings-scheduler-status');
+    statusEl.textContent = '正在触发扫描...';
+    try {
+      const result = await api.runScheduler({
+        trade_date: container.querySelector('#settings-scheduler-date').value || null,
+        force: true,
+      });
+      statusEl.innerHTML = `<span class="text-profit">${escapeHtml(result.message || '手动扫描已触发')}</span>`;
+      toast.success('手动扫描已触发');
+      await refreshSchedulerStatus(container, { silent: true });
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : '手动扫描失败';
+      statusEl.innerHTML = `<span class="text-loss">${escapeHtml(message)}</span>`;
+      toast.error(message);
+    }
+  });
+
+  container.querySelector('#settings-regime-refresh')?.addEventListener('click', async () => {
+    await refreshMarketRegime(container);
   });
 
   container.querySelector('#settings-save')?.addEventListener('click', () => {
@@ -475,6 +598,97 @@ async function loadConfigStatus() {
   }
 }
 
+async function refreshSchedulerStatus(container, options = {}) {
+  const { silent = false } = options;
+  const statusEl = container.querySelector('#settings-scheduler-status');
+  if (statusEl) {
+    statusEl.textContent = '正在读取调度器状态...';
+  }
+  try {
+    latestSchedulerStatus = await api.getSchedulerStatus();
+    renderSchedulerStatus(container, latestSchedulerStatus);
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : '无法获取调度器状态';
+    if (statusEl) {
+      statusEl.innerHTML = `<span class="text-loss">${escapeHtml(message)}</span>`;
+    }
+    if (!silent) {
+      toast.error(message);
+    }
+  }
+}
+
+function renderSchedulerStatus(container, status) {
+  container.querySelector('#settings-scheduler-tags').innerHTML = `
+    <span class="result-tag">${status?.enabled ? '已启用' : '未启用'}</span>
+    <span class="result-tag">${status?.running ? '运行中' : '未运行'}</span>
+    <span class="result-tag">${status?.next_run_time ? `下次 ${status.next_run_time}` : '无下次执行时间'}</span>
+  `;
+  container.querySelector('#settings-scheduler-status').innerHTML = `
+    <div>${status?.message || '调度器状态已更新。'}</div>
+    <div class="text-muted">最后扫描：${status?.last_scan?.trade_date || status?.last_scan?.completed_at || '暂无'}</div>
+  `;
+}
+
+async function refreshMarketRegime(container, options = {}) {
+  const { silent = false } = options;
+  const statusEl = container.querySelector('#settings-regime-status');
+  if (statusEl) {
+    statusEl.textContent = '正在读取市场状态...';
+  }
+  try {
+    latestMarketRegime = await api.getMarketRegime({
+      symbol: container.querySelector('#settings-regime-symbol').value.trim() || '000300.SH',
+      start_date: container.querySelector('#settings-regime-start').value || '',
+      end_date: container.querySelector('#settings-regime-end').value || '',
+      data_provider: getDataProvider() || '',
+    });
+    renderMarketRegime(container, latestMarketRegime);
+  } catch (error) {
+    const rawMessage = error instanceof ApiError ? error.message : '无法获取市场状态';
+    const message = explainMarketRegimeError(rawMessage);
+    if (statusEl) {
+      statusEl.innerHTML = `<span class="text-loss">${escapeHtml(message)}</span>`;
+    }
+    if (!silent) {
+      toast.error(message);
+    }
+  }
+}
+
+function renderMarketRegime(container, payload) {
+  const latest = payload?.latest || {};
+  const recentRows = (payload?.series || []).slice(-5).reverse();
+  container.querySelector('#settings-regime-status').innerHTML = `
+    <div class="signals-history-status">
+      <span>最新状态：<strong>${escapeHtml(latest.regime || '-')}</strong> · ${escapeHtml(latest.date || '-')}</span>
+      <span class="mono">close ${latest.close ?? '-'}</span>
+    </div>
+    <div class="portfolio-table-wrapper" style="margin-top:12px;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>日期</th>
+            <th>状态</th>
+            <th data-align="right">趋势强度</th>
+            <th data-align="right">动量</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${recentRows.map((item) => `
+            <tr>
+              <td class="mono">${item.date}</td>
+              <td>${escapeHtml(item.regime)}</td>
+              <td data-align="right" class="mono">${item.trend_strength_pct == null ? '-' : `${Number(item.trend_strength_pct).toFixed(2)}%`}</td>
+              <td data-align="right" class="mono">${item.momentum_pct == null ? '-' : `${Number(item.momentum_pct).toFixed(2)}%`}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function buildStatusTags(status) {
   return `
     <span class="result-tag">${status?.config_exists ? '配置文件已加载' : '配置文件未创建'}</span>
@@ -515,6 +729,21 @@ function rebalanceLabel(value) {
   if (value === 'weekly') return '每周';
   if (value === 'quarterly') return '每季度';
   return '每月';
+}
+
+function formatDateInput(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function explainMarketRegimeError(message) {
+  const normalized = String(message || '').trim();
+  if (normalized && normalized !== '内部服务器错误') {
+    return normalized;
+  }
+  return '市场状态读取失败。该能力依赖指数行情权限；如果当前 Tushare Token 未开通相关接口，会返回失败。';
 }
 
 function escapeAttr(value) {

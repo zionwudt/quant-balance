@@ -24,6 +24,7 @@ export async function initStockPoolPage(container, routeContext = {}) {
   updateFactorDisplays(container);
   await ensureIndustryOptions(container, getPoolDate(container));
   await refreshStockPool(container);
+  syncScreeningSelectionStatus(container);
 
   return {
     exportCurrent() {
@@ -44,7 +45,9 @@ function createInitialState(routeContext = {}) {
     meta: null,
     navigateTo: routeContext.navigateTo || null,
     rankings: [],
+    screeningRankings: [],
     selectedSymbols: new Set(),
+    selectedScreeningSymbols: new Set(),
     filteredCount: 0,
     sortKey: 'rank',
     sortAsc: true,
@@ -63,6 +66,7 @@ function buildFallbackMeta() {
       { name: 'pb', description: '市净率（越低越好）', default_direction: 'lower_better' },
       { name: 'dv_ratio', description: '股息率（越高越好）', default_direction: 'higher_better' },
     ],
+    signals: ['sma_cross', 'ema_cross', 'macd', 'rsi', 'bollinger', 'grid', 'dca', 'ma_rsi_filter'],
     defaults: {
       stock_pool: {
         filters: {
@@ -84,6 +88,13 @@ function buildFallbackMeta() {
         ],
         top_n: 50,
       },
+      screening: {
+        asset_type: 'stock',
+        timeframe: '1d',
+        signal: 'sma_cross',
+        top_n: 20,
+        cash: 100000,
+      },
     },
   };
 }
@@ -92,7 +103,10 @@ function buildHTML(meta, params = {}) {
   const defaults = meta.defaults || {};
   const stockPoolDefaults = defaults.stock_pool?.filters || {};
   const factorDefaults = defaults.factors_rank || {};
+  const screeningDefaults = defaults.screening || {};
   const today = params?.pool_date || formatDateInput(new Date());
+  const endDate = formatDateInput(new Date());
+  const startDate = formatDateInput(new Date(Date.now() - 365 * 24 * 3600 * 1000));
 
   return `
     <div class="stock-pool-layout">
@@ -177,6 +191,23 @@ function buildHTML(meta, params = {}) {
                 <select class="input stock-pool-industry-select" id="sp-industries" multiple size="7"></select>
                 <span class="field-help">按住 <span class="mono">Ctrl / Cmd</span> 可多选，空选表示不过滤行业。</span>
               </label>
+
+              <label class="advanced-field">
+                <span class="form-label">市场状态过滤</span>
+                <select class="input" id="sp-market-regime">
+                  <option value="">不过滤</option>
+                  <option value="BULL">BULL</option>
+                  <option value="BEAR">BEAR</option>
+                  <option value="SIDEWAYS">SIDEWAYS</option>
+                </select>
+                <span class="field-help">用于限制因子排名与筛选回测仅在指定市场状态下执行。</span>
+              </label>
+
+              <label class="advanced-field">
+                <span class="form-label">市场状态指数</span>
+                <input class="input mono" id="sp-market-regime-symbol" type="text" value="000300.SH">
+                <span class="field-help">默认使用沪深 300。</span>
+              </label>
             </div>
           </div>
         </div>
@@ -205,6 +236,77 @@ function buildHTML(meta, params = {}) {
       <div class="stock-pool-actions">
         <div class="stock-pool-selection-hint" id="sp-selection-hint"></div>
         <button class="btn btn-primary btn-lg" id="sp-launch">一键发起组合回测</button>
+      </div>
+
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">信号筛选回测</div>
+            <p class="card-subtitle">基于历史股票池和当前过滤条件，执行向量化批量筛选并返回 Top N。</p>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="sp-screening-run">运行筛选</button>
+        </div>
+        <div class="stock-pool-filter-grid">
+          <label class="advanced-field">
+            <span class="form-label">开始日期</span>
+            <input class="input" id="sp-screening-start" type="date" value="${startDate}">
+          </label>
+
+          <label class="advanced-field">
+            <span class="form-label">结束日期</span>
+            <input class="input" id="sp-screening-end" type="date" value="${endDate}">
+          </label>
+
+          <label class="advanced-field">
+            <span class="form-label">信号函数</span>
+            <select class="input" id="sp-screening-signal">
+              ${(meta.signals || []).map((item) => `<option value="${item}"${item === (screeningDefaults.signal || 'sma_cross') ? ' selected' : ''}>${item}</option>`).join('')}
+            </select>
+          </label>
+
+          <label class="advanced-field">
+            <span class="form-label">周期</span>
+            <select class="input" id="sp-screening-timeframe">
+              <option value="1d"${(screeningDefaults.timeframe || '1d') === '1d' ? ' selected' : ''}>日线</option>
+              <option value="1min">1 分钟</option>
+              <option value="5min">5 分钟</option>
+              <option value="15min">15 分钟</option>
+              <option value="30min">30 分钟</option>
+              <option value="60min">60 分钟</option>
+            </select>
+          </label>
+
+          <label class="advanced-field">
+            <span class="form-label">返回前 N 名</span>
+            <input class="input mono" id="sp-screening-topn" type="number" min="1" step="1" value="${screeningDefaults.top_n || 20}">
+          </label>
+
+          <label class="advanced-field">
+            <span class="form-label">初始资金</span>
+            <input class="input mono" id="sp-screening-cash" type="number" min="1000" step="10000" value="${screeningDefaults.cash || 100000}">
+          </label>
+        </div>
+
+        <label class="advanced-field">
+          <span class="form-label">信号参数 JSON</span>
+          <textarea class="paper-textarea mono" id="sp-screening-params" placeholder='例如 {"fast_period":5,"slow_period":20}'>{}</textarea>
+          <span class="field-help">可附带 <span class="mono">stop_loss_pct</span> / <span class="mono">take_profit_pct</span> 等风险退出参数。</span>
+        </label>
+      </div>
+
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">筛选结果</div>
+            <p class="card-subtitle">展示 <span class="mono">screening/run</span> 返回的批量信号回测结果，可单独带入组合回测。</p>
+          </div>
+        </div>
+        <div id="sp-screening-table"></div>
+      </div>
+
+      <div class="stock-pool-actions">
+        <div class="stock-pool-selection-hint" id="sp-screening-selection-hint">尚未选择筛选结果股票。</div>
+        <button class="btn btn-primary btn-lg" id="sp-screening-launch">将筛选结果带入组合回测</button>
       </div>
     </div>
   `;
@@ -265,6 +367,8 @@ function bindEvents(container) {
     '#sp-min-pe',
     '#sp-max-pe',
     '#sp-industries',
+    '#sp-market-regime',
+    '#sp-market-regime-symbol',
   ].forEach((selector) => {
     container.querySelector(selector)?.addEventListener('change', () => {
       void scheduleRefresh(container);
@@ -293,6 +397,14 @@ function bindEvents(container) {
   container.querySelector('#sp-launch')?.addEventListener('click', () => {
     launchPortfolioBacktest(container);
   });
+
+  container.querySelector('#sp-screening-run')?.addEventListener('click', () => {
+    void runScreening(container);
+  });
+
+  container.querySelector('#sp-screening-launch')?.addEventListener('click', () => {
+    launchScreeningBacktest(container);
+  });
 }
 
 async function scheduleRefresh(container) {
@@ -318,12 +430,17 @@ async function refreshStockPool(container) {
     const factors = collectFactorSpecs(container);
     const topN = Number(container.querySelector('#sp-top-n').value || 50);
     const dataProvider = getDataProvider();
+    const regime = getMarketRegimeSelection(container);
 
     const poolReq = { pool_date: poolDate, filters };
     const rankReq = { pool_date: poolDate, pool_filters: filters, factors, top_n: topN };
     if (dataProvider) {
       poolReq.data_provider = dataProvider;
       rankReq.data_provider = dataProvider;
+    }
+    if (regime.market_regime) {
+      rankReq.market_regime = regime.market_regime;
+      rankReq.market_regime_symbol = regime.market_regime_symbol;
     }
 
     const [poolPayload, rankingPayload] = await Promise.all([
@@ -346,7 +463,8 @@ async function refreshStockPool(container) {
       detail: { text: `股票池研究 · 候选 ${pageState.filteredCount} / 已选 ${pageState.selectedSymbols.size}` },
     }));
   } catch (error) {
-    const message = error instanceof ApiError ? error.message : '股票池刷新失败';
+    const rawMessage = error instanceof ApiError ? error.message : '股票池刷新失败';
+    const message = explainFeatureError(rawMessage, 'factor-ranking', getDataProvider());
     toast.error(message);
     table.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠</div><p>${message}</p></div>`;
     stats.innerHTML = '<span class="result-tag">刷新失败</span>';
@@ -556,6 +674,14 @@ function syncSelectionStatus(container) {
   container.querySelector('#sp-launch').disabled = selected.length === 0;
 }
 
+function syncScreeningSelectionStatus(container) {
+  const selected = [...pageState.selectedScreeningSymbols];
+  container.querySelector('#sp-screening-selection-hint').textContent = selected.length
+    ? `已选择 ${selected.length} 只筛选结果股票：${selected.slice(0, 6).join('、')}${selected.length > 6 ? '…' : ''}`
+    : '尚未选择筛选结果股票。';
+  container.querySelector('#sp-screening-launch').disabled = selected.length === 0;
+}
+
 function launchPortfolioBacktest(container) {
   const symbols = [...pageState.selectedSymbols];
   if (!symbols.length) {
@@ -573,6 +699,141 @@ function launchPortfolioBacktest(container) {
   }
   const qs = new URLSearchParams(params).toString();
   window.location.hash = `#/backtest?${qs}`;
+}
+
+function launchScreeningBacktest(container) {
+  const symbols = [...pageState.selectedScreeningSymbols];
+  if (!symbols.length) {
+    toast.error('请先勾选筛选结果中的股票');
+    return;
+  }
+  const params = { symbols: symbols.join(',') };
+  const dataProvider = getDataProvider();
+  if (dataProvider) {
+    params.data_provider = dataProvider;
+  }
+  if (pageState.navigateTo) {
+    void pageState.navigateTo('backtest', params);
+    return;
+  }
+  window.location.hash = `#/backtest?${new URLSearchParams(params).toString()}`;
+}
+
+async function runScreening(container) {
+  const host = container.querySelector('#sp-screening-table');
+  host.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⏳</div><p>正在运行批量筛选...</p></div>';
+
+  try {
+    const poolDate = getPoolDate(container);
+    const startDate = container.querySelector('#sp-screening-start').value;
+    const endDate = container.querySelector('#sp-screening-end').value;
+    if (!startDate || !endDate) {
+      toast.error('请完整填写筛选回测区间');
+      return;
+    }
+
+    const filters = collectFilters(container);
+    const dataProvider = getDataProvider();
+    const regime = getMarketRegimeSelection(container);
+    const payload = {
+      pool_date: poolDate,
+      start_date: startDate,
+      end_date: endDate,
+      asset_type: 'stock',
+      timeframe: container.querySelector('#sp-screening-timeframe').value,
+      signal: container.querySelector('#sp-screening-signal').value,
+      signal_params: parseJsonInput(container.querySelector('#sp-screening-params').value, '信号参数'),
+      pool_filters: filters,
+      top_n: Number(container.querySelector('#sp-screening-topn').value || 20),
+      cash: Number(container.querySelector('#sp-screening-cash').value || 100000),
+    };
+    if (dataProvider) {
+      payload.data_provider = dataProvider;
+    }
+    if (regime.market_regime) {
+      payload.market_regime = regime.market_regime;
+      payload.market_regime_symbol = regime.market_regime_symbol;
+    }
+
+    const result = await api.runScreening(payload);
+    pageState.screeningRankings = result.rankings || [];
+    pageState.selectedScreeningSymbols = new Set(pageState.screeningRankings.slice(0, 5).map(item => item.symbol));
+    renderScreeningTable(container, result);
+    syncScreeningSelectionStatus(container);
+    toast.success(`筛选完成，共扫描 ${result.total_screened || 0} 只股票`);
+    window.dispatchEvent(new CustomEvent('qb-status-message', {
+      detail: { text: `股票池研究 · 筛选结果 ${pageState.screeningRankings.length}` },
+    }));
+  } catch (error) {
+    const rawMessage = error instanceof ApiError ? error.message : error.message || '筛选回测失败';
+    const message = explainFeatureError(rawMessage, 'screening', getDataProvider());
+    host.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠</div><p>${message}</p></div>`;
+    toast.error(message);
+    syncScreeningSelectionStatus(container);
+  }
+}
+
+function renderScreeningTable(container, result) {
+  const host = container.querySelector('#sp-screening-table');
+  const rows = pageState.screeningRankings || [];
+  const runContext = result.run_context || {};
+  if (!rows.length) {
+    host.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">🔬</div>
+        <p>当前条件下没有筛选结果</p>
+        ${runContext.market_regime_filter && runContext.market_regime_match === false
+          ? `<p class="text-muted">市场状态过滤未命中：期望 ${runContext.market_regime_filter}，实际 ${runContext.market_regime_actual}</p>`
+          : ''}
+      </div>
+    `;
+    return;
+  }
+
+  host.innerHTML = `
+    <div class="portfolio-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>代码</th>
+            <th data-align="right">总收益</th>
+            <th data-align="right">Sharpe</th>
+            <th data-align="right">最大回撤</th>
+            <th data-align="right">交易数</th>
+            <th data-align="right">胜率</th>
+            <th data-align="right">最终价值</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((item) => `
+            <tr data-pnl="${Number(item.total_return) >= 0 ? 'profit' : 'loss'}">
+              <td><input type="checkbox" class="sp-screening-checkbox" data-symbol="${item.symbol}"${pageState.selectedScreeningSymbols.has(item.symbol) ? ' checked' : ''}></td>
+              <td class="mono">${item.symbol}</td>
+              <td data-align="right" class="mono ${Number(item.total_return) >= 0 ? 'text-profit' : 'text-loss'}">${formatPctNumber(item.total_return, true)}</td>
+              <td data-align="right" class="mono">${formatNumber(item.sharpe_ratio)}</td>
+              <td data-align="right" class="mono text-loss">${formatPctNumber(item.max_drawdown, false)}</td>
+              <td data-align="right" class="mono">${item.total_trades ?? '-'}</td>
+              <td data-align="right" class="mono">${formatPctNumber(item.win_rate, false)}</td>
+              <td data-align="right" class="mono">${formatNumber(item.final_value)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  host.querySelectorAll('.sp-screening-checkbox').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      const symbol = checkbox.dataset.symbol;
+      if (checkbox.checked) {
+        pageState.selectedScreeningSymbols.add(symbol);
+      } else {
+        pageState.selectedScreeningSymbols.delete(symbol);
+      }
+      syncScreeningSelectionStatus(container);
+    });
+  });
 }
 
 function exportRankings() {
@@ -618,6 +879,62 @@ function optionalNumber(value) {
   }
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function getMarketRegimeSelection(container) {
+  return {
+    market_regime: container.querySelector('#sp-market-regime')?.value || '',
+    market_regime_symbol: (container.querySelector('#sp-market-regime-symbol')?.value || '000300.SH').trim() || '000300.SH',
+  };
+}
+
+function parseJsonInput(value, label) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('invalid');
+    }
+    return parsed;
+  } catch {
+    throw new Error(`${label} JSON 无效`);
+  }
+}
+
+function formatPctNumber(value, keepSign) {
+  if (value == null || !Number.isFinite(Number(value))) {
+    return '-';
+  }
+  const percent = Number(value) * (Math.abs(Number(value)) <= 1.5 ? 100 : 1);
+  const sign = keepSign && percent >= 0 ? '+' : '';
+  return `${sign}${percent.toFixed(2)}%`;
+}
+
+function formatNumber(value) {
+  if (value == null || !Number.isFinite(Number(value))) {
+    return '-';
+  }
+  return Number(value).toFixed(2);
+}
+
+function explainFeatureError(message, feature, dataProvider = '') {
+  const normalized = String(message || '').trim();
+  if (normalized && normalized !== '内部服务器错误') {
+    return normalized;
+  }
+
+  if (feature === 'factor-ranking') {
+    return dataProvider === 'tushare'
+      ? '因子排名失败。当前 Tushare Token 可能缺少财务数据权限；可在设置页切换数据源，或更换具备权限的 Token。'
+      : '因子排名失败。当前数据源可能无法提供所需财务数据；可在设置页切换数据源后重试。';
+  }
+  if (feature === 'screening') {
+    return '筛选回测失败。当前数据源或 Token 可能无法提供所需行情/财务数据；请调整设置后重试。';
+  }
+  return normalized || '请求失败';
 }
 
 function directionLabel(defaultDirection, currentDirection) {

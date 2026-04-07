@@ -4,7 +4,7 @@
 
 import { api, ApiError } from '../api.js';
 import { toast } from '../components/toast.js';
-import { renderEquityChart, disposeEquityChart } from '../components/chart-equity.js';
+import { renderEquityChart, renderMultiEquityChart, disposeEquityChart } from '../components/chart-equity.js';
 import { renderKlineChart, highlightKlineTrade, disposeKlineChart } from '../components/chart-kline.js';
 import { renderMonthlyHeatmap, disposeMonthlyHeatmap } from '../components/chart-heatmap.js';
 import { renderPortfolioAttributionCharts, disposePortfolioAttributionCharts } from '../components/chart-attribution.js';
@@ -118,6 +118,24 @@ const REBALANCE_OPTIONS = [
   { value: 'quarterly', label: '每季度' },
 ];
 
+const TIMEFRAME_OPTIONS = [
+  { value: '1d', label: '日线' },
+  { value: '1min', label: '1 分钟' },
+  { value: '5min', label: '5 分钟' },
+  { value: '15min', label: '15 分钟' },
+  { value: '30min', label: '30 分钟' },
+  { value: '60min', label: '60 分钟' },
+];
+
+const OPTIMIZE_MAXIMIZE_OPTIONS = [
+  'Sharpe Ratio',
+  'Return [%]',
+  'Equity Final [$]',
+  'Win Rate [%]',
+  'Profit Factor',
+  'Calmar Ratio',
+];
+
 let strategies = [];
 let lastSingleResult = null;
 let lastPortfolioResult = null;
@@ -153,8 +171,10 @@ export async function initBacktestPage(container, routeContext = {}) {
   bindEvents(container);
   syncStrategyCardSelection(container);
   updateStrategyParams(container);
+  updateOptimizeParams(container);
   syncAdvancedInputs(container);
   syncModeUI(container);
+  await refreshBacktestHistory(container, { silent: true });
 
   return {
     runPrimary() {
@@ -189,6 +209,19 @@ function createInitialState(params = {}) {
       rebalance_frequency: tradingDefaults.rebalance_frequency || 'monthly',
       stop_loss_pct: Number(tradingDefaults.stop_loss_pct || 0),
       take_profit_pct: Number(tradingDefaults.take_profit_pct || 0),
+    },
+    selectedHistoryIds: new Set(),
+    historyPayload: { items: [], page: 1, page_size: 8, total: 0, total_pages: 0 },
+    historyPage: 1,
+    historyRequestSerial: 0,
+    optimizeDefaults: {
+      maximize: 'Sharpe Ratio',
+      top_n: 5,
+      walk_forward_enabled: false,
+      train_bars: 240,
+      test_bars: 60,
+      step_bars: 60,
+      anchored: false,
     },
     initialSymbols: routeSymbols.length
       ? routeSymbols.map(symbol => ({ symbol, name: '组合候选', market: '选股页带入' }))
@@ -303,6 +336,23 @@ function buildHTML() {
             <div class="advanced-panel-body">
               <div class="advanced-panel-inner">
                 <div class="advanced-settings-grid">
+                  <label class="advanced-field hidden" id="bt-asset-type-field">
+                    <span class="form-label">资产类型</span>
+                    <select class="input" id="bt-asset-type">
+                      <option value="stock">股票</option>
+                      <option value="convertible_bond">可转债</option>
+                    </select>
+                    <span class="field-help">可转债当前仅支持日线单标回测。</span>
+                  </label>
+
+                  <label class="advanced-field hidden" id="bt-timeframe-field">
+                    <span class="form-label">K 线周期</span>
+                    <select class="input" id="bt-timeframe">
+                      ${TIMEFRAME_OPTIONS.map(item => `<option value="${item.value}">${item.label}</option>`).join('')}
+                    </select>
+                    <span class="field-help">分钟线当前仅支持股票 + Tushare 单标回测。</span>
+                  </label>
+
                   <label class="advanced-field">
                     <span class="form-label">行情数据源</span>
                     <input class="input" id="bt-data-provider" type="text" readonly
@@ -389,6 +439,111 @@ function buildHTML() {
             ▶ 运行回测
           </button>
         </div>
+
+        <div class="card backtest-sidecard">
+          <div class="results-card-head">
+            <div>
+              <div class="card-title">参数优化</div>
+              <p class="card-subtitle">基于当前单股、策略和时间区间生成参数搜索空间，并支持 Walk-Forward 验证。</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="bt-optimize-run">开始优化</button>
+          </div>
+          <div class="settings-section-grid">
+            <label class="advanced-field">
+              <span class="form-label">优化目标</span>
+              <select class="input" id="bt-optimize-maximize">
+                ${OPTIMIZE_MAXIMIZE_OPTIONS.map(item => `<option value="${item}">${item}</option>`).join('')}
+              </select>
+            </label>
+
+            <label class="advanced-field">
+              <span class="form-label">返回 Top N</span>
+              <input class="input mono" id="bt-optimize-topn" type="number" min="1" max="20" step="1" value="${pageState.optimizeDefaults.top_n}">
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">参数搜索范围</label>
+            <div class="backtest-optimize-grid" id="bt-optimize-ranges"></div>
+          </div>
+
+          <label class="advanced-field">
+            <span class="form-label">约束 JSON</span>
+            <textarea class="paper-textarea mono" id="bt-optimize-constraints" placeholder='例如 [{"left":"fast_period","operator":"<","right_param":"slow_period"}]'></textarea>
+            <span class="field-help">用于表达参数之间的约束；留空表示不限制。</span>
+          </label>
+
+          <div class="backtest-inline-grid">
+            <label class="advanced-field toggle-field">
+              <span class="form-label">Walk-Forward</span>
+              <label class="toggle-row">
+                <input type="checkbox" id="bt-wf-enabled">
+                <span>启用窗口滚动验证</span>
+              </label>
+            </label>
+
+            <label class="advanced-field">
+              <span class="form-label">训练 Bars</span>
+              <input class="input mono" id="bt-wf-train" type="number" min="20" step="5" value="${pageState.optimizeDefaults.train_bars}">
+            </label>
+
+            <label class="advanced-field">
+              <span class="form-label">测试 Bars</span>
+              <input class="input mono" id="bt-wf-test" type="number" min="5" step="5" value="${pageState.optimizeDefaults.test_bars}">
+            </label>
+
+            <label class="advanced-field">
+              <span class="form-label">滑动步长</span>
+              <input class="input mono" id="bt-wf-step" type="number" min="1" step="1" value="${pageState.optimizeDefaults.step_bars}">
+            </label>
+
+            <label class="advanced-field toggle-field">
+              <span class="form-label">锚定训练窗</span>
+              <label class="toggle-row">
+                <input type="checkbox" id="bt-wf-anchored">
+                <span>训练区间从起点累计扩展</span>
+              </label>
+            </label>
+          </div>
+        </div>
+
+        <div class="card backtest-sidecard">
+          <div class="results-card-head">
+            <div>
+              <div class="card-title">历史记录</div>
+              <p class="card-subtitle">浏览 SQLite 持久化回测历史，可恢复、对比和删除记录。</p>
+            </div>
+          </div>
+          <div class="backtest-inline-grid">
+            <label class="advanced-field">
+              <span class="form-label">代码过滤</span>
+              <input class="input mono" id="bt-history-symbol" type="text" placeholder="600519.SH">
+            </label>
+            <label class="advanced-field">
+              <span class="form-label">策略过滤</span>
+              <select class="input" id="bt-history-strategy">
+                <option value="">全部策略</option>
+                ${strategies.map(item => `<option value="${item.name}">${item.label}</option>`).join('')}
+              </select>
+            </label>
+            <label class="advanced-field">
+              <span class="form-label">开始日期</span>
+              <input class="input" id="bt-history-date-from" type="date">
+            </label>
+            <label class="advanced-field">
+              <span class="form-label">结束日期</span>
+              <input class="input" id="bt-history-date-to" type="date">
+            </label>
+          </div>
+          <div class="signals-inline-actions">
+            <button class="btn btn-secondary btn-sm" id="bt-history-refresh">刷新</button>
+            <button class="btn btn-secondary btn-sm" id="bt-history-restore">恢复到工作台</button>
+            <button class="btn btn-secondary btn-sm" id="bt-history-compare">对比</button>
+            <button class="btn btn-danger btn-sm" id="bt-history-delete">删除</button>
+          </div>
+          <div class="portfolio-table-wrapper backtest-history-table" id="bt-history-table"></div>
+          <div class="history-pagination" id="bt-history-pagination"></div>
+        </div>
       </div>
 
       <div class="backtest-results" id="bt-results">
@@ -424,6 +579,7 @@ function bindEvents(container) {
     input.addEventListener('change', () => {
       syncStrategyCardSelection(container);
       updateStrategyParams(container);
+      updateOptimizeParams(container);
     });
   });
 
@@ -440,6 +596,39 @@ function bindEvents(container) {
   ].forEach((selector) => {
     container.querySelector(selector)?.addEventListener('change', () => syncAdvancedInputs(container));
   });
+
+  container.querySelector('#bt-optimize-run')?.addEventListener('click', () => {
+    void runOptimize(container);
+  });
+
+  [
+    '#bt-history-symbol',
+    '#bt-history-strategy',
+    '#bt-history-date-from',
+    '#bt-history-date-to',
+  ].forEach((selector) => {
+    container.querySelector(selector)?.addEventListener('change', () => {
+      pageState.historyPage = 1;
+      void refreshBacktestHistory(container, { silent: true });
+    });
+  });
+
+  container.querySelector('#bt-history-refresh')?.addEventListener('click', () => {
+    pageState.historyPage = 1;
+    void refreshBacktestHistory(container);
+  });
+
+  container.querySelector('#bt-history-compare')?.addEventListener('click', () => {
+    void compareSelectedHistoryRuns(container);
+  });
+
+  container.querySelector('#bt-history-delete')?.addEventListener('click', () => {
+    void deleteSelectedHistoryRuns(container);
+  });
+
+  container.querySelector('#bt-history-restore')?.addEventListener('click', () => {
+    void restoreSelectedHistoryRun(container);
+  });
 }
 
 function syncModeUI(container) {
@@ -453,6 +642,8 @@ function syncModeUI(container) {
   container.querySelector('#bt-strategy-section')?.classList.toggle('hidden', isPortfolio);
   container.querySelector('#bt-params-section')?.classList.toggle('hidden', isPortfolio);
   container.querySelector('#bt-benchmark-field')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-asset-type-field')?.classList.toggle('hidden', isPortfolio);
+  container.querySelector('#bt-timeframe-field')?.classList.toggle('hidden', isPortfolio);
   container.querySelector('#bt-slippage-mode-field')?.classList.toggle('hidden', isPortfolio);
   container.querySelector('#bt-slippage-rate-field')?.classList.toggle('hidden', isPortfolio);
   container.querySelector('#bt-stop-loss-field')?.classList.toggle('hidden', isPortfolio);
@@ -460,6 +651,7 @@ function syncModeUI(container) {
   container.querySelector('#bt-max-position-field')?.classList.toggle('hidden', isPortfolio);
   container.querySelector('#bt-max-holdings-field')?.classList.toggle('hidden', isPortfolio);
   container.querySelector('#bt-rebalance-field')?.classList.toggle('hidden', !isPortfolio);
+  container.querySelector('#bt-optimize-run')?.toggleAttribute('disabled', isPortfolio);
 
   const portfolioPanel = container.querySelector('#bt-portfolio-panel');
   portfolioPanel?.classList.toggle('hidden', !isPortfolio);
@@ -521,6 +713,47 @@ function updateStrategyParams(container) {
   `;
 }
 
+function updateOptimizeParams(container) {
+  const strategyName = getSelectedStrategyName(container);
+  const strategy = strategies.find(item => item.name === strategyName) || strategies[0];
+  const host = container.querySelector('#bt-optimize-ranges');
+  if (!host) {
+    return;
+  }
+
+  if (!strategy?.params?.length) {
+    host.innerHTML = '<div class="strategy-param-empty">当前策略没有可优化参数，无法执行参数搜索。</div>';
+    return;
+  }
+
+  const values = pageState.strategyValues[strategy.name] || {};
+  host.innerHTML = strategy.params.map((param) => {
+    const parser = param.parser || 'int';
+    const baseValue = Number(values[param.key] ?? param.defaultValue ?? 1);
+    const rangeMin = parser === 'float'
+      ? Math.max(Number(param.min ?? 0), +(Math.max(baseValue * 0.5, Number(param.min ?? 0)).toFixed(4)))
+      : Math.max(Number(param.min ?? 1), Math.trunc(baseValue));
+    const rangeMax = parser === 'float'
+      ? +(Math.max(baseValue * 1.5, rangeMin + Number(param.step || 0.1)).toFixed(4))
+      : Math.max(rangeMin + Math.max(1, Number(param.step || 1)) * 4, Math.trunc(baseValue));
+    const stepValue = Number(param.step ?? (parser === 'float' ? 0.1 : 1));
+
+    return `
+      <div class="param-card">
+        <span class="param-card-title">${param.label}</span>
+        <span class="param-card-desc">${param.hint || '配置参数搜索空间'}</span>
+        <div class="backtest-range-row">
+          <input class="input mono" data-opt-range="${param.key}" data-range-boundary="from" data-param-parser="${parser}" type="number" value="${rangeMin}" step="${stepValue}" min="${param.min ?? ''}">
+          <span class="text-muted">→</span>
+          <input class="input mono" data-opt-range="${param.key}" data-range-boundary="to" data-param-parser="${parser}" type="number" value="${rangeMax}" step="${stepValue}" min="${param.min ?? ''}">
+          <span class="text-muted">步长</span>
+          <input class="input mono" data-opt-range="${param.key}" data-range-boundary="step" data-param-parser="${parser}" type="number" value="${stepValue}" step="${stepValue}" min="${stepValue}">
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 function saveCurrentStrategyValues(container) {
   const strategyName = pageState.currentStrategy;
   if (!strategyName) {
@@ -574,6 +807,8 @@ async function runBacktest(container) {
   const endDate = container.querySelector('#bt-end').value;
   const cash = Number(container.querySelector('#bt-cash').value);
   const commission = Number(container.querySelector('#bt-commission').value);
+  const assetType = container.querySelector('#bt-asset-type')?.value || 'stock';
+  const timeframe = container.querySelector('#bt-timeframe')?.value || '1d';
 
   if (!selectedSymbols.length) {
     toast.error('请输入或选择至少 1 只股票');
@@ -593,6 +828,10 @@ async function runBacktest(container) {
   }
   if (!Number.isFinite(commission) || commission < 0) {
     toast.error('手续费不能为负数');
+    return;
+  }
+  if (!isPortfolio && assetType === 'convertible_bond' && timeframe !== '1d') {
+    toast.error('可转债当前仅支持日线回测');
     return;
   }
 
@@ -635,6 +874,8 @@ async function runBacktest(container) {
         symbol: selectedSymbols[0],
         start_date: startDate,
         end_date: endDate,
+        asset_type: assetType,
+        timeframe: timeframe,
         strategy: getSelectedStrategyName(container),
         cash,
         commission,
@@ -1163,6 +1404,622 @@ function renderMetrics(container, summary, equityCurve) {
   `).join('');
 }
 
+async function runOptimize(container) {
+  const resultsEl = container.querySelector('#bt-results');
+  const selectedSymbols = getSelectedSymbols();
+  if (selectedSymbols.length !== 1) {
+    toast.error('参数优化当前仅支持单标的模式');
+    return;
+  }
+
+  const payload = collectOptimizePayload(container, selectedSymbols[0]);
+  if (!payload) {
+    return;
+  }
+
+  const button = container.querySelector('#bt-optimize-run');
+  button.disabled = true;
+  button.classList.add('btn-loading');
+  button.textContent = '⏳ 优化中...';
+  resultsEl.innerHTML = buildSkeleton(3);
+  document.querySelector('.progress-bar')?.classList.add('active');
+
+  try {
+    const result = await api.runOptimize(payload);
+    renderOptimizeResults(resultsEl, result);
+    toast.success('参数优化已完成');
+    window.dispatchEvent(new CustomEvent('qb-status-message', {
+      detail: { text: '回测中心 · 参数优化结果已更新' },
+    }));
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : '参数优化失败';
+    toast.error(message);
+    resultsEl.innerHTML = `<div class="empty-state backtest-empty"><div class="empty-state-icon">⚠</div><p>${message}</p></div>`;
+  } finally {
+    button.disabled = false;
+    button.classList.remove('btn-loading');
+    button.textContent = '开始优化';
+    document.querySelector('.progress-bar')?.classList.remove('active');
+  }
+}
+
+function collectOptimizePayload(container, symbol) {
+  const strategy = getSelectedStrategyName(container);
+  const strategyDef = strategies.find(item => item.name === strategy);
+  if (!strategyDef?.params?.length) {
+    toast.error('当前策略没有可优化参数');
+    return null;
+  }
+
+  const startDate = container.querySelector('#bt-start').value;
+  const endDate = container.querySelector('#bt-end').value;
+  const assetType = container.querySelector('#bt-asset-type')?.value || 'stock';
+  if (assetType === 'convertible_bond') {
+    toast.error('参数优化当前仅支持股票日线研究');
+    return null;
+  }
+
+  const paramRanges = {};
+  for (const param of strategyDef.params) {
+    const parser = param.parser || 'int';
+    const fromValue = container.querySelector(`[data-opt-range="${param.key}"][data-range-boundary="from"]`)?.value;
+    const toValue = container.querySelector(`[data-opt-range="${param.key}"][data-range-boundary="to"]`)?.value;
+    const stepValue = container.querySelector(`[data-opt-range="${param.key}"][data-range-boundary="step"]`)?.value;
+    const values = buildRangeValues(fromValue, toValue, stepValue, parser);
+    if (!values) {
+      toast.error(`${param.label} 的搜索范围无效`);
+      return null;
+    }
+    paramRanges[param.key] = values;
+  }
+
+  let constraints = [];
+  const constraintsText = container.querySelector('#bt-optimize-constraints')?.value?.trim() || '';
+  if (constraintsText) {
+    try {
+      const parsed = JSON.parse(constraintsText);
+      if (!Array.isArray(parsed)) {
+        throw new Error('invalid');
+      }
+      constraints = parsed;
+    } catch {
+      toast.error('约束 JSON 必须是数组格式');
+      return null;
+    }
+  }
+
+  const payload = {
+    symbol,
+    start_date: startDate,
+    end_date: endDate,
+    asset_type: assetType,
+    strategy,
+    cash: Number(container.querySelector('#bt-cash').value || 0),
+    commission: Number(container.querySelector('#bt-commission').value || 0),
+    maximize: container.querySelector('#bt-optimize-maximize').value,
+    param_ranges: paramRanges,
+    top_n: Number(container.querySelector('#bt-optimize-topn').value || 5),
+    constraints,
+  };
+
+  if (pageState.dataProvider) {
+    payload.data_provider = pageState.dataProvider;
+  }
+
+  if (container.querySelector('#bt-wf-enabled')?.checked) {
+    payload.walk_forward = {
+      train_bars: Number(container.querySelector('#bt-wf-train').value || 0),
+      test_bars: Number(container.querySelector('#bt-wf-test').value || 0),
+      step_bars: Number(container.querySelector('#bt-wf-step').value || 0),
+      anchored: container.querySelector('#bt-wf-anchored').checked,
+    };
+  }
+
+  return payload;
+}
+
+function buildRangeValues(fromValue, toValue, stepValue, parser) {
+  const from = Number(fromValue);
+  const to = Number(toValue);
+  const step = Number(stepValue);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || !Number.isFinite(step) || step <= 0 || from > to) {
+    return null;
+  }
+
+  const values = [];
+  const limit = 80;
+  if (parser === 'float') {
+    for (let value = from; value <= to + step / 2; value += step) {
+      values.push(+value.toFixed(6));
+      if (values.length > limit) {
+        return null;
+      }
+    }
+  } else {
+    for (let value = Math.trunc(from); value <= Math.trunc(to); value += Math.max(1, Math.trunc(step))) {
+      values.push(value);
+      if (values.length > limit) {
+        return null;
+      }
+    }
+  }
+  return values.length ? values : null;
+}
+
+function renderOptimizeResults(container, result) {
+  disposeKlineChart();
+  disposeMonthlyHeatmap();
+  disposePortfolioAttributionCharts();
+  disposeEquityChart();
+
+  const bestStats = result.best_stats || {};
+  const bestParams = result.best_params || {};
+  const topResults = result.top_results || [];
+  const execution = result.execution || {};
+  const walkForward = result.walk_forward || null;
+  const runContext = result.run_context || {};
+
+  container.innerHTML = `
+    <div class="results-overview">
+      <div>
+        <div class="results-title">参数优化 · ${runContext.symbol || '-'}</div>
+        <p class="results-subtitle">${runContext.strategy || '-'} · ${runContext.start_date || '-'} ~ ${runContext.end_date || '-'} · 目标 ${runContext.maximize || execution.mode || '-'}</p>
+      </div>
+      <div class="results-tags">
+        <span class="result-tag mono">候选 ${execution.candidate_count ?? '-'}</span>
+        <span class="result-tag mono">预计运行 ${execution.estimated_total_runs ?? '-'}</span>
+        <span class="result-tag mono">${execution.async_recommended ? '任务较重' : '同步可完成'}</span>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      ${renderMetricCards([
+        { label: '总收益', value: formatPct(bestStats.total_return_pct), color: pctColor(bestStats.total_return_pct) },
+        { label: 'Sharpe', value: formatNum(bestStats.sharpe_ratio), color: sharpeColor(bestStats.sharpe_ratio) },
+        { label: '最大回撤', value: bestStats.max_drawdown_pct == null ? '-' : `-${formatPctAbs(bestStats.max_drawdown_pct)}`, color: 'var(--loss)' },
+        { label: '交易次数', value: bestStats.trades_count ?? '-', color: 'var(--text-primary)' },
+      ])}
+    </div>
+
+    <div class="portfolio-results-grid">
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">最佳参数</div>
+            <p class="card-subtitle">${escapeHtml(execution.message || '基于当前搜索空间得出的最优参数组合。')}</p>
+          </div>
+        </div>
+        <div class="portfolio-table-wrapper">${renderKeyValueTable(bestParams)}</div>
+      </div>
+
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">执行摘要</div>
+            <p class="card-subtitle">帮助判断本次搜索空间是否过大，以及是否需要缩小参数范围。</p>
+          </div>
+        </div>
+        <div class="portfolio-table-wrapper">${renderKeyValueTable(execution)}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="results-card-head">
+        <div>
+          <div class="card-title">Top 结果</div>
+          <p class="card-subtitle">按优化目标排序的候选参数组合。</p>
+        </div>
+      </div>
+      <div class="portfolio-table-wrapper">${renderTopOptimizeRows(topResults)}</div>
+    </div>
+
+    ${walkForward ? `
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">Walk-Forward</div>
+            <p class="card-subtitle">查看滚动窗口的样本内 / 样本外表现和平均值。</p>
+          </div>
+        </div>
+        <div class="portfolio-results-grid">
+          <div class="portfolio-table-wrapper">${renderKeyValueTable(walkForward.averages?.in_sample || {})}</div>
+          <div class="portfolio-table-wrapper">${renderKeyValueTable(walkForward.averages?.out_of_sample || {})}</div>
+        </div>
+        <div class="portfolio-table-wrapper">${renderWalkForwardRows(walkForward.windows || [])}</div>
+      </div>
+    ` : ''}
+  `;
+}
+
+async function refreshBacktestHistory(container, options = {}) {
+  const { silent = false } = options;
+  const requestId = pageState.historyRequestSerial + 1;
+  pageState.historyRequestSerial = requestId;
+  const host = container.querySelector('#bt-history-table');
+  host.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⏳</div><p>正在加载历史记录...</p></div>';
+
+  try {
+    const payload = await api.getBacktestHistory({
+      page: pageState.historyPage,
+      page_size: 8,
+      symbol: container.querySelector('#bt-history-symbol')?.value?.trim() || '',
+      strategy: container.querySelector('#bt-history-strategy')?.value || '',
+      date_from: container.querySelector('#bt-history-date-from')?.value || '',
+      date_to: container.querySelector('#bt-history-date-to')?.value || '',
+    });
+    if (requestId !== pageState.historyRequestSerial) {
+      return;
+    }
+    pageState.historyPayload = payload;
+    renderBacktestHistory(container);
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : '历史记录读取失败';
+    host.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠</div><p>${message}</p></div>`;
+    container.querySelector('#bt-history-pagination').innerHTML = '';
+    if (!silent) {
+      toast.error(message);
+    }
+  }
+}
+
+function renderBacktestHistory(container) {
+  const host = container.querySelector('#bt-history-table');
+  const pagination = container.querySelector('#bt-history-pagination');
+  const items = pageState.historyPayload.items || [];
+
+  if (!items.length) {
+    host.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🗃</div><p>当前条件下没有历史记录</p></div>';
+    pagination.innerHTML = '';
+    return;
+  }
+
+  host.innerHTML = `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>时间</th>
+          <th>代码</th>
+          <th>策略</th>
+          <th>区间</th>
+          <th data-align="right">收益</th>
+          <th data-align="right">Sharpe</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((item) => `
+          <tr data-run-id="${item.run_id}" data-pnl="${Number(item.summary?.total_return_pct) >= 0 ? 'profit' : 'loss'}">
+            <td><input type="checkbox" class="bt-history-checkbox" data-run-id="${item.run_id}"${pageState.selectedHistoryIds.has(item.run_id) ? ' checked' : ''}></td>
+            <td class="mono">${formatDateTime(item.created_at)}</td>
+            <td class="mono">${item.symbol}</td>
+            <td>${escapeHtml(item.strategy)}</td>
+            <td class="mono">${item.start_date || '-'} → ${item.end_date || '-'}</td>
+            <td data-align="right" class="mono ${pctClassValue(item.summary?.total_return_pct)}">${formatPct(item.summary?.total_return_pct)}</td>
+            <td data-align="right" class="mono">${formatNum(item.summary?.sharpe_ratio)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+
+  pagination.innerHTML = `
+    <span class="text-muted">第 ${pageState.historyPayload.page} / ${Math.max(1, pageState.historyPayload.total_pages || 1)} 页，共 ${pageState.historyPayload.total || 0} 条</span>
+    <div class="signals-inline-actions">
+      <button class="btn btn-ghost btn-sm" id="bt-history-prev"${pageState.historyPayload.page <= 1 ? ' disabled' : ''}>上一页</button>
+      <button class="btn btn-ghost btn-sm" id="bt-history-next"${pageState.historyPayload.page >= Math.max(1, pageState.historyPayload.total_pages || 1) ? ' disabled' : ''}>下一页</button>
+    </div>
+  `;
+
+  host.querySelectorAll('.bt-history-checkbox').forEach((checkbox) => {
+    checkbox.addEventListener('click', (event) => {
+      event.stopPropagation();
+    });
+    checkbox.addEventListener('change', () => {
+      const runId = checkbox.dataset.runId;
+      if (checkbox.checked) {
+        pageState.selectedHistoryIds.add(runId);
+      } else {
+        pageState.selectedHistoryIds.delete(runId);
+      }
+    });
+  });
+
+  host.querySelectorAll('tbody tr[data-run-id]').forEach((row) => {
+    row.addEventListener('click', () => {
+      void loadHistoryDetail(container, row.dataset.runId);
+    });
+  });
+
+  pagination.querySelector('#bt-history-prev')?.addEventListener('click', () => {
+    pageState.historyPage = Math.max(1, pageState.historyPage - 1);
+    void refreshBacktestHistory(container, { silent: true });
+  });
+  pagination.querySelector('#bt-history-next')?.addEventListener('click', () => {
+    pageState.historyPage += 1;
+    void refreshBacktestHistory(container, { silent: true });
+  });
+}
+
+async function loadHistoryDetail(container, runId, options = {}) {
+  const { hydrateForm = false } = options;
+  try {
+    const detail = await api.getBacktestHistoryDetail(runId);
+    renderSingleResults(container.querySelector('#bt-results'), detail);
+    if (hydrateForm) {
+      hydrateBacktestForm(container, detail);
+    }
+    toast.success(`已载入回测记录 ${String(runId).slice(0, 8)}`);
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : '读取回测详情失败';
+    toast.error(message);
+  }
+}
+
+function hydrateBacktestForm(container, detail) {
+  const request = detail.request_payload || {};
+  const strategy = request.strategy || detail.run_context?.strategy || 'sma_cross';
+  pageState.symbolSearch?.setSelections([{ symbol: detail.symbol, name: detail.symbol }]);
+  container.querySelector('#bt-start').value = request.start_date || '';
+  container.querySelector('#bt-end').value = request.end_date || '';
+  container.querySelector('#bt-cash').value = request.cash ?? pageState.tradingDefaults.cash;
+  container.querySelector('#bt-commission').value = request.commission ?? pageState.tradingDefaults.commission;
+  container.querySelector('#bt-asset-type').value = request.asset_type || detail.run_context?.asset_type || 'stock';
+  container.querySelector('#bt-timeframe').value = request.timeframe || detail.run_context?.timeframe || '1d';
+  const benchmark = request.benchmark_symbol || detail.run_context?.benchmark_symbol || '';
+  if (container.querySelector('#bt-benchmark-symbol')) {
+    container.querySelector('#bt-benchmark-symbol').value = benchmark;
+  }
+  const strategyInput = container.querySelector(`input[name="bt-strategy"][value="${strategy}"]`);
+  if (strategyInput) {
+    strategyInput.checked = true;
+  }
+  pageState.strategyValues[strategy] = { ...(request.params || {}) };
+  syncStrategyCardSelection(container);
+  updateStrategyParams(container);
+  updateOptimizeParams(container);
+  syncModeUI(container);
+}
+
+async function compareSelectedHistoryRuns(container) {
+  const selectedIds = [...pageState.selectedHistoryIds];
+  if (selectedIds.length < 2 || selectedIds.length > 3) {
+    toast.error('请选择 2-3 条历史记录进行对比');
+    return;
+  }
+
+  try {
+    const payload = await api.compareBacktests(selectedIds);
+    renderCompareResults(container.querySelector('#bt-results'), payload);
+    toast.success('历史记录对比已生成');
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : '历史记录对比失败';
+    toast.error(message);
+  }
+}
+
+async function deleteSelectedHistoryRuns(container) {
+  const selectedIds = [...pageState.selectedHistoryIds];
+  if (!selectedIds.length) {
+    toast.error('请先勾选要删除的历史记录');
+    return;
+  }
+  if (!window.confirm(`确认删除 ${selectedIds.length} 条历史记录？`)) {
+    return;
+  }
+
+  try {
+    await Promise.all(selectedIds.map(runId => api.deleteBacktestHistory(runId)));
+    selectedIds.forEach(runId => pageState.selectedHistoryIds.delete(runId));
+    toast.success(`已删除 ${selectedIds.length} 条历史记录`);
+    await refreshBacktestHistory(container, { silent: true });
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : '删除历史记录失败';
+    toast.error(message);
+  }
+}
+
+async function restoreSelectedHistoryRun(container) {
+  const selectedIds = [...pageState.selectedHistoryIds];
+  if (selectedIds.length !== 1) {
+    toast.error('请选择 1 条历史记录恢复到工作台');
+    return;
+  }
+  await loadHistoryDetail(container, selectedIds[0], { hydrateForm: true });
+}
+
+function renderCompareResults(container, payload) {
+  disposeKlineChart();
+  disposeMonthlyHeatmap();
+  disposePortfolioAttributionCharts();
+
+  container.innerHTML = `
+    <div class="results-overview">
+      <div>
+        <div class="results-title">历史对比</div>
+        <p class="results-subtitle">对比 ${payload.items?.length || 0} 条历史回测的关键指标、参数差异与权益曲线。</p>
+      </div>
+      <div class="results-tags">
+        ${(payload.items || []).map((item) => `<span class="result-tag mono">${item.symbol} · ${item.strategy}</span>`).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="results-card-head">
+        <div>
+          <div class="card-title">权益曲线对比</div>
+          <p class="card-subtitle">统一按各自起始权益归一化到 1，便于观察走势强弱和回撤差异。</p>
+        </div>
+      </div>
+      <div class="chart-container" id="bt-compare-chart"></div>
+    </div>
+
+    <div class="portfolio-results-grid portfolio-results-grid-wide">
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">指标差异</div>
+            <p class="card-subtitle">按指标跨度排序，便于快速发现差异最大的维度。</p>
+          </div>
+        </div>
+        <div class="portfolio-table-wrapper">${renderCompareMetricRows(payload.metrics || [])}</div>
+      </div>
+
+      <div class="card">
+        <div class="results-card-head">
+          <div>
+            <div class="card-title">参数差异</div>
+            <p class="card-subtitle">高亮请求参数中真正发生变化的字段。</p>
+          </div>
+        </div>
+        <div class="portfolio-table-wrapper">${renderParamDiffRows(payload.param_diffs || {})}</div>
+      </div>
+    </div>
+  `;
+
+  renderMultiEquityChart(container.querySelector('#bt-compare-chart'), payload.equity_curves || []);
+}
+
+function renderMetricCards(items) {
+  return items.map((metric) => `
+    <div class="metric-card">
+      <span class="metric-label">${metric.label}</span>
+      <span class="metric-value" style="color:${metric.color}">${metric.value}</span>
+    </div>
+  `).join('');
+}
+
+function renderKeyValueTable(record) {
+  const entries = Object.entries(record || {});
+  if (!entries.length) {
+    return '<div class="empty-state"><div class="empty-state-icon">🧾</div><p>暂无数据</p></div>';
+  }
+  return `
+    <table class="data-table">
+      <thead><tr><th>字段</th><th>值</th></tr></thead>
+      <tbody>
+        ${entries.map(([key, value]) => `
+          <tr>
+            <td class="mono">${escapeHtml(key)}</td>
+            <td class="mono">${escapeHtml(formatAny(value))}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderTopOptimizeRows(rows) {
+  if (!rows.length) {
+    return '<div class="empty-state"><div class="empty-state-icon">📈</div><p>暂无优化候选结果</p></div>';
+  }
+  const columns = ['Return [%]', 'Sharpe Ratio', 'Max. Drawdown [%]', '# Trades'];
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>参数</th>
+          ${columns.map((item) => `<th data-align="right">${item}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((item, index) => `
+          <tr data-pnl="${Number(item['Return [%]']) >= 0 ? 'profit' : 'loss'}">
+            <td class="mono">${index + 1}</td>
+            <td class="mono">${escapeHtml(formatAny(item.params || {}))}</td>
+            ${columns.map((column) => `<td data-align="right" class="mono">${formatAny(item[column])}</td>`).join('')}
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderWalkForwardRows(rows) {
+  if (!rows.length) {
+    return '<div class="empty-state"><div class="empty-state-icon">🪟</div><p>暂无 Walk-Forward 窗口结果</p></div>';
+  }
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>窗口</th>
+          <th>训练区间</th>
+          <th>测试区间</th>
+          <th>最佳参数</th>
+          <th data-align="right">样本内 Sharpe</th>
+          <th data-align="right">样本外收益</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((item) => `
+          <tr data-pnl="${Number(item.out_of_sample?.total_return_pct) >= 0 ? 'profit' : 'loss'}">
+            <td class="mono">${item.window_index}</td>
+            <td class="mono">${item.train_period?.start_date} → ${item.train_period?.end_date}</td>
+            <td class="mono">${item.test_period?.start_date} → ${item.test_period?.end_date}</td>
+            <td class="mono">${escapeHtml(formatAny(item.best_params || {}))}</td>
+            <td data-align="right" class="mono">${formatNum(item.in_sample?.sharpe_ratio)}</td>
+            <td data-align="right" class="mono ${pctClassValue(item.out_of_sample?.total_return_pct)}">${formatPct(item.out_of_sample?.total_return_pct)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderCompareMetricRows(metrics) {
+  if (!metrics.length) {
+    return '<div class="empty-state"><div class="empty-state-icon">📊</div><p>暂无对比指标</p></div>';
+  }
+  const headers = metrics[0].values?.map((item) => item.run_id.slice(0, 8)) || [];
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>指标</th>
+          ${headers.map((header) => `<th data-align="right">${header}</th>`).join('')}
+          <th data-align="right">跨度</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${metrics.map((item) => `
+          <tr class="${item.is_largest_spread ? 'is-selected' : ''}">
+            <td>${item.label}</td>
+            ${(item.values || []).map((value) => `<td data-align="right" class="mono">${formatAny(value.value)}</td>`).join('')}
+            <td data-align="right" class="mono">${formatAny(item.spread)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderParamDiffRows(paramDiffs) {
+  const rows = paramDiffs.rows || [];
+  if (!rows.length) {
+    return '<div class="empty-state"><div class="empty-state-icon">🧬</div><p>暂无参数差异</p></div>';
+  }
+  const headers = rows[0].values?.map((item) => item.run_id.slice(0, 8)) || [];
+  return `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>字段</th>
+          ${headers.map((header) => `<th>${header}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((item) => `
+          <tr class="${item.is_different ? 'is-selected' : ''}">
+            <td class="mono">${escapeHtml(item.key)}</td>
+            ${(item.values || []).map((value) => `<td class="mono">${escapeHtml(formatAny(value.value))}</td>`).join('')}
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 function buildSkeleton(cardCount) {
   return `
     <div class="metrics-grid">
@@ -1198,6 +2055,23 @@ function formatDate(value) {
   return String(value).split(' ')[0];
 }
 
+function formatDateTime(value) {
+  if (!value) {
+    return '-';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
 function formatPct(value) {
   if (value == null || !Number.isFinite(Number(value))) return '-';
   const sign = Number(value) >= 0 ? '+' : '';
@@ -1219,6 +2093,23 @@ function formatMoney(value) {
   return Number(value).toFixed(2);
 }
 
+function formatAny(value) {
+  if (value == null) {
+    return '-';
+  }
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? String(value) : value.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 0);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
 function formatRebalanceLabel(value) {
   return REBALANCE_OPTIONS.find(item => item.value === value)?.label || value || '-';
 }
@@ -1226,6 +2117,13 @@ function formatRebalanceLabel(value) {
 function pctColor(value) {
   if (value == null) return 'var(--text-primary)';
   return Number(value) >= 0 ? 'var(--profit)' : 'var(--loss)';
+}
+
+function pctClassValue(value) {
+  if (value == null || !Number.isFinite(Number(value))) {
+    return '';
+  }
+  return Number(value) >= 0 ? 'text-profit' : 'text-loss';
 }
 
 function sharpeColor(value) {
@@ -1278,4 +2176,13 @@ function _btDataProviderLabel(provider) {
   if (provider === 'akshare') return 'AkShare（全局）';
   if (provider === 'baostock') return 'BaoStock（全局）';
   return '自动选择（全局）';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }

@@ -100,6 +100,10 @@ function parseDownloadFilename(contentDisposition) {
 }
 
 export const api = {
+  getHealth() {
+    return request('/health');
+  },
+
   getMeta() {
     return request('/api/meta');
   },
@@ -150,11 +154,49 @@ export const api = {
     });
   },
 
+  getBacktestHistory(params = {}) {
+    const url = new URL('/api/backtest/history', window.location.origin);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value == null || value === '') {
+        return;
+      }
+      url.searchParams.set(key, String(value));
+    });
+    return request(url.pathname + url.search);
+  },
+
+  getBacktestHistoryDetail(runId) {
+    return request(`/api/backtest/history/${encodeURIComponent(runId)}`);
+  },
+
+  compareBacktests(ids) {
+    const url = new URL('/api/backtest/compare', window.location.origin);
+    url.searchParams.set('ids', Array.isArray(ids) ? ids.join(',') : String(ids || ''));
+    return request(url.pathname + url.search);
+  },
+
+  deleteBacktestHistory(runId) {
+    return request(`/api/backtest/history/${encodeURIComponent(runId)}`, {
+      method: 'DELETE',
+    });
+  },
+
   runScreening(params) {
     return request('/api/screening/run', {
       method: 'POST',
       body: JSON.stringify(params),
     });
+  },
+
+  getMarketRegime(params = {}) {
+    const url = new URL('/api/market/regime', window.location.origin);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value == null || value === '') {
+        return;
+      }
+      url.searchParams.set(key, String(value));
+    });
+    return request(url.pathname + url.search);
   },
 
   getConfigStatus() {
@@ -186,6 +228,50 @@ export const api = {
     });
   },
 
+  getSchedulerStatus() {
+    return request('/api/scheduler/status');
+  },
+
+  runScheduler(payload = {}) {
+    return request('/api/scheduler/run', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getSignalsRecent(limit = 20, tradeDate = null) {
+    const url = new URL('/api/signals/recent', window.location.origin);
+    url.searchParams.set('limit', String(limit));
+    if (tradeDate) {
+      url.searchParams.set('trade_date', tradeDate);
+    }
+    return request(url.pathname + url.search);
+  },
+
+  getSignalsToday(limit = 200, date = null) {
+    const url = new URL('/api/signals/today', window.location.origin);
+    url.searchParams.set('limit', String(limit));
+    if (date) {
+      url.searchParams.set('date', date);
+    }
+    return request(url.pathname + url.search);
+  },
+
+  getSignalsHistory(days = 30, page = 1, pageSize = 20) {
+    const url = new URL('/api/signals/history', window.location.origin);
+    url.searchParams.set('days', String(days));
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('page_size', String(pageSize));
+    return request(url.pathname + url.search);
+  },
+
+  updateSignalStatus(signalId, status) {
+    return request(`/api/signals/${encodeURIComponent(signalId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  },
+
   exportSignals(format = 'csv', date = null) {
     const url = new URL('/api/signals/export', window.location.origin);
     url.searchParams.set('format', format);
@@ -194,8 +280,39 @@ export const api = {
     }
     return requestBinary(url.pathname + url.search);
   },
+
+  getPaperStatus(sessionId = null, date = null) {
+    const url = new URL('/api/paper/status', window.location.origin);
+    if (sessionId) {
+      url.searchParams.set('session_id', sessionId);
+    }
+    if (date) {
+      url.searchParams.set('date', date);
+    }
+    return request(url.pathname + url.search);
+  },
+
+  startPaper(payload) {
+    return request('/api/paper/start', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  pausePaper(sessionId = null) {
+    return request('/api/paper/pause', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+  },
+
+  stopPaper(sessionId = null, date = null) {
+    return request('/api/paper/stop', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId, date }),
+    });
+  },
 };
 
 export { ApiError };
 export { getApiKey, setApiKey };
-

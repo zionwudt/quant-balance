@@ -8,7 +8,9 @@ let chartInstance = null;
 let resizeObserver = null;
 let chartState = {
   container: null,
+  mode: 'single',
   equityCurve: [],
+  curves: [],
   initialEquity: null,
 };
 let visualSyncBound = false;
@@ -16,13 +18,49 @@ let visualSyncBound = false;
 export function renderEquityChart(container, equityCurve, initialEquity) {
   chartState = {
     container,
+    mode: 'single',
     equityCurve: equityCurve || [],
+    curves: [],
     initialEquity,
   };
   ensureVisualSync();
 
   if (!equityCurve || equityCurve.length === 0) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📈</div><p>运行回测后，权益曲线将在这里展示</p></div>';
+    disposeEquityChart();
+    return;
+  }
+  if (typeof echarts === 'undefined') {
+    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠</div><p>ECharts 未加载，无法渲染图表</p></div>';
+    disposeEquityChart();
+    return;
+  }
+
+  if (chartInstance) {
+    chartInstance.dispose();
+  }
+  resizeObserver?.disconnect();
+
+  chartInstance = echarts.init(container, null, { renderer: 'canvas' });
+  chartInstance.setOption(buildOption(chartState), true);
+
+  resizeObserver = new ResizeObserver(() => chartInstance?.resize());
+  resizeObserver.observe(container);
+}
+
+export function renderMultiEquityChart(container, curves = []) {
+  const normalizedCurves = Array.isArray(curves) ? curves.filter(item => Array.isArray(item?.equity_curve) && item.equity_curve.length) : [];
+  chartState = {
+    container,
+    mode: 'multi',
+    equityCurve: [],
+    curves: normalizedCurves,
+    initialEquity: null,
+  };
+  ensureVisualSync();
+
+  if (!normalizedCurves.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📉</div><p>选择 2-3 条回测记录后，对比权益曲线会显示在这里</p></div>';
     disposeEquityChart();
     return;
   }
@@ -53,12 +91,21 @@ export function disposeEquityChart() {
   }
   chartState = {
     container: null,
+    mode: 'single',
     equityCurve: [],
+    curves: [],
     initialEquity: null,
   };
 }
 
 function buildOption(state) {
+  if (state.mode === 'multi') {
+    return buildMultiOption(state);
+  }
+  return buildSingleOption(state);
+}
+
+function buildSingleOption(state) {
   const palette = getVisualPalette();
   const dates = state.equityCurve.map(item => item.label || item.date.split(' ')[0]);
   const equities = state.equityCurve.map(item => item.equity);
@@ -199,6 +246,105 @@ function buildOption(state) {
         showSymbol: false,
       },
     ],
+  };
+}
+
+function buildMultiOption(state) {
+  const palette = getVisualPalette();
+  const paletteSeries = [
+    palette.accent,
+    palette.benchmark,
+    palette.profit,
+    '#f59e0b',
+    '#60a5fa',
+  ];
+  const baseDates = state.curves[0]?.equity_curve?.map(item => item.label || item.date.split(' ')[0]) || [];
+  const series = state.curves.map((curve, index) => {
+    const equityCurve = curve.equity_curve || [];
+    const base = Number(equityCurve[0]?.equity || 1);
+    return {
+      name: curve.label || `策略 ${index + 1}`,
+      type: 'line',
+      data: equityCurve.map(item => {
+        const value = Number(item.equity);
+        if (!Number.isFinite(value) || base <= 0) {
+          return null;
+        }
+        return +(value / base).toFixed(4);
+      }),
+      symbol: 'none',
+      smooth: false,
+      lineStyle: {
+        width: 2,
+        color: paletteSeries[index % paletteSeries.length],
+      },
+      itemStyle: {
+        color: paletteSeries[index % paletteSeries.length],
+      },
+    };
+  });
+
+  return {
+    animation: false,
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: palette.tooltipBg,
+      borderColor: palette.tooltipBorder,
+      textStyle: { color: palette.textPrimary, fontSize: 12, fontFamily: 'var(--font-mono)' },
+      formatter(params) {
+        const items = Array.isArray(params) ? params : [params];
+        let html = `<div style="font-weight:600;margin-bottom:4px">${items[0]?.axisValue || '-'}</div>`;
+        items.forEach(item => {
+          html += `<div style="color:${item.color}">${item.seriesName}: ${Number(item.value).toFixed(4)}</div>`;
+        });
+        return html;
+      },
+    },
+    legend: {
+      data: series.map(item => item.name),
+      textStyle: { color: palette.chartAxis, fontSize: 12 },
+      top: 0,
+      right: 0,
+    },
+    grid: {
+      left: 50,
+      right: 20,
+      top: 36,
+      bottom: 48,
+    },
+    xAxis: {
+      type: 'category',
+      data: baseDates,
+      axisLine: { lineStyle: { color: palette.chartGrid } },
+      axisLabel: { color: palette.chartAxis, fontSize: 11 },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: 'value',
+      splitLine: { lineStyle: { color: palette.chartGrid, type: 'dashed' } },
+      axisLabel: { color: palette.chartAxis, fontSize: 11 },
+    },
+    dataZoom: [
+      {
+        type: 'inside',
+        start: 0,
+        end: 100,
+      },
+      {
+        type: 'slider',
+        bottom: 0,
+        height: 18,
+        borderColor: palette.chartGrid,
+        fillerColor: palette.accentSoft,
+        backgroundColor: palette.bgInput,
+        handleStyle: {
+          color: palette.accent,
+          borderColor: palette.accent,
+        },
+      },
+    ],
+    series,
   };
 }
 
