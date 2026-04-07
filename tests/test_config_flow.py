@@ -43,3 +43,32 @@ def test_save_tushare_token_preserves_other_config_sections(tmp_path: Path, monk
     assert config["tushare"]["token"] == "saved-token"
     assert config["data"]["daily_providers"] == ["akshare", "tushare"]
     assert config["server"]["port"] == 9000
+
+
+def test_save_tushare_token_preserves_nested_config_sections(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join([
+            "[notify]",
+            'enabled = ["wecom"]',
+            "",
+            "[notify.wecom]",
+            'webhook = "https://example.com/hook"',
+            "",
+            "[notify.email]",
+            'receiver = "demo@example.com"',
+            "smtp_port = 465",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(common, "_CONFIG_PATH", config_path)
+
+    common.save_tushare_token("saved-token")
+    config = common.load_app_config()
+
+    assert config["tushare"]["token"] == "saved-token"
+    assert config["notify"]["enabled"] == ["wecom"]
+    assert config["notify"]["wecom"]["webhook"] == "https://example.com/hook"
+    assert config["notify"]["email"]["receiver"] == "demo@example.com"
+    assert config["notify"]["email"]["smtp_port"] == 465

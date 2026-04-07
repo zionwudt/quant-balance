@@ -136,19 +136,35 @@ def save_tushare_token(token: str) -> Path:
 
 def dump_toml(config: dict) -> str:
     lines: list[str] = []
+    _append_toml_section(lines, config, path=())
+    return "\n".join(lines).rstrip() + "\n"
 
-    for key, value in config.items():
+
+def _append_toml_section(
+    lines: list[str],
+    mapping: dict,
+    *,
+    path: tuple[str, ...],
+) -> None:
+    scalar_items: list[tuple[str, object]] = []
+    table_items: list[tuple[str, dict]] = []
+
+    for key, value in mapping.items():
         if isinstance(value, dict):
-            if lines:
-                lines.append("")
-            lines.append(f"[{key}]")
-            for inner_key, inner_value in value.items():
-                lines.append(f"{inner_key} = {_toml_literal(inner_value)}")
-            continue
+            table_items.append((str(key), dict(value)))
+        else:
+            scalar_items.append((str(key), value))
 
+    if path:
+        if lines:
+            lines.append("")
+        lines.append(f"[{'.'.join(path)}]")
+
+    for key, value in scalar_items:
         lines.append(f"{key} = {_toml_literal(value)}")
 
-    return "\n".join(lines).rstrip() + "\n"
+    for key, value in table_items:
+        _append_toml_section(lines, value, path=(*path, key))
 
 
 def _toml_literal(value: object) -> str:

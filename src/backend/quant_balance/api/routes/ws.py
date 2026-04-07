@@ -20,12 +20,14 @@ router = APIRouter(tags=["websocket"])
 # ── 连接管理 ──
 
 _connections: set[WebSocket] = set()
+_event_loop: asyncio.AbstractEventLoop | None = None
 
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """WebSocket 连接端点，客户端连接后自动接收推送事件。"""
     from quant_balance.api.deps import load_api_key
+    global _event_loop  # noqa: PLW0603
 
     api_key = load_api_key()
     if api_key is not None:
@@ -35,6 +37,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             return
 
     await websocket.accept()
+    _event_loop = asyncio.get_running_loop()
     _connections.add(websocket)
     try:
         while True:
@@ -70,10 +73,25 @@ def notify_event(event_type: str, payload: dict[str, Any]) -> None:
     """同步接口：在非 async 上下文中触发广播（如调度器回调）。"""
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(broadcast_event(event_type, payload))
     except RuntimeError:
-        # 无事件循环时静默跳过
-        pass
+        loop = None
+
+    if loop is not None:
+        loop.create_task(broadcast_event(event_type, payload))
+        return
+
+    target_loop = _event_loop
+    if (
+        target_loop is None
+        or target_loop.is_closed()
+        or not target_loop.is_running()
+    ):
+        return
+
+    asyncio.run_coroutine_threadsafe(
+        broadcast_event(event_type, payload),
+        target_loop,
+    )
 
 
 __all__ = ["router", "broadcast_event", "notify_event"]
